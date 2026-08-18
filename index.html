@@ -1646,14 +1646,37 @@ function drawGlass(ctx){
   ctx.fillStyle = baseGrad;
   ctx.fillRect(G.cx - G.topHalf, G.bottom - G.baseH * 2.1, G.topHalf * 2, G.baseH * 2.1 + bry);
 
-  /* The thick base refracts the beer above it and glows amber */
+  /* The thick base refracts the beer above it and glows amber. The glass it
+     lights is what lies under the interior floor, and that floor is an
+     ellipse — so the glow is bounded by the floor's own front arc and by the
+     walls, never by a rectangle ruled across the base. */
   if (level > 0.02){
-    const bt = ctx.createLinearGradient(0, G.inBottom, 0, G.bottom);
+    const ihw = innerHalfAt(G.inBottom);
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(W, H);
+    ctx.lineTo(W, G.inBottom);
+    ctx.lineTo(G.cx + ihw, G.inBottom);
+    ctx.ellipse(G.cx, G.inBottom, ihw, ihw * ryAt(G.inBottom), 0, 0, Math.PI);
+    ctx.lineTo(0, G.inBottom);
+    ctx.lineTo(0, H);
+    ctx.closePath();
+    ctx.clip();
+    /* The falloff is elliptical, measured out from the floor's own rim, so
+       the glow reaches zero exactly along that curve — a vertical gradient
+       would cut across it and leave a straight edge over the middle. */
+    const iry = Math.max(2, ihw * ryAt(G.inBottom));
+    ctx.translate(G.cx, G.inBottom);
+    ctx.scale(1, iry / ihw);
+    const bt = ctx.createRadialGradient(0, 0, ihw * 0.98, 0, 0, ihw * 2.1);
     bt.addColorStop(0, "transparent");
-    bt.addColorStop(0.45, pal.baseBeer);
+    bt.addColorStop(0.26, pal.baseBeer);
     bt.addColorStop(1, "transparent");
     ctx.fillStyle = bt;
-    ctx.fillRect(G.cx - G.botHalf * 0.95, G.inBottom, G.botHalf * 1.9, G.baseH);
+    ctx.beginPath();
+    ctx.arc(0, 0, ihw * 2.1, 0, TAU);
+    ctx.fill();
+    ctx.restore();
   }
   ctx.restore();
 
