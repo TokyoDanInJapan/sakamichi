@@ -1108,9 +1108,17 @@ void main(){
     col = mix(col, uLight, t * 0.7);
     a = max(a, t * (uDark > 0.5 ? 0.22 : 0.38));
     if (uLevel > 0.02){
-      float bt = smoothstep(GBOT - GBASE * 2.1, GBOT - GBASE * 0.7, px.y)
-               * (1.0 - smoothstep(GBOT - GBASE * 0.6, GBOT, px.y))
-               * (1.0 - smoothstep(GBH * 0.55, GBH * 0.95, dx));
+      /* The glow lights the glass beneath the interior floor, and that floor
+         is an ellipse. Ramps in x multiplied by ramps in y would give a soft
+         box across the base, so the falloff is measured out from the floor's
+         own rim and gated by its front arc. */
+      float ihb  = max(innerHalfAt(GINBOT), 1.0);
+      float iryb = max(uRyKs.y * ihb, 1.0);
+      float nxf  = clamp((px.x - GCX) / ihb, -1.0, 1.0);
+      float floorFront = GINBOT + iryb * sqrt(max(0.0, 1.0 - nxf * nxf));
+      float fr = length(vec2((px.x - GCX) / ihb, (px.y - GINBOT) / iryb));
+      float bt = smoothstep(1.0, 1.4, fr) * (1.0 - smoothstep(1.6, 2.3, fr))
+               * smoothstep(floorFront - 1.0, floorFront + 5.0, px.y);
       col = mix(col, uBeerGlow, bt * 0.75);
       a = max(a, bt * 0.5);
     }
