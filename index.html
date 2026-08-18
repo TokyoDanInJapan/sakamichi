@@ -564,6 +564,18 @@ const baseBulge = () => ryAt(G.bottom) * G.botHalf;
 const BAR_DEPTH = 0.095;
 const horizonY = () => G.bottom + baseBulge() - H * BAR_DEPTH;
 
+/* Foam dries onto the wall of a cylinder, so a speck is held by the angle it
+   sits at round that wall and by its height — not by a point on a flat plane.
+   From here that gives its place on screen, and how far round it has gone: the
+   near wall drops lower and faces us square, the far wall rides higher, and
+   towards the sides the wall turns edge-on and foreshortens what is stuck to
+   it. Returns x, y, and the cosine that carries both of those. */
+function lacePos(l){
+  const hw = innerHalfAt(l.h);
+  const c = Math.cos(l.th);
+  return [G.cx + hw * Math.sin(l.th), l.h + ryAt(l.h) * hw * c, c];
+}
+
 /* How far the surface ellipse bulges at this x, front and back */
 function ellipseDy(x){
   const [, , w] = surfaceSpan();
@@ -697,8 +709,11 @@ function spillOverRim(dt){
       const specks = 1 + (Math.random() * 3 | 0);
       for (let s = 0; s < specks && lace.length < 90; s++){
         const life = rand(12, 24);
+        const hw0 = Math.max(1, innerHalfAt(rimY));
+        const base = Math.asin(clamp((f.x + rand(-f.r, f.r) - G.cx) / hw0, -1, 1));
         lace.push({
-          x: f.x + rand(-f.r, f.r), y: rimY + rand(2, headBand() * 0.9),
+          th: Math.random() < 0.6 ? base : Math.PI - base,   /* near wall or far */
+          h: rimY + rand(2, headBand() * 0.9),
           r: rand(1.2, 2.6) * G.scale + f.r * 0.12, life, max: life
         });
       }
@@ -1051,7 +1066,8 @@ function updateDew(dt){
 function updateLace(dt){
   for (let i = lace.length - 1; i >= 0; i--){
     const l = lace[i];
-    l.life -= dt * (l.y > surfaceAt(l.x) ? 6 : 1);
+    const [lx, ly] = lacePos(l);
+    l.life -= dt * (ly > surfaceAt(lx) ? 6 : 1);
     if (l.life <= 0) lace.splice(i, 1);
   }
 }
@@ -1827,9 +1843,11 @@ function drawDetail(){
     ctxD.clip();
     ctxD.fillStyle = pal.foam;
     for (const l of lace){
-      ctxD.globalAlpha = clamp(l.life / l.max, 0, 1) * 0.55;
+      const [lx, ly, c] = lacePos(l);
+      /* edge-on at the sides, and the far wall is read through the whole glass */
+      ctxD.globalAlpha = clamp(l.life / l.max, 0, 1) * 0.55 * (0.6 + 0.4 * (0.5 + 0.5 * c));
       ctxD.beginPath();
-      ctxD.arc(l.x, l.y, l.r, 0, TAU);
+      ctxD.ellipse(lx, ly, Math.max(l.r * 0.3, l.r * Math.abs(c)), l.r, 0, 0, TAU);
       ctxD.fill();
     }
     ctxD.globalAlpha = 1;
