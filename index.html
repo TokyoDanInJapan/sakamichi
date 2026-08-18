@@ -1585,7 +1585,21 @@ function drawGlass(ctx){
   ctx.save();
   glassSilhouette(ctx);
   ctx.clip();
-  const reflTop = G.top + rimRy, reflBot = G.bottom - G.baseH * 0.4;
+  /* Clipped again to below the near lip. The bands run down the wall we see
+     through, and that wall starts at the rim's front arc — so each band is
+     cut by the lip's own curve and emerges from it, rather than every band
+     starting together on a flat line ruled across the glass. */
+  const rimRxT = halfAt(G.top + rimRy);
+  ctx.beginPath();
+  ctx.moveTo(W, H);
+  ctx.lineTo(W, G.top);
+  ctx.lineTo(G.cx + rimRxT, G.top + rimRy);
+  ctx.ellipse(G.cx, G.top + rimRy, rimRxT, rimRy, 0, 0, Math.PI);
+  ctx.lineTo(0, G.top);
+  ctx.lineTo(0, H);
+  ctx.closePath();
+  ctx.clip();
+  const reflTop = G.top, reflBot = G.bottom - G.baseH * 0.4;
   const hwTop = halfAt(reflTop), hwBot = halfAt(reflBot);
   const hwMid = halfAt((reflTop + reflBot) / 2);
   for (const [off, wRel, a] of [[-0.66, 0.10, 0.5], [-0.48, 0.05, 0.28], [0.58, 0.08, 0.35], [0.74, 0.04, 0.22]]){
