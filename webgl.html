@@ -623,7 +623,7 @@ vec3 sceneWall(vec2 px){
   /* Light spilling out of the glass onto the wall behind it */
   float gy = uRestY + (GINBOT - uRestY) * 0.35;
   float gd = length((px - vec2(GCX, gy)) / vec2(GTH * 3.4, GHT * 1.15));
-  col += uLightTint * uGlow * exp(-gd * 2.4) * (0.4 + 0.6 * uDark) * step(0.02, uLevel);
+  col += uLightTint * uGlow * exp(-gd * 2.4) * (0.4 + 0.6 * uDark) * smoothstep(0.02, 0.62, uLevel) * 0.85;
 
   return col;
 }
@@ -776,7 +776,7 @@ void main(){
 
     /* Light through the base pools around the foot, hugging the plane */
     vec2 qp = vec2((px.x - GCX) / (bw * 1.25), (px.y - baseCY - ryB * 0.9) / max(ryB * 2.0, 1.0));
-    col += uLightTint * uGlow * exp(-dot(qp, qp) * 2.0) * (0.5 + 0.6 * uDark) * step(0.02, uLevel);
+    col += uLightTint * uGlow * exp(-dot(qp, qp) * 2.0) * (0.5 + 0.6 * uDark) * smoothstep(0.02, 0.62, uLevel) * 0.8;
 
     /* Contact shadow and occlusion: ellipses lying IN the plane, sharing its
        eccentricity, wrapping the footprint behind as well as in front. Applied
@@ -1091,16 +1091,21 @@ void main(){
 
   /* Rim: the outer lip, and the inner lip just inside it — without that
      second ellipse the inner wall lines begin in mid air, joined to nothing */
+  /* The near half of the lip is closest to the eye and takes the light square
+     on, while the far half is read through the whole depth of the glass — so
+     the front is drawn heavier and brighter, and the back stays quiet. */
+  float lipF = clamp((px.y - rimTanY) / max(rimRy, 1.0) * 0.5 + 0.5, 0.0, 1.0);
+
   float rim = abs(length(rc) - 1.0) * rimRx;
-  float rimLine = smoothstep(GWALL * 0.55, 0.0, rim);
-  col = mix(col, px.y < rimTanY ? uEdge : uLight, clamp(rimLine, 0.0, 1.0));
-  a = max(a, rimLine * 0.75);
+  float rimLine = smoothstep(GWALL * mix(0.34, 0.78, lipF), 0.0, rim);
+  col = mix(col, mix(uEdge, uLight, lipF), clamp(rimLine * mix(0.75, 1.2, lipF), 0.0, 1.0));
+  a = max(a, rimLine * mix(0.38, 1.0, lipF));
 
   float riRx = max(rimRx - GWALL, 1.0);
   vec2 ric = vec2((px.x - GCX) / riRx, (px.y - rimTanY) / max(rimRy * 0.94, 1.0));
-  float rimInLine = smoothstep(GWALL * 0.45, 0.0, abs(length(ric) - 1.0) * riRx);
-  col = mix(col, uLight, clamp(rimInLine * 0.8, 0.0, 1.0));
-  a = max(a, rimInLine * 0.5);
+  float rimInLine = smoothstep(GWALL * mix(0.28, 0.52, lipF), 0.0, abs(length(ric) - 1.0) * riRx);
+  col = mix(col, uLight, clamp(rimInLine * 0.85, 0.0, 1.0));
+  a = max(a, rimInLine * mix(0.26, 0.66, lipF));
 
   /* Thick base — it refracts the beer above it and glows amber */
   if ((px.y > GBOT - GBASE * 2.1 && px.y <= GBOT && outer < 0.0) || inBulge){
@@ -1117,10 +1122,13 @@ void main(){
       float nxf  = clamp((px.x - GCX) / ihb, -1.0, 1.0);
       float floorFront = GINBOT + iryb * sqrt(max(0.0, 1.0 - nxf * nxf));
       float fr = length(vec2((px.x - GCX) / ihb, (px.y - GINBOT) / iryb));
+      /* A tall pour drives far more light down into the base than a splash
+         in the bottom does, so the glow answers to the fill line */
+      float lvl = smoothstep(0.02, 0.62, uLevel);
       float bt = smoothstep(1.0, 1.4, fr) * (1.0 - smoothstep(1.6, 2.3, fr))
-               * smoothstep(floorFront - 1.0, floorFront + 5.0, px.y);
-      col = mix(col, uBeerGlow, bt * 0.75);
-      a = max(a, bt * 0.5);
+               * smoothstep(floorFront - 1.0, floorFront + 5.0, px.y) * lvl;
+      col = mix(col, uBeerGlow, bt * 0.52);
+      a = max(a, bt * 0.33);
     }
   }
 
@@ -1812,7 +1820,7 @@ function addDew(r){
   const hw = Math.max(2, halfAt(y) - G.wall * 1.8);
   dew.push({
     x: G.cx + rand(-1, 1) * hw, y,
-    r: r * G.scale, grow: rand(0.03, 0.12) * G.scale,
+    r: r * G.scale, rt: r * G.scale, grow: rand(0.03, 0.12) * G.scale,
     slip: rand(3.4, 4.6) * G.scale, vy: 0
   });
 }
@@ -1825,17 +1833,44 @@ function updateDew(dt){
 
   for (let i = dew.length - 1; i >= 0; i--){
     const d = dew[i];
-    d.r += d.grow * dt;
+    d.rt += d.grow * dt;
+    d.r += (d.rt - d.r) * Math.min(1, dt * 9);     /* eases towards its target */
     if (d.r > d.slip || d.vy > 0){
-      /* Grown too heavy: the bead lets go and runs, shedding size as it goes */
-      d.vy = Math.min(d.vy + 70 * G.scale * dt, 90 * G.scale);
+      /* Grown too heavy: the bead lets go and runs. A big bead runs faster. */
+      const top = (55 + 45 * Math.min(2, d.r / (2.5 * G.scale))) * G.scale;
+      d.vy = Math.min(d.vy + 70 * G.scale * dt, top);
       d.y += d.vy * dt;
-      d.r = Math.max(d.r - dt * 1.1 * G.scale, 1.4 * G.scale);
+      d.rt = Math.max(d.rt - dt * 0.8 * G.scale, 1.4 * G.scale);
       const hw = Math.max(2, halfAt(d.y) - G.wall * 1.8);
       if (Math.abs(d.x - G.cx) > hw) d.x = G.cx + Math.sign(d.x - G.cx) * hw;
       if (d.y > G.bottom - G.baseH * 0.8) dew.splice(i, 1);
     }
   }
+
+  /* A running bead sweeps up whatever it touches. The two volumes add, so the
+     radius grows as their cube root, and the heavier bead runs on faster —
+     which is how one trail down cold glass gathers the beads in its path. */
+  let merged = null;
+  for (let i = 0; i < dew.length; i++){
+    const d = dew[i];
+    if (d.vy <= 0 || (merged && merged.has(i))) continue;
+    for (let j = 0; j < dew.length; j++){
+      if (j === i || (merged && merged.has(j))) continue;
+      const o = dew[j];
+      const dx = o.x - d.x, dy = o.y - d.y, rr = d.r + o.r;
+      if (dx * dx + dy * dy > rr * rr) continue;
+      const v1 = d.rt * d.rt * d.rt, v2 = o.rt * o.rt * o.rt, vs = v1 + v2;
+      /* the volume arrives at once, but the bead only swells into it, and
+         drifts towards the joint centre instead of jumping to it */
+      d.rt = Math.cbrt(vs);
+      const pull = 0.35 * v2 / vs;
+      d.x += (o.x - d.x) * pull;
+      d.y += (o.y - d.y) * pull;
+      d.slip = Math.min(d.slip, d.rt);         /* stays running once gathered */
+      (merged || (merged = new Set())).add(j);
+    }
+  }
+  if (merged) dew = dew.filter((_, k) => !merged.has(k));
 }
 
 /* Lacing fades slowly in the air, quickly once the refill submerges it */

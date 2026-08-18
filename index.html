@@ -994,7 +994,7 @@ function addDew(r){
   const hw = Math.max(2, halfAt(y) - G.wall * 1.8);
   dew.push({
     x: G.cx + rand(-1, 1) * hw, y,
-    r: r * G.scale, grow: rand(0.03, 0.12) * G.scale,
+    r: r * G.scale, rt: r * G.scale, grow: rand(0.03, 0.12) * G.scale,
     slip: rand(3.4, 4.6) * G.scale, vy: 0
   });
 }
@@ -1007,17 +1007,44 @@ function updateDew(dt){
 
   for (let i = dew.length - 1; i >= 0; i--){
     const d = dew[i];
-    d.r += d.grow * dt;
+    d.rt += d.grow * dt;
+    d.r += (d.rt - d.r) * Math.min(1, dt * 9);     /* eases towards its target */
     if (d.r > d.slip || d.vy > 0){
-      /* Grown too heavy: the bead lets go and runs, shedding size as it goes */
-      d.vy = Math.min(d.vy + 70 * G.scale * dt, 90 * G.scale);
+      /* Grown too heavy: the bead lets go and runs. A big bead runs faster. */
+      const top = (55 + 45 * Math.min(2, d.r / (2.5 * G.scale))) * G.scale;
+      d.vy = Math.min(d.vy + 70 * G.scale * dt, top);
       d.y += d.vy * dt;
-      d.r = Math.max(d.r - dt * 1.1 * G.scale, 1.4 * G.scale);
+      d.rt = Math.max(d.rt - dt * 0.8 * G.scale, 1.4 * G.scale);
       const hw = Math.max(2, halfAt(d.y) - G.wall * 1.8);
       if (Math.abs(d.x - G.cx) > hw) d.x = G.cx + Math.sign(d.x - G.cx) * hw;
       if (d.y > G.bottom - G.baseH * 0.8) dew.splice(i, 1);
     }
   }
+
+  /* A running bead sweeps up whatever it touches. The two volumes add, so the
+     radius grows as their cube root, and the heavier bead runs on faster —
+     which is how one trail down cold glass gathers the beads in its path. */
+  let merged = null;
+  for (let i = 0; i < dew.length; i++){
+    const d = dew[i];
+    if (d.vy <= 0 || (merged && merged.has(i))) continue;
+    for (let j = 0; j < dew.length; j++){
+      if (j === i || (merged && merged.has(j))) continue;
+      const o = dew[j];
+      const dx = o.x - d.x, dy = o.y - d.y, rr = d.r + o.r;
+      if (dx * dx + dy * dy > rr * rr) continue;
+      const v1 = d.rt * d.rt * d.rt, v2 = o.rt * o.rt * o.rt, vs = v1 + v2;
+      /* the volume arrives at once, but the bead only swells into it, and
+         drifts towards the joint centre instead of jumping to it */
+      d.rt = Math.cbrt(vs);
+      const pull = 0.35 * v2 / vs;
+      d.x += (o.x - d.x) * pull;
+      d.y += (o.y - d.y) * pull;
+      d.slip = Math.min(d.slip, d.rt);         /* stays running once gathered */
+      (merged || (merged = new Set())).add(j);
+    }
+  }
+  if (merged) dew = dew.filter((_, k) => !merged.has(k));
 }
 
 /* Lacing fades slowly in the air, quickly once the refill submerges it */
@@ -1141,6 +1168,9 @@ function buildPalette(){
     cell:    `rgba(120,84,26,${((dark ? 0.13 : 0.10) + r * 0.08).toFixed(3)})`,
     glassEdge: dark ? "rgba(238,241,243,.34)" : "rgba(14,19,25,.26)",
     glassLight: dark ? "rgba(255,255,255,.16)" : "rgba(255,255,255,.85)",
+    /* the same two, without an alpha, for strokes that fade along their length */
+    edgeRGB: dark ? "238,241,243" : "14,19,25",
+    lightRGB: "255,255,255",
     glassTint: dark ? "rgba(210,225,235,.05)" : "rgba(14,19,25,.035)",
     shadow: dark ? "rgba(0,0,0,.55)" : "rgba(14,19,25,.20)"
   };
@@ -1346,6 +1376,9 @@ function drawLiquid(){
   if (level <= 0.001) return;
 
   const sy = restSurfaceY();
+  /* Every glow the beer casts answers to the fill line */
+  const lv = clamp((level - 0.02) / 0.6, 0, 1);
+  const lvl = lv * lv * (3 - 2 * lv);
 
   /* Light spilling out of the glass onto the wall behind. Painted across the
      whole stage: the gradient is transparent past its radius anyway, and
@@ -1354,8 +1387,10 @@ function drawLiquid(){
   const g = ctxL.createRadialGradient(G.cx, gy, 0, G.cx, gy, G.topHalf * 4.2);
   g.addColorStop(0, pal.glow);
   g.addColorStop(1, "transparent");
+  ctxL.globalAlpha = lvl * 0.85;
   ctxL.fillStyle = g;
   ctxL.fillRect(0, 0, W, H);
+  ctxL.globalAlpha = 1;
 
   /* Light transmitted through the base, pooling on the bar around the foot */
   const bryP = Math.max(2, baseBulge());
@@ -1366,8 +1401,10 @@ function drawLiquid(){
   const pool = ctxL.createRadialGradient(0, 0, 0, 0, 0, pr);
   pool.addColorStop(0, pal.pool);
   pool.addColorStop(1, "transparent");
+  ctxL.globalAlpha = lvl * 0.8;
   ctxL.fillStyle = pool;
   ctxL.fillRect(-pr, -pr, pr * 2, pr * 2);
+  ctxL.globalAlpha = 1;
   ctxL.restore();
 
   liquidPath(ctxL);
@@ -1439,18 +1476,30 @@ function drawLiquid(){
   ctxL.fill();
   ctxL.globalAlpha = 1;
 
-  /* Light gathering just under the head */
-  const sheen = ctxL.createLinearGradient(0, sy - 10, 0, sy + G.inH * 0.3);
-  sheen.addColorStop(0, "rgba(255,255,255,.26)");
-  sheen.addColorStop(1, "rgba(255,255,255,0)");
-  ctxL.fillStyle = sheen;
-  ctxL.fillRect(G.cx - G.topHalf, sy - 20, G.topHalf * 2, G.inH * 0.4);
-
-  const shade = ctxL.createLinearGradient(0, sy - 6, 0, sy + 40 * G.scale);
-  shade.addColorStop(0, pal.foamEdge);
-  shade.addColorStop(1, "rgba(0,0,0,0)");
-  ctxL.fillStyle = shade;
-  ctxL.fillRect(G.cx - G.topHalf, sy - 30, G.topHalf * 2, 80 * G.scale);
+  /* Light gathers just under the head, and the head shades the beer directly
+     below it. Both belong to the surface, so each is clipped to a band that
+     follows the wave and lit along the surface's own tilt. Pinned to the rest
+     level instead, their straight edges rule themselves across a sloshing
+     pour — which is what leaves flat slabs above and below a swell. */
+  const surfaceBand = (depth, stops) => {
+    ctxL.save();
+    ctxL.beginPath();
+    ctxL.moveTo(l, backY(l));
+    for (let i = 1; i < N; i++){ const x = l + i * colW; ctxL.lineTo(x, backY(x)); }
+    for (let i = N - 1; i >= 0; i--){ const x = l + i * colW; ctxL.lineTo(x, backY(x) + depth); }
+    ctxL.closePath();
+    ctxL.clip();
+    const yL = backY(l), yR = backY(l + w);
+    const ang = Math.atan2(yR - yL, w);            /* how the surface lies */
+    const my = (yL + yR) / 2;
+    const g = ctxL.createLinearGradient(G.cx, my, G.cx - Math.sin(ang) * depth, my + Math.cos(ang) * depth);
+    for (const [at, c] of stops) g.addColorStop(at, c);
+    ctxL.fillStyle = g;
+    ctxL.fillRect(0, 0, W, H);
+    ctxL.restore();
+  };
+  surfaceBand(G.inH * 0.34, [[0, "rgba(255,255,255,.26)"], [1, "rgba(255,255,255,0)"]]);
+  surfaceBand(46 * G.scale, [[0, pal.foamEdge], [1, "rgba(0,0,0,0)"]]);
 
   /* Meniscus: the beer climbs the walls, and the thin film catches the light */
   const menW = Math.max(2.5, G.wall * 1.2);
@@ -1626,24 +1675,37 @@ function drawGlass(ctx){
   const rimCy = G.top + rimRy;
   const rimInRx = Math.max(2, rimRx - G.wall);
   const rimInRy = rimRy * 0.94;
+  /* The near half of the lip is closest to the eye and takes the light square
+     on, while the far half is read through the whole depth of the glass — so
+     the lip brightens and thickens towards the viewer. On an ellipse that
+     weighting depends on y alone, so a vertical gradient carries it smoothly
+     the whole way round; drawing the two halves separately would step where
+     they meet. The heavier stroke is faded out at the back, so the lip gains
+     its thickness towards the eye without a seam either. */
+  const lipFade = (rgb, back, front, from = rimCy - rimRy) => {
+    const g = ctx.createLinearGradient(0, from, 0, rimCy + rimRy);
+    g.addColorStop(0, `rgba(${rgb},${back})`);
+    g.addColorStop(1, `rgba(${rgb},${front})`);
+    return g;
+  };
   ctx.save();
   ctx.beginPath();
   ctx.ellipse(G.cx, rimCy, rimRx, rimRy, 0, 0, TAU);
-  ctx.strokeStyle = pal.glassEdge;
-  ctx.lineWidth = Math.max(1.2, G.wall * 0.5);
+  ctx.lineWidth = Math.max(1, G.wall * 0.32);
+  ctx.strokeStyle = lipFade(pal.edgeRGB, 0.12, 0.62);
+  ctx.stroke();
+  ctx.lineWidth = Math.max(1.3, G.wall * 0.62);
+  ctx.strokeStyle = lipFade(pal.edgeRGB, 0, 0.40, rimCy);
   ctx.stroke();
 
   ctx.beginPath();
   ctx.ellipse(G.cx, rimCy, rimInRx, rimInRy, 0, 0, TAU);
-  ctx.strokeStyle = pal.glassEdge;
-  ctx.lineWidth = Math.max(1, G.wall * 0.38);
+  ctx.lineWidth = Math.max(1, G.wall * 0.30);
+  ctx.strokeStyle = lipFade(pal.edgeRGB, 0.10, 0.50);
   ctx.stroke();
-
-  /* the light catches the near half of the inner edge */
-  ctx.beginPath();
-  ctx.ellipse(G.cx, rimCy, rimInRx, rimInRy, 0, 0, Math.PI);
-  ctx.strokeStyle = pal.glassLight;
-  ctx.lineWidth = Math.max(1, G.wall * 0.42);
+  /* and the light catching along the near lip */
+  ctx.lineWidth = Math.max(1, G.wall * 0.50);
+  ctx.strokeStyle = lipFade(pal.lightRGB, 0, pal.dark ? 0.55 : 0.95, rimCy - rimRy * 0.3);
   ctx.stroke();
   ctx.restore();
 
@@ -1685,10 +1747,13 @@ function drawGlass(ctx){
     bt.addColorStop(0, "transparent");
     bt.addColorStop(0.26, pal.baseBeer);
     bt.addColorStop(1, "transparent");
+    const blv = clamp((level - 0.02) / 0.6, 0, 1);
+    ctx.globalAlpha = blv * blv * (3 - 2 * blv) * 0.7;
     ctx.fillStyle = bt;
     ctx.beginPath();
     ctx.arc(0, 0, ihw * 2.1, 0, TAU);
     ctx.fill();
+    ctx.globalAlpha = 1;
     ctx.restore();
   }
   ctx.restore();
