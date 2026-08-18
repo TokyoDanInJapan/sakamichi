@@ -1619,16 +1619,29 @@ function drawGlass(ctx){
   }
   ctx.restore();
 
-  /* Rim — the same ellipse the silhouette starts from */
+  /* Rim — the outer lip and the inner one a wall's thickness inside it. The
+     lip is an annular surface, so both edges run right round; drawing only
+     the outer one leaves the glass with no thickness where you look into it. */
   const rimRx = halfAt(G.top + rimRy);
+  const rimCy = G.top + rimRy;
+  const rimInRx = Math.max(2, rimRx - G.wall);
+  const rimInRy = rimRy * 0.94;
   ctx.save();
   ctx.beginPath();
-  ctx.ellipse(G.cx, G.top + rimRy, rimRx, rimRy, 0, 0, TAU);
+  ctx.ellipse(G.cx, rimCy, rimRx, rimRy, 0, 0, TAU);
   ctx.strokeStyle = pal.glassEdge;
   ctx.lineWidth = Math.max(1.2, G.wall * 0.5);
   ctx.stroke();
+
   ctx.beginPath();
-  ctx.ellipse(G.cx, G.top + rimRy, rimRx - G.wall * 0.5, rimRy * 0.94, 0, Math.PI, TAU);
+  ctx.ellipse(G.cx, rimCy, rimInRx, rimInRy, 0, 0, TAU);
+  ctx.strokeStyle = pal.glassEdge;
+  ctx.lineWidth = Math.max(1, G.wall * 0.38);
+  ctx.stroke();
+
+  /* the light catches the near half of the inner edge */
+  ctx.beginPath();
+  ctx.ellipse(G.cx, rimCy, rimInRx, rimInRy, 0, 0, Math.PI);
   ctx.strokeStyle = pal.glassLight;
   ctx.lineWidth = Math.max(1, G.wall * 0.42);
   ctx.stroke();
