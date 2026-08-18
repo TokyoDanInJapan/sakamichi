@@ -608,11 +608,15 @@ vec3 sceneWall(vec2 px){
   /* The house mark painted on the wall behind the bar. Seen through the
      empty glass it bends a little; the beer bends it properly further down. */
   vec2 lp = px;
-  float ihHere = innerHalfAt(px.y);
-  if (abs(px.x - GCX) < ihHere && px.y > GTOP && px.y < GBOT){
-    float nxg = (px.x - GCX) / ihHere;
-    lp.x = GCX + nxg * ihHere * (1.0 - 0.16 * nxg * nxg);
-  }
+  float ihHere = max(innerHalfAt(px.y), 1.0);
+  float nxg = (px.x - GCX) / ihHere;
+  /* The glass bends what stands behind it, but the bend has to ease in at
+     the silhouette's edges: switched on across a hard boundary it displaces
+     the mark in a step, which reads as a pane of glass above the lip. */
+  float bendX = 1.0 - smoothstep(0.80, 1.0, abs(nxg));
+  float bendY = smoothstep(GTOP - 1.0, GTOP + GTH * GRYK * 2.2, px.y)
+              * (1.0 - smoothstep(GBOT - GBASE * 1.5, GBOT, px.y));
+  lp.x = GCX + nxg * ihHere * (1.0 - 0.16 * nxg * nxg * bendX * bendY);
   vec3 inkT = uDark > 0.5 ? vec3(0.72, 0.75, 0.78) : vec3(0.15, 0.18, 0.22);
   col = mix(col, inkT, logoA(lp) * uLogoOn);
 
@@ -1063,7 +1067,7 @@ void main(){
 
   /* The two walls: a dark outer edge and a bright inner one */
   float outerLine = smoothstep(w, 0.0, abs(outer)) * step(rimTanY, px.y) * step(px.y, GBOT);
-  float innerLine = smoothstep(w, 0.0, abs(inner)) * step(rimTanY, px.y) * step(px.y, GINBOT + GBASE * 0.4);
+  float innerLine = smoothstep(w, 0.0, abs(inner)) * smoothstep(rimTanY - 1.0, rimTanY + 3.0, px.y) * step(px.y, GINBOT + GBASE * 0.4);
   col = mix(col, uEdge, clamp(outerLine, 0.0, 1.0));
   a = max(a, outerLine * 0.72);
   col = mix(col, uLight, clamp(innerLine * 0.75, 0.0, 1.0));
@@ -1085,11 +1089,18 @@ void main(){
     a = max(a, refl * (uDark > 0.5 ? 0.35 : 0.65));
   }
 
-  /* Rim ellipse */
+  /* Rim: the outer lip, and the inner lip just inside it — without that
+     second ellipse the inner wall lines begin in mid air, joined to nothing */
   float rim = abs(length(rc) - 1.0) * rimRx;
   float rimLine = smoothstep(GWALL * 0.55, 0.0, rim);
   col = mix(col, px.y < rimTanY ? uEdge : uLight, clamp(rimLine, 0.0, 1.0));
   a = max(a, rimLine * 0.75);
+
+  float riRx = max(rimRx - GWALL, 1.0);
+  vec2 ric = vec2((px.x - GCX) / riRx, (px.y - rimTanY) / max(rimRy * 0.94, 1.0));
+  float rimInLine = smoothstep(GWALL * 0.45, 0.0, abs(length(ric) - 1.0) * riRx);
+  col = mix(col, uLight, clamp(rimInLine * 0.8, 0.0, 1.0));
+  a = max(a, rimInLine * 0.5);
 
   /* Thick base — it refracts the beer above it and glows amber */
   if ((px.y > GBOT - GBASE * 2.1 && px.y <= GBOT && outer < 0.0) || inBulge){
