@@ -570,6 +570,12 @@ const horizonY = () => G.bottom + baseBulge() - H * BAR_DEPTH;
    near wall drops lower and faces us square, the far wall rides higher, and
    towards the sides the wall turns edge-on and foreshortens what is stuck to
    it. Returns x, y, and the cosine that carries both of those. */
+function dewPos(d){
+  const hw = halfAt(d.h);
+  const c = Math.cos(d.th);
+  return [G.cx + hw * Math.sin(d.th), d.h + ryAt(d.h) * hw * c, c];
+}
+
 function lacePos(l){
   const hw = innerHalfAt(l.h);
   const c = Math.cos(l.th);
@@ -1005,10 +1011,12 @@ function updateDrops(dt){
 
 /* Condensation beads on the cold outside of the glass, below the beer line */
 function addDew(r){
-  const y = rand(restSurfaceY() + 8, G.bottom - G.baseH * 1.5);
-  const hw = Math.max(2, halfAt(y) - G.wall * 1.8);
+  /* Even in angle round the face we can see, which is what crowds the beads
+     towards the sides where the glass turns away — spread evenly across the
+     width instead, they read as beads on a pane standing behind the glass. */
   dew.push({
-    x: G.cx + rand(-1, 1) * hw, y,
+    th: rand(-1, 1) * Math.PI * 0.5,
+    h: rand(restSurfaceY() + 8, G.bottom - G.baseH * 1.5),
     r: r * G.scale, rt: r * G.scale, grow: rand(0.03, 0.12) * G.scale,
     slip: rand(3.4, 4.6) * G.scale, vy: 0
   });
@@ -1028,11 +1036,9 @@ function updateDew(dt){
       /* Grown too heavy: the bead lets go and runs. A big bead runs faster. */
       const top = (55 + 45 * Math.min(2, d.r / (2.5 * G.scale))) * G.scale;
       d.vy = Math.min(d.vy + 70 * G.scale * dt, top);
-      d.y += d.vy * dt;
+      d.h += d.vy * dt;
       d.rt = Math.max(d.rt - dt * 0.8 * G.scale, 1.4 * G.scale);
-      const hw = Math.max(2, halfAt(d.y) - G.wall * 1.8);
-      if (Math.abs(d.x - G.cx) > hw) d.x = G.cx + Math.sign(d.x - G.cx) * hw;
-      if (d.y > G.bottom - G.baseH * 0.8) dew.splice(i, 1);
+      if (d.h > G.bottom - G.baseH * 0.8) dew.splice(i, 1);
     }
   }
 
@@ -1046,15 +1052,15 @@ function updateDew(dt){
     for (let j = 0; j < dew.length; j++){
       if (j === i || (merged && merged.has(j))) continue;
       const o = dew[j];
-      const dx = o.x - d.x, dy = o.y - d.y, rr = d.r + o.r;
+      const dx = (o.th - d.th) * halfAt(d.h), dy = o.h - d.h, rr = d.r + o.r;
       if (dx * dx + dy * dy > rr * rr) continue;
       const v1 = d.rt * d.rt * d.rt, v2 = o.rt * o.rt * o.rt, vs = v1 + v2;
       /* the volume arrives at once, but the bead only swells into it, and
          drifts towards the joint centre instead of jumping to it */
       d.rt = Math.cbrt(vs);
       const pull = 0.35 * v2 / vs;
-      d.x += (o.x - d.x) * pull;
-      d.y += (o.y - d.y) * pull;
+      d.th += (o.th - d.th) * pull;
+      d.h += (o.h - d.h) * pull;
       d.slip = Math.min(d.slip, d.rt);         /* stays running once gathered */
       (merged || (merged = new Set())).add(j);
     }
@@ -1875,16 +1881,18 @@ function drawDetail(){
   if (dew.length){
     const ring = pal.dark ? "rgba(0,0,0,.55)" : "rgba(14,19,25,.30)";
     for (const d of dew){
+      const [dx, dy, c] = dewPos(d);
+      const rx = Math.max(0.5, d.r * Math.max(0.3, Math.abs(c)));
       const a = clamp(d.r / (1.4 * G.scale), 0, 1) * 0.9;
       ctxD.globalAlpha = a * 0.5;
       ctxD.beginPath();
-      ctxD.arc(d.x, d.y, d.r, 0, TAU);
+      ctxD.ellipse(dx, dy, rx, d.r, 0, 0, TAU);
       ctxD.lineWidth = Math.max(0.6, d.r * 0.3);
       ctxD.strokeStyle = ring;
       ctxD.stroke();
       ctxD.globalAlpha = a * 0.85;
       ctxD.beginPath();
-      ctxD.arc(d.x - d.r * 0.32, d.y - d.r * 0.36, d.r * 0.30, 0, TAU);
+      ctxD.ellipse(dx - rx * 0.32, dy - d.r * 0.36, rx * 0.3, d.r * 0.3, 0, 0, TAU);
       ctxD.fillStyle = "rgba(255,255,255,.9)";
       ctxD.fill();
     }
