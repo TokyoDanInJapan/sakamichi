@@ -1,0 +1,2304 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sakamichi Brewing Shader</title>
+<meta name="description" content="The Sakamichi pint rendered with WebGL2: Beer-Lambert absorption, caustics and metaball foam.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1890 1633'><rect width='1890' height='1633' rx='300' fill='%23f2e800'/><g transform='translate(189,163) scale(0.8)'><g transform='matrix(1.3333333,0,0,-1.3333333,-19.650821,2202.5766)' fill='%230a0707'><path d='M 123.29788,752.91372 412.78651,1306.2766 734.86356,966.86574 1003.6133,1496.6917 1330.9311,752.91372 H 740.4762 Z M 1431.8953,688.54037 1007.931,1651.9325 717.91485,1080.1818 396.70559,1418.6768 14.738226,688.54037 H 740.4762 Z'/><path d='M 14.738116,556.9782 H 1431.8942 v 64.37335 H 14.738116 Z'/><path d='M 14.738116,427.61037 H 1431.8942 v 64.37335 H 14.738116 Z'/></g></g></svg>">
+<style>
+/* ------------------------------------------------------------------ *
+ * Tokens. Light is the base; dark is redefined twice so that the
+ * un-stamped (system) state and the explicit toggle both resolve.
+ * ------------------------------------------------------------------ */
+:root{
+  --ground:#f6f7f8;
+  --ground-deep:#e7eaec;
+  --ink:#0e1319;
+  --ink-soft:#5b6672;
+  --ink-faint:rgba(14,19,25,.42);
+  --hair:rgba(14,19,25,.16);
+  --hair-soft:rgba(14,19,25,.08);
+  --panel:rgba(252,252,253,.86);
+  --panel-line:rgba(14,19,25,.13);
+  --track:rgba(14,19,25,.18);
+  --thumb:#0e1319;
+  --thumb-ring:#f6f7f8;
+  --btn-fg:#f6f7f8;
+  --btn-bg:#0e1319;
+  --focus:#a86c12;
+  --brand:#f2e800;
+  --masthead:#0e1319;
+  --shadow:0 18px 40px -24px rgba(14,19,25,.45);
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ground:#08090b;
+    --ground-deep:#040506;
+    --ink:#eef1f3;
+    --ink-soft:#98a3ad;
+    --ink-faint:rgba(238,241,243,.42);
+    --hair:rgba(238,241,243,.20);
+    --hair-soft:rgba(238,241,243,.10);
+    --panel:rgba(20,23,27,.82);
+    --panel-line:rgba(238,241,243,.14);
+    --track:rgba(238,241,243,.22);
+    --thumb:#eef1f3;
+    --thumb-ring:#08090b;
+    --btn-fg:#08090b;
+    --btn-bg:#eef1f3;
+    --focus:#efb757;
+    --brand:#f2e800;
+    --masthead:#f2e800;
+    --shadow:0 18px 44px -22px rgba(0,0,0,.8);
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#08090b;
+  --ground-deep:#040506;
+  --ink:#eef1f3;
+  --ink-soft:#98a3ad;
+  --ink-faint:rgba(238,241,243,.42);
+  --hair:rgba(238,241,243,.20);
+  --hair-soft:rgba(238,241,243,.10);
+  --panel:rgba(20,23,27,.82);
+  --panel-line:rgba(238,241,243,.14);
+  --track:rgba(238,241,243,.22);
+  --thumb:#eef1f3;
+  --thumb-ring:#08090b;
+  --btn-fg:#08090b;
+  --btn-bg:#eef1f3;
+  --focus:#efb757;
+  --brand:#f2e800;
+  --masthead:#f2e800;
+  --shadow:0 18px 44px -22px rgba(0,0,0,.8);
+  color-scheme:dark;
+}
+
+*,*::before,*::after{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  background:var(--ground);
+  color:var(--ink);
+  font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;
+  overflow:hidden;
+  overscroll-behavior:none;
+}
+:focus-visible{outline:2px solid var(--focus);outline-offset:3px;border-radius:2px}
+
+/* ------------------------------------------------------------------ *
+ * Stage — a single WebGL2 surface
+ * ------------------------------------------------------------------ */
+.stage{position:fixed;inset:0;touch-action:none;cursor:crosshair}
+.stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+
+/* Shown only when WebGL2 is unavailable */
+.nogl{
+  position:fixed;inset:0;z-index:9;display:none;place-items:center;
+  background:var(--ground);color:var(--ink);padding:32px;text-align:center;
+}
+body[data-gl="off"] .nogl{display:grid}
+body[data-gl="off"] .stage,
+body[data-gl="off"] .panel,
+body[data-gl="off"] .panel-toggle,
+body[data-gl="off"] .lower{display:none}
+.nogl div{max-width:34ch}
+.nogl p{
+  font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  font-size:11px;line-height:1.8;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);
+}
+
+/* ------------------------------------------------------------------ *
+ * Masthead, top left; copy, bottom left. The glass holds the middle.
+ * ------------------------------------------------------------------ */
+.masthead{
+  position:fixed;
+  top:0;left:0;
+  padding:clamp(20px,3.6vmin,48px);
+  padding-top:max(clamp(20px,3.6vmin,48px),env(safe-area-inset-top));
+  max-width:min(30rem,60vw);
+  pointer-events:none;
+  z-index:3;
+}
+.masthead > *{pointer-events:auto}
+.eyebrow{
+  font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  font-size:clamp(9.5px,1.5vw,11px);
+  letter-spacing:.2em;
+  text-transform:uppercase;
+  color:var(--ink-soft);
+  display:flex;flex-wrap:wrap;gap:.55em 1.1em;
+  margin:0 0 clamp(14px,2.4vw,22px);
+}
+.eyebrow span{display:inline-flex;gap:.7em;align-items:center}
+.eyebrow span::before{content:"";width:14px;height:1px;background:var(--hair)}
+.eyebrow span:first-child::before{display:none}
+h1{
+  font-family:"Futura PT",Futura,"Century Gothic","Avenir Next",Montserrat,"URW Gothic",ui-sans-serif,system-ui,sans-serif;
+  font-size:clamp(2rem,min(7vw,10vh),4.6rem);
+  line-height:.98;letter-spacing:.045em;font-weight:600;
+  text-transform:uppercase;text-wrap:balance;margin:0;
+  color:var(--masthead);
+}
+h1 .thin{
+  display:block;font-weight:600;font-size:.72em;letter-spacing:.68em;
+  line-height:1.2;margin-top:.26em;color:inherit;
+}
+
+.lower{
+  position:fixed;left:0;z-index:3;
+  bottom:max(clamp(20px,3.6vmin,48px),env(safe-area-inset-bottom));
+  width:min(30rem,62vw);
+  padding:0 clamp(20px,3.6vmin,48px);
+}
+.tagline{
+  font-family:Iowan Old Style,Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;
+  font-size:clamp(.98rem,1.9vw,1.22rem);
+  line-height:1.5;max-width:30ch;margin:0;color:var(--ink);
+}
+.actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:clamp(16px,2.6vw,26px)}
+.btn{
+  font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+  padding:13px 20px;border-radius:2px;border:1px solid transparent;
+  background:var(--brand);color:#0e1319;
+  text-decoration:none;cursor:pointer;
+  transition:transform .18s ease,background .18s ease,color .18s ease;
+}
+.btn:hover{transform:translateY(-1px)}
+.btn.ghost{background:transparent;color:var(--ink);border-color:var(--hair)}
+.btn.ghost:hover{border-color:var(--ink)}
+
+/* ------------------------------------------------------------------ *
+ * Taprooms and social links, top right
+ * ------------------------------------------------------------------ */
+.info{
+  position:fixed;top:0;right:0;z-index:3;text-align:right;
+  padding:clamp(20px,3.6vmin,48px);
+  padding-top:max(clamp(20px,3.6vmin,48px),env(safe-area-inset-top));
+  font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  font-size:9.5px;letter-spacing:.14em;line-height:2;
+  text-transform:uppercase;color:var(--ink-faint);
+}
+.info p{margin:0 0 clamp(10px,1.8vmin,18px)}
+.info b{display:block;font-weight:600;letter-spacing:.18em;font-size:10px;color:var(--ink-soft)}
+.info span{display:block}
+.info a{color:var(--ink-soft);text-decoration:none;border-bottom:1px solid var(--hair);margin-left:1.1em}
+.info a:first-child{margin-left:0}
+.info a:hover{color:var(--ink);border-color:var(--ink)}
+@media (max-width:900px){.info{display:none}}
+
+/* ------------------------------------------------------------------ *
+ * Control panel
+ * ------------------------------------------------------------------ */
+.panel-toggle{
+  position:fixed;right:clamp(16px,2.4vw,28px);
+  bottom:max(clamp(16px,2.4vw,28px),env(safe-area-inset-bottom));
+  z-index:6;display:inline-flex;align-items:center;gap:10px;
+  font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;
+  padding:12px 16px;border-radius:2px;
+  border:1px solid var(--panel-line);background:var(--panel);color:var(--ink);
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+  box-shadow:var(--shadow);cursor:pointer;
+}
+.panel-toggle svg{display:block}
+body[data-panel="open"] .panel-toggle{display:none}
+
+.panel{
+  position:fixed;right:clamp(16px,2.4vw,28px);
+  bottom:max(clamp(16px,2.4vw,28px),env(safe-area-inset-bottom));
+  width:min(322px,calc(100vw - 32px));z-index:6;
+  background:var(--panel);border:1px solid var(--panel-line);border-radius:3px;
+  box-shadow:var(--shadow);
+  -webkit-backdrop-filter:blur(18px) saturate(1.2);backdrop-filter:blur(18px) saturate(1.2);
+  font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  display:none;max-height:min(78vh,720px);overflow:auto;overscroll-behavior:contain;
+}
+body[data-panel="open"] .panel{display:block}
+.panel-head{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:14px 14px 12px;border-bottom:1px solid var(--hair-soft);
+  position:sticky;top:0;background:inherit;
+  -webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);
+}
+.panel-head h2{margin:0;font-size:10px;font-weight:500;letter-spacing:.22em;text-transform:uppercase;color:var(--ink-soft)}
+.icon-btn{
+  border:1px solid var(--hair-soft);background:transparent;color:var(--ink);
+  width:26px;height:26px;border-radius:2px;cursor:pointer;display:grid;place-items:center;
+  font-size:13px;line-height:1;
+}
+.icon-btn:hover{border-color:var(--hair)}
+.panel-body{padding:6px 14px 16px;display:flex;flex-direction:column;gap:2px}
+
+.group{
+  font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--ink-faint);
+  margin:16px 0 8px;padding-top:12px;border-top:1px solid var(--hair-soft);
+}
+.group:first-child{margin-top:8px;padding-top:0;border-top:0}
+
+.ctl{display:grid;grid-template-columns:1fr auto;align-items:baseline;gap:2px 10px;padding:7px 0}
+.ctl label{font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-soft)}
+.ctl output{font-size:11px;font-variant-numeric:tabular-nums;color:var(--ink)}
+.ctl input[type=range]{grid-column:1/-1;width:100%;margin:6px 0 0}
+
+input[type=range]{-webkit-appearance:none;appearance:none;background:transparent;height:16px;cursor:grab}
+input[type=range]:active{cursor:grabbing}
+input[type=range]::-webkit-slider-runnable-track{height:2px;background:var(--track);border-radius:2px}
+input[type=range]::-moz-range-track{height:2px;background:var(--track);border-radius:2px}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;appearance:none;width:13px;height:13px;border-radius:50%;
+  background:var(--thumb);border:2px solid var(--thumb-ring);margin-top:-7.5px;
+}
+input[type=range]::-moz-range-thumb{
+  width:13px;height:13px;border-radius:50%;background:var(--thumb);border:2px solid var(--thumb-ring);
+}
+
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{
+  font-family:inherit;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+  padding:8px 11px;border-radius:2px;cursor:pointer;
+  border:1px solid var(--hair-soft);background:transparent;color:var(--ink-soft);
+}
+.chip:hover{border-color:var(--hair);color:var(--ink)}
+.chip[aria-pressed="true"]{background:var(--btn-bg);color:var(--btn-fg);border-color:var(--btn-bg)}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0}
+.row span{font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-soft)}
+.reset{
+  margin-top:14px;font-family:inherit;font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;
+  background:none;border:0;border-bottom:1px solid var(--hair);color:var(--ink-soft);
+  padding:0 0 3px;cursor:pointer;align-self:flex-start;
+}
+.reset:hover{color:var(--ink);border-color:var(--ink)}
+.hint{margin:14px 0 0;font-size:9.5px;line-height:1.6;letter-spacing:.06em;color:var(--ink-faint)}
+.renderer{
+  margin-top:12px;padding-top:12px;border-top:1px solid var(--hair-soft);
+  display:flex;justify-content:space-between;align-items:center;gap:10px;
+  font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-faint);
+}
+.renderer a{color:var(--ink-soft);text-decoration:none;border-bottom:1px solid var(--hair)}
+.renderer a:hover{color:var(--ink);border-color:var(--ink)}
+
+body[data-chrome="off"] .masthead,
+body[data-chrome="off"] .info,
+body[data-chrome="off"] .panel,
+body[data-chrome="off"] .lower,
+body[data-chrome="off"] .panel-toggle{opacity:0;pointer-events:none}
+.masthead,.info,.panel,.panel-toggle,.lower{transition:opacity .35s ease}
+@media (prefers-reduced-motion:reduce){
+  .masthead,.info,.panel,.panel-toggle,.btn,.lower{transition:none}
+}
+
+@media (max-width:719px){
+  .panel{
+    left:0;right:0;bottom:0;width:100%;
+    border-radius:6px 6px 0 0;border-left:0;border-right:0;border-bottom:0;
+    max-height:52vh;padding-bottom:env(safe-area-inset-bottom);
+  }
+  .masthead{max-width:100%}
+  .lower{width:100%}
+  .tagline{max-width:26ch}
+}
+@media (max-height:560px) and (orientation:landscape){
+  .tagline{display:none}
+}
+</style>
+</head>
+<body>
+
+<div class="stage" id="stage">
+  <canvas id="gl"></canvas>
+</div>
+
+<div class="nogl">
+  <div>
+    <p>This pour needs WebGL2, which this browser has turned off or does not support.</p>
+    <p><a class="btn ghost" href="index.html">Open the canvas version</a></p>
+  </div>
+</div>
+
+<header class="masthead">
+  <p class="eyebrow">
+    <span>Est. 2019</span><span>Tachikawa · Tokyo</span><span>Helles · 4.6%</span>
+  </p>
+  <h1>Sakamichi<span class="thin">Brewing</span></h1>
+</header>
+
+<div class="lower">
+  <p class="tagline">Tachikawa&rsquo;s own craft brewery. Lagers and ales made the slow way &mdash; the journey matters as much as the destination. Stir the glass with your cursor.</p>
+  <div class="actions">
+    <a class="btn" href="https://www.google.com/maps/search/?api=1&amp;query=Sakamichi+Taproom+Tachikawa" target="_blank" rel="noopener">Find the taproom</a>
+    <a class="btn ghost" href="https://www.sakamichibrewing.com/" target="_blank" rel="noopener">sakamichibrewing.com</a>
+  </div>
+</div>
+
+<aside class="info" aria-label="Taprooms">
+  <p>
+    <b>Sakamichi Taproom</b>
+    <span>Tachikawa Stn &middot; South exit</span>
+    <span>Mon&ndash;Thu 12:00&ndash;21:00</span>
+    <span>Fri&ndash;Sun 12:00&ndash;22:00</span>
+  </p>
+  <p>
+    <b>Sakamichi North</b>
+    <span>Tachikawa Stn &middot; North exit</span>
+    <span>Mon&ndash;Thu 15:00&ndash;23:00 &middot; Fri &ndash;24:00</span>
+    <span>Sat 12:00&ndash;24:00 &middot; Sun 12:00&ndash;23:00</span>
+  </p>
+  <p class="social">
+    <a href="https://www.instagram.com/sakamichibrewing/" target="_blank" rel="noopener">Instagram</a>
+    <a href="https://twitter.com/sakamichi_beer" target="_blank" rel="noopener">X</a>
+    <a href="https://www.facebook.com/SakamichiBrewing/" target="_blank" rel="noopener">Facebook</a>
+    <a href="https://www.sakamichibrewing.com/contact-form/" target="_blank" rel="noopener">Contact</a>
+  </p>
+</aside>
+
+<button class="panel-toggle" id="panelOpen" aria-expanded="false" aria-controls="panel">
+  <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true">
+    <path d="M0 3.5h13M0 9.5h13"/><circle cx="4.5" cy="3.5" r="1.8" fill="var(--panel)"/><circle cx="9" cy="9.5" r="1.8" fill="var(--panel)"/>
+  </svg>
+  Tune
+</button>
+
+<section class="panel" id="panel" aria-label="Beer controls">
+  <div class="panel-head">
+    <h2>Brewhouse control</h2>
+    <button class="icon-btn" id="panelClose" aria-label="Close controls">&times;</button>
+  </div>
+  <div class="panel-body">
+    <p class="group" style="margin-top:0">Pour</p>
+    <div class="chips" role="group" aria-label="Style preset">
+      <button class="chip" data-preset="pilsner">Pilsner</button>
+      <button class="chip" data-preset="helles">Helles</button>
+      <button class="chip" data-preset="bock">Bock</button>
+    </div>
+    <div id="sliders"></div>
+
+    <p class="group">Display</p>
+    <div class="row">
+      <span>Theme</span>
+      <div class="chips" role="group" aria-label="Theme">
+        <button class="chip" data-theme-set="light">Light</button>
+        <button class="chip" data-theme-set="dark">Dark</button>
+        <button class="chip" data-theme-set="auto">Auto</button>
+      </div>
+    </div>
+    <div class="row">
+      <span>Motion</span>
+      <div class="chips"><button class="chip" id="motionBtn" aria-pressed="true">Running</button></div>
+    </div>
+    <button class="reset" id="reset">Reset to house recipe</button>
+    <p class="hint">Stir the beer with your cursor. Click for a splash. Slosh it over the rim and the glass tops itself back up. Press <b>C</b> to hide the interface.</p>
+    <p class="renderer"><span id="gpu">WebGL2</span> <a href="index.html">Canvas version</a></p>
+  </div>
+</section>
+
+<script>
+(() => {
+"use strict";
+
+/* ================================================================== *
+ * Configuration
+ * ================================================================== */
+const SPECS = [
+  {key:"fill",       label:"Fill line",   min:25,  max:100, step:1, unit:"%",  group:null},
+  {key:"refill",     label:"Refill rate", min:0,   max:100, step:1, unit:"",   group:null},
+  {key:"agitation",  label:"Agitation",   min:0,   max:200, step:5, unit:"%",  group:"Motion"},
+  {key:"waveSpeed",  label:"Wave speed",  min:0,   max:100, step:1, unit:"",   group:null},
+  {key:"viscosity",  label:"Viscosity",   min:0,   max:100, step:1, unit:"",   group:null},
+  {key:"carbonation",label:"Carbonation", min:0,   max:200, step:5, unit:"%",  group:"Carbonation"},
+  {key:"bubbleSize", label:"Bubble size", min:20,  max:220, step:5, unit:"%",  group:null},
+  {key:"headDepth",  label:"Head depth",  min:0,   max:200, step:5, unit:"%",  group:"Head"},
+  {key:"foamChurn",  label:"Foam churn",  min:0,   max:200, step:5, unit:"%",  group:null},
+  {key:"glassSize",  label:"Glass size",  min:60,  max:130, step:1, unit:"%",  group:"Glass"},
+  {key:"relief",     label:"Foam relief", min:0,   max:200, step:5, unit:"%",  group:null},
+  {key:"condensation",label:"Condensation",min:0,  max:200, step:5, unit:"%",  group:null},
+  {key:"hue",        label:"Beer hue",    min:22,  max:50,  step:1, unit:"°",  group:"Colour"},
+  {key:"richness",   label:"Richness",    min:0,   max:100, step:1, unit:"",   group:null},
+  {key:"clarity",    label:"Clarity",     min:0,   max:100, step:1, unit:"",   group:null},
+  {key:"caustics",   label:"Caustics",    min:0,   max:200, step:5, unit:"%",  group:"Optics"},
+  {key:"lightAngle", label:"Light angle", min:0,   max:180, step:1, unit:"°",  group:null},
+  {key:"gloss",      label:"Gloss",       min:0,   max:100, step:1, unit:"",   group:null}
+];
+
+const HOUSE = {
+  fill:78, refill:32, agitation:100, waveSpeed:46, viscosity:40,
+  carbonation:100, bubbleSize:100, headDepth:100, foamChurn:100,
+  glassSize:100, relief:100, condensation:70, hue:40, richness:46, clarity:70,
+  caustics:100, lightAngle:62, gloss:55
+};
+
+const PRESETS = {
+  pilsner:{hue:45, richness:22, clarity:88, caustics:150, carbonation:145, bubbleSize:75,  headDepth:135, foamChurn:130, waveSpeed:56, viscosity:24},
+  helles: {hue:40, richness:46, clarity:70, caustics:100, carbonation:100, bubbleSize:100, headDepth:100, foamChurn:100, waveSpeed:46, viscosity:40},
+  bock:   {hue:25, richness:92, clarity:34, caustics:55, carbonation:60,  bubbleSize:135, headDepth:70,  foamChurn:60,  waveSpeed:34, viscosity:66}
+};
+
+const STORE_KEY = "sakamichi-shader-v2";
+const cfg = Object.assign({}, HOUSE, {theme:"auto", running:true, preset:"helles"});
+
+try{
+  const saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
+  if (saved && typeof saved === "object") Object.assign(cfg, saved);
+}catch(e){ /* storage unavailable — house recipe it is */ }
+
+/* Deep links: ?theme=dark&fill=95&hue=28&panel=1 */
+const params = new URLSearchParams(location.search);
+for (const s of SPECS){
+  if (params.has(s.key)){
+    const v = Number(params.get(s.key));
+    if (Number.isFinite(v)) cfg[s.key] = Math.min(s.max, Math.max(s.min, v));
+  }
+}
+if (params.has("theme")) cfg.theme = params.get("theme");
+
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+if (reduceMotion.matches) cfg.running = false;
+
+const save = () => { try{ localStorage.setItem(STORE_KEY, JSON.stringify(cfg)); }catch(e){} };
+
+const TAU = Math.PI * 2;
+const clamp = (v,a,b) => v < a ? a : v > b ? b : v;
+const rand  = (a,b) => a + Math.random() * (b - a);
+const lerp  = (a,b,t) => a + (b - a) * t;
+
+/* ================================================================== *
+ * GL context
+ * ================================================================== */
+const stage = document.getElementById("stage");
+const canvas = document.getElementById("gl");
+const gl = canvas.getContext("webgl2", {alpha:false, antialias:false, depth:false, stencil:false, powerPreference:"high-performance"});
+
+if (!gl){
+  document.body.dataset.gl = "off";
+  return;
+}
+
+const dbg = gl.getExtension("WEBGL_debug_renderer_info");
+if (dbg){
+  const name = gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || "";
+  if (name) document.getElementById("gpu").textContent = "WebGL2 · " + String(name).replace(/\(.*?\)/g, "").trim().slice(0, 22);
+}
+
+function compile(type, src){
+  const sh = gl.createShader(type);
+  gl.shaderSource(sh, src);
+  gl.compileShader(sh);
+  if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)){
+    const log = gl.getShaderInfoLog(sh);
+    console.error("shader compile failed:", log);
+    throw new Error("shader compile failed: " + log);
+  }
+  return sh;
+}
+
+function program(vs, fs){
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, vs));
+  gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error("link failed: " + gl.getProgramInfoLog(p));
+  const u = {};
+  const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){
+    const info = gl.getActiveUniform(p, i);
+    u[info.name.replace("[0]","")] = gl.getUniformLocation(p, info.name);
+  }
+  return {p, u};
+}
+
+/* The glass, the surface and the pixel frame, shared by every pass */
+const GLSL_GLASS = `
+uniform sampler2D uHeight;
+uniform float uCols, uRestY, uDpr, uSpanHw;
+uniform vec2  uRes;
+uniform vec2  uRyKs;     // ellipse openness: x at the surface, y at the base
+uniform vec4  uGlassA;   // cx, top, bottom, height
+uniform vec4  uGlassB;   // topHalf, botHalf, wall, baseH
+uniform vec4  uGlassC;   // corner, interiorTop, interiorBottom, rimRatio
+
+#define GCX     uGlassA.x
+#define GTOP    uGlassA.y
+#define GBOT    uGlassA.z
+#define GHT     uGlassA.w
+#define GTH     uGlassB.x
+#define GBH     uGlassB.y
+#define GWALL   uGlassB.z
+#define GBASE   uGlassB.w
+#define GCORNER uGlassC.x
+#define GINTOP  uGlassC.y
+#define GINBOT  uGlassC.z
+#define GRYK    uGlassC.w
+
+vec2 fragPx(){ return vec2(gl_FragCoord.x / uDpr, uRes.y - gl_FragCoord.y / uDpr); }
+
+float halfAt(float y){
+  /* Straight tapered walls; the base ellipse supplies the bottom curve */
+  float t = clamp((y - GTOP) / GHT, 0.0, 1.0);
+  return max(1.0, mix(GTH, GBH, t));
+}
+float innerHalfAt(float y){ return max(1.0, halfAt(y) - GWALL); }
+
+float heightAt(float x){
+  float t = clamp((x - (GCX - uSpanHw)) / (2.0 * uSpanHw), 0.0, 1.0) * (uCols - 1.0);
+  float i0 = floor(t);
+  float f  = t - i0;
+  float a = texelFetch(uHeight, ivec2(int(i0), 0), 0).r;
+  float b = texelFetch(uHeight, ivec2(int(min(i0 + 1.0, uCols - 1.0)), 0), 0).r;
+  return mix(a, b, f);
+}
+float surfaceAt(float x){ return uRestY + heightAt(x); }
+float slopeAt(float x){ return (heightAt(x + 3.0) - heightAt(x - 3.0)) / 6.0; }
+float ellipseDy(float x){
+  float t = (x - GCX) / uSpanHw;
+  if (abs(t) >= 1.0) return 0.0;
+  return uRyKs.x * uSpanHw * sqrt(1.0 - t * t);
+}
+`;
+
+const GLSL_NOISE = `
+float hash21(vec2 p){
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash21(i), hash21(i + vec2(1,0)), f.x),
+             mix(hash21(i + vec2(0,1)), hash21(i + vec2(1,1)), f.x), f.y);
+}
+`;
+
+const VS_FULL = `#version 300 es
+void main(){
+  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+/* ------------------------------------------------------------------ *
+ * Pass 1 — the room, then the beer inside the glass
+ * ------------------------------------------------------------------ */
+const FS_LIQUID = `#version 300 es
+precision highp float;
+${GLSL_GLASS}
+${GLSL_NOISE}
+uniform sampler2D uField;
+uniform sampler2D uLogo;
+uniform vec4  uLogoRect;      // x, y, w, h in page px
+uniform float uTime, uCaustics, uGlow, uDark, uLevel, uHaze, uLogoOn;
+uniform vec3  uGround, uGroundDeep, uLightTint, uAbsorb;
+out vec4 frag;
+
+float logoA(vec2 p){
+  vec2 uv = (p - uLogoRect.xy) / max(uLogoRect.zw, vec2(1.0));
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
+  return texture(uLogo, uv).a;
+}
+
+/* The wall behind the bar: ground, mark and glow. For its reflection it is
+   mirrored about the wall–floor junction. */
+vec3 sceneWall(vec2 px){
+  vec3 col = uGround;
+
+  /* The house mark painted on the wall behind the bar. Seen through the
+     empty glass it bends a little; the beer bends it properly further down. */
+  vec2 lp = px;
+  float ihHere = innerHalfAt(px.y);
+  if (abs(px.x - GCX) < ihHere && px.y > GTOP && px.y < GBOT){
+    float nxg = (px.x - GCX) / ihHere;
+    lp.x = GCX + nxg * ihHere * (1.0 - 0.16 * nxg * nxg);
+  }
+  vec3 inkT = uDark > 0.5 ? vec3(0.72, 0.75, 0.78) : vec3(0.15, 0.18, 0.22);
+  col = mix(col, inkT, logoA(lp) * uLogoOn);
+
+  /* Light spilling out of the glass onto the wall behind it */
+  float gy = uRestY + (GINBOT - uRestY) * 0.35;
+  float gd = length((px - vec2(GCX, gy)) / vec2(GTH * 3.4, GHT * 1.15));
+  col += uLightTint * uGlow * exp(-gd * 2.4) * (0.4 + 0.6 * uDark) * step(0.02, uLevel);
+
+  return col;
+}
+
+/* The pour and its coverage. For its reflection it is mirrored about its
+   own contact with the bar, not the wall's horizon. */
+vec4 beerAt(vec2 px){
+  float ih = innerHalfAt(px.y);
+  float top = surfaceAt(px.x) - ellipseDy(px.x);
+  /* The beer sits on the interior floor, whose front arc dips below GINBOT */
+  float ihb = innerHalfAt(GINBOT);
+  float fxn = clamp((px.x - GCX) / max(ihb, 1.0), -1.0, 1.0);
+  float floorY = GINBOT + uRyKs.y * ihb * sqrt(1.0 - fxn * fxn);
+  bool inWalls = abs(px.x - GCX) < ih && px.y < floorY && px.y > GTOP;
+
+  if (inWalls && uLevel > 0.002 && px.y > top - 1.5){
+    float d = max(px.y - top, 0.0);
+    vec3 beer = uLightTint * exp(-uAbsorb * d * 0.0032);
+
+    /* Haze: suspended yeast scatters light back out before it is absorbed,
+       so a murky beer glows evenly instead of deepening with the pour */
+    vec3 scat = uLightTint * (0.38 + 0.50 * exp(-d * 0.005));
+    beer = mix(beer, scat, uHaze * 0.60);
+
+    /* The murk itself drifts: slow clouds of turbidity, not a flat fill */
+    float murk = vnoise(vec2(px.x * 0.016, px.y * 0.011 - uTime * 0.04))
+               + vnoise(vec2(px.x * 0.050 + 9.0, px.y * 0.034 - uTime * 0.09)) * 0.5;
+    beer *= 1.0 + (murk * 0.667 - 0.5) * 0.14 * uHaze;
+
+    /* Caustics only where the surface is actually disturbed — and haze kills them */
+    float sl = slopeAt(px.x);
+    float curv = heightAt(px.x - 5.0) - 2.0 * heightAt(px.x) + heightAt(px.x + 5.0);
+    float stir = clamp(abs(sl) * 5.0 + abs(curv) * 0.45, 0.0, 1.4);
+    float bend = px.x + sl * d * 2.2;
+    float c = (0.5 + 0.5 * cos(bend * 0.048 + uTime * 0.7))
+            * (0.55 + 0.45 * (0.5 + 0.5 * cos(bend * 0.015 - uTime * 0.35)));
+    c = pow(c, 3.0) * stir + max(0.0, -curv) * 0.03;
+    beer += beer * c * uCaustics * (1.0 - uHaze * 0.65) * exp(-d * 0.011);
+
+    /* The mark seen through the pour: magnified by the cylinder of liquid,
+       bent by the waves, and swallowed by depth and haze */
+    float nx = (px.x - GCX) / max(ih, 1.0);
+    vec2 rp;
+    rp.x = GCX + nx * ih * (0.72 - 0.20 * nx * nx) + sl * min(d, 90.0) * 2.0;
+    rp.y = px.y + heightAt(px.x) * 0.6 + 4.0;
+    float la = logoA(rp) * step(0.001, uLogoOn);
+    beer *= 1.0 - la * 0.32 * exp(-d * 0.005) * (1.0 - uHaze * 0.85);
+
+    /* Light gathers under the head — more so when the beer scatters */
+    beer += uLightTint * (0.12 + uHaze * 0.12) * exp(-d * 0.022);
+
+    /* Meniscus: the beer climbs the wall, and the thin film catches the light */
+    float wallD = ih - abs(px.x - GCX);
+    float men = smoothstep(2.8, 0.4, wallD);
+    beer += uLightTint * men * (0.16 + 0.38 * exp(-d * 0.03));
+
+    /* The top plane of the beer, seen slightly from above */
+    float front = surfaceAt(px.x) + ellipseDy(px.x);
+    beer = mix(beer, beer * 1.14 + uLightTint * 0.10, smoothstep(front, top, px.y) * 0.85);
+
+    /* More beer to look through at the walls */
+    float edge = abs(px.x - GCX) / max(ih, 1.0);
+    beer *= 1.0 - 0.34 * pow(smoothstep(0.55, 1.0, edge), 1.6);
+
+    /* Shadow cast by the head */
+    float fd = texture(uField, vec2(px.x / uRes.x, 1.0 - (surfaceAt(px.x) + 6.0) / uRes.y)).r;
+    beer *= 1.0 - 0.34 * clamp(fd, 0.0, 1.0) * exp(-d * 0.024);
+
+    beer += (hash21(px * 1.7 + uTime) - 0.5) * 0.006;
+    return vec4(beer, smoothstep(top - 1.2, top + 1.2, px.y));
+  }
+  return vec4(0.0);
+}
+
+void main(){
+  vec2 px = fragPx();
+  float bw  = GBH;
+  float ryB = uRyKs.y * bw;
+  float baseCY = GBOT;                          // the footprint's centre lies IN the plane
+  float horizonY = baseCY + ryB - uRes.y * 0.095;  // the wall meets the floor behind the
+                                                  // glass; a room measure (BAR_DEPTH),
+                                                  // so resizing the glass cannot warp it
+
+  /* The footprint is a circle lying in the plane, so the glass meets the
+     floor along the front arc of its base ellipse — never along a flat line */
+  float nxb = clamp((px.x - GCX) / bw, -1.0, 1.0);
+  float footY = baseCY + ryB * sqrt(max(0.0, 1.0 - nxb * nxb));
+
+  vec4 bHere = beerAt(px);
+  vec3 col;
+
+  if (px.y <= horizonY){
+    col = sceneWall(px);
+  } else {
+    float t = px.y - horizonY;
+    float wob = (vnoise(vec2(px.x * 0.02, px.y * 0.05)) - 0.5) * t * 0.07;
+
+    /* The wall reflects about the wall–floor junction... */
+    vec2 pw = vec2(px.x + wob, 2.0 * horizonY - px.y);
+    float blur = 2.0 + t * 0.16;
+    vec3 reflW = ( sceneWall(pw + vec2(-1.0, -0.45) * blur)
+                 + sceneWall(pw + vec2( 0.9, -0.90) * blur)
+                 + sceneWall(pw + vec2(-0.5,  0.85) * blur)
+                 + sceneWall(pw + vec2( 0.8,  0.50) * blur) ) * 0.25;
+
+    /* ...the glass about its own footprint centre, so its reflection begins
+       exactly where it touches. The clamp fills the band under the foot with
+       the beer's deepest colour — the mirror of the thick, beer-lit base. */
+    float tg = max(px.y - footY, 0.0);
+    vec2 pg = vec2(px.x + wob, min(2.0 * baseCY - px.y, GINBOT - 1.0));
+    float blurG = 1.5 + tg * 0.16;
+    vec4 reflB = ( beerAt(pg + vec2(-1.0, -0.45) * blurG)
+                 + beerAt(pg + vec2( 0.9, -0.90) * blurG)
+                 + beerAt(pg + vec2(-0.5,  0.85) * blurG)
+                 + beerAt(pg + vec2( 0.8,  0.50) * blurG) ) * 0.25;
+
+    /* A plane: bright with reflected wall at grazing angles near the
+       horizon, falling to its own tone toward the viewer */
+    float persp = t / (t + GBH * 1.2);
+    vec3 floorCol = uGroundDeep * mix(uDark > 0.5 ? 1.45 : 1.03,
+                                      uDark > 0.5 ? 0.60 : 0.93, persp);
+    float fadeW = exp(-t / (GHT * 0.26)) * (uDark > 0.5 ? 0.45 : 0.30);
+    float fadeG = exp(-tg / (GHT * 0.30)) * (uDark > 0.5 ? 0.52 : 0.34);
+    col = mix(floorCol, reflW, fadeW);
+
+    /* The glass reflects as well as the beer it holds. Without its silhouette
+       the reflection is only as wide as the pour, so it leaves the foot as a
+       flat slab set in from the glass's edges instead of flowing out of them. */
+    float pgy  = 2.0 * baseCY - px.y;                     // mirrored height
+    float dxm  = abs(px.x + wob - GCX);
+    float hwm  = halfAt(pgy);
+    float lit  = step(GTOP, pgy);
+    float inGl = (1.0 - smoothstep(hwm - 1.0, hwm + 1.5, dxm)) * lit;
+    float wallM = smoothstep(max(GWALL, 2.0) * 1.4, 0.0, abs(dxm - hwm)) * lit;
+
+    float ba = clamp(reflB.a, 0.0, 1.0);
+    vec3 rcol = mix(uLightTint * 0.22, reflB.rgb, ba);
+    rcol += vec3(1.0) * wallM * 0.30;
+    float cover = max(ba, max(inGl * 0.45, wallM * 0.75));
+    col = mix(col, rcol, cover * fadeG * step(footY, px.y));
+
+    float depthT = 1.0 / (t + 18.0);
+    float streak = vnoise(vec2(px.x * 0.013, depthT * 2400.0));
+    col *= 1.0 + (streak - 0.5) * 0.08 * clamp(t / 40.0, 0.0, 1.0);
+
+    /* A milky veil and a whisper of grain in the frost */
+    col += (uDark > 0.5 ? vec3(0.012, 0.013, 0.015) : vec3(0.035, 0.036, 0.038))
+         * clamp(t / 60.0, 0.0, 1.0);
+    col *= 1.0 + (hash21(px * 1.31) - 0.5) * 0.02;
+
+    /* Light through the base pools around the foot, hugging the plane */
+    vec2 qp = vec2((px.x - GCX) / (bw * 1.25), (px.y - baseCY - ryB * 0.9) / max(ryB * 2.0, 1.0));
+    col += uLightTint * uGlow * exp(-dot(qp, qp) * 2.0) * (0.5 + 0.6 * uDark) * step(0.02, uLevel);
+
+    /* Contact shadow and occlusion: ellipses lying IN the plane, sharing its
+       eccentricity, wrapping the footprint behind as well as in front. Applied
+       last so the seam where glass meets floor survives the pooled light. */
+    vec2 q = vec2((px.x - GCX) / bw, (px.y - baseCY) / max(ryB, 1.0));
+    float rq = length(q);
+    col *= 1.0 - smoothstep(3.2, 1.0, rq) * (uDark > 0.5 ? 0.55 : 0.30);
+    col *= 1.0 - smoothstep(1.34, 1.0, rq) * (uDark > 0.5 ? 0.62 : 0.42);
+  }
+
+  /* The pour stands in front of all of it */
+  col = mix(col, bHere.rgb, bHere.a);
+
+  /* A hairline where the wall meets the bar */
+  col = mix(col, mix(vec3(0.30, 0.33, 0.37), vec3(0.80, 0.83, 0.86), uDark),
+            smoothstep(1.4, 0.0, abs(px.y - horizonY)) * 0.12);
+
+  frag = vec4(col, 1.0);
+}`;
+
+/* ------------------------------------------------------------------ *
+ * Pass 2 — head density field (half resolution)
+ * ------------------------------------------------------------------ */
+const FS_BAND = `#version 300 es
+precision highp float;
+${GLSL_GLASS}
+uniform float uBand, uTime;
+out vec4 frag;
+
+float bandShape(float x){
+  /* A real head keeps a fairly level top: gentle long swells with
+     bubble-scale ripple, not deep lobes */
+  float s = 0.5 + 0.5 * (
+    0.45 * sin(x * 0.0104 + uTime * 0.55) +
+    0.30 * sin(x * 0.0271 - uTime * 0.85) +
+    0.25 * sin(x * 0.0043 + uTime * 0.22));
+  float fine = 0.5 + 0.5 * sin(x * 0.083 + uTime * 0.9) * sin(x * 0.031 - uTime * 0.4);
+  return 0.80 + 0.30 * s + 0.10 * fine;
+}
+
+void main(){
+  vec2 px = fragPx();
+  if (abs(px.x - GCX) > innerHalfAt(px.y) + 2.0){ frag = vec4(0.0); return; }
+  float back = surfaceAt(px.x) - ellipseDy(px.x);
+  float front = surfaceAt(px.x) + ellipseDy(px.x);
+  float b = uBand * bandShape(px.x);
+  float dens = smoothstep(back - b - 2.5, back - b + 2.5, px.y)
+             * (1.0 - smoothstep(front + 1.0, front + 7.0, px.y));
+  frag = vec4(dens * 0.68, 0.0, 0.0, 1.0);
+}`;
+
+const VS_BLOB = `#version 300 es
+in vec2 aCorner;
+in vec4 aInst;
+uniform vec2 uRes;
+out vec2 vLocal;
+out float vStrength;
+void main(){
+  vLocal = aCorner;
+  vStrength = aInst.w;
+  vec2 pos = aInst.xy + aCorner * aInst.z;
+  gl_Position = vec4((pos.x / uRes.x) * 2.0 - 1.0, 1.0 - (pos.y / uRes.y) * 2.0, 0.0, 1.0);
+}`;
+
+const FS_BLOB = `#version 300 es
+precision highp float;
+in vec2 vLocal;
+in float vStrength;
+out vec4 frag;
+void main(){
+  float d2 = dot(vLocal, vLocal);
+  if (d2 > 1.0) discard;
+  float f = 1.0 - d2;
+  frag = vec4(f * f * f * vStrength, 0.0, 0.0, 1.0);
+}`;
+
+/* ------------------------------------------------------------------ *
+ * Pass 3 — bubbles, droplets, spray, and beer running down the glass
+ * ------------------------------------------------------------------ */
+const VS_SPRITE = `#version 300 es
+in vec2 aCorner;
+in vec4 aInst;              // x, y, radius x, radius y
+in vec2 aMeta;              // kind, alpha
+uniform vec2 uRes;
+out vec2 vLocal;
+out vec2 vPx;
+out vec2 vRad;
+out float vKind, vAlpha;
+void main(){
+  vLocal = aCorner;
+  vRad = aInst.zw;
+  vKind = aMeta.x;
+  vAlpha = aMeta.y;
+  vec2 pos = aInst.xy + aCorner * aInst.zw;
+  vPx = pos;
+  gl_Position = vec4((pos.x / uRes.x) * 2.0 - 1.0, 1.0 - (pos.y / uRes.y) * 2.0, 0.0, 1.0);
+}`;
+
+const FS_SPRITE = `#version 300 es
+precision highp float;
+${GLSL_GLASS}
+in vec2 vLocal;
+in vec2 vPx;
+in vec2 vRad;
+in float vKind, vAlpha;
+uniform vec3 uFoam, uBeer;
+out vec4 frag;
+
+void main(){
+  float d = length(vLocal);
+
+  if (vKind < 0.5){
+    /* Gas bubble, cut off by the surface and the walls */
+    if (d > 1.0) discard;
+    if (vPx.y < surfaceAt(vPx.x) + ellipseDy(vPx.x)) discard;
+    if (abs(vPx.x - GCX) > innerHalfAt(vPx.y)) discard;
+    float e = clamp(2.0 / vRad.x, 0.02, 0.6);
+    float outer   = smoothstep(1.0, 1.0 - e * 1.2, d);
+    float shell   = smoothstep(1.0 - e * 1.0, 1.0 - e * 3.0, d);
+    float inside  = smoothstep(1.0 - e * 3.0, 1.0 - e * 5.0, d);
+    float outline = clamp(outer - shell, 0.0, 1.0);
+    float rim     = clamp(shell - inside, 0.0, 1.0);
+    float pip     = smoothstep(0.32, 0.0, length(vLocal - vec2(-0.30, -0.34)));
+    float wRim = rim + pip * 0.9;
+    vec3 col = (vec3(1.0) * wRim + uBeer * 0.42 * outline) / max(wRim + outline, 0.0001);
+    frag = vec4(col, clamp(rim * 0.7 + outline * 0.55 + pip * 0.5 + inside * 0.05, 0.0, 1.0) * vAlpha);
+  } else if (vKind < 1.5){
+    if (d > 1.0) discard;
+    float e = clamp(2.0 / vRad.x, 0.02, 0.6);
+    float body = smoothstep(1.0, 1.0 - e * 2.0, d);
+    float pip  = smoothstep(0.36, 0.02, length(vLocal - vec2(-0.28, -0.36)));
+    frag = vec4(mix(uBeer, vec3(1.0), pip * 0.7), body * vAlpha);
+  } else if (vKind < 2.5){
+    if (d > 1.0) discard;
+    frag = vec4(uFoam, smoothstep(1.0, 0.1, d) * 0.55 * vAlpha);
+  } else if (vKind < 3.5){
+    /* A run of foam sliding down the outside: a capsule */
+    vec2 p = vLocal * vRad;
+    float halfLen = max(0.0, vRad.y - vRad.x);
+    float dd = length(vec2(p.x, max(0.0, abs(p.y) - halfLen))) - vRad.x;
+    float a = smoothstep(0.8, -0.8, dd);
+    if (a <= 0.002) discard;
+    frag = vec4(uFoam, a * vAlpha * 0.92);
+  } else if (vKind < 4.5){
+    /* Condensation on the outside: a lens with a dark rim and one bright pip */
+    if (d > 1.0) discard;
+    float ring = smoothstep(1.0, 0.70, d) * smoothstep(0.28, 0.62, d);
+    float pip  = smoothstep(0.46, 0.05, length(vLocal - vec2(-0.32, -0.36)));
+    float sag  = smoothstep(0.2, 1.0, d) * step(0.15, vLocal.y);   /* heavier below */
+    vec3 col = mix(vec3(0.03, 0.04, 0.05), vec3(1.0), clamp(pip * 1.4, 0.0, 1.0));
+    frag = vec4(col, clamp(ring * 0.45 + sag * 0.20 + pip * 0.9, 0.0, 1.0) * vAlpha);
+  } else {
+    /* Lacing: dried foam stuck to the wall above the beer line */
+    if (d > 1.0) discard;
+    frag = vec4(uFoam, smoothstep(1.0, 0.2, d) * 0.55 * vAlpha);
+  }
+}`;
+
+/* ------------------------------------------------------------------ *
+ * Pass 4 — the head, lit from the gradient of its own density
+ * ------------------------------------------------------------------ */
+const FS_FOAM = `#version 300 es
+precision highp float;
+${GLSL_GLASS}
+${GLSL_NOISE}
+uniform sampler2D uField;
+uniform float uTime, uRelief, uGloss, uBandPx, uCoarse;
+uniform vec2  uLightDir;
+uniform vec3  uFoam, uFoamShade, uFoamWet, uBeerTint;
+out vec4 frag;
+
+float fieldAt(vec2 p){ return texture(uField, vec2(p.x / uRes.x, 1.0 - p.y / uRes.y)).r; }
+
+void main(){
+  vec2 px = fragPx();
+  /* The head is held by the glass, but may dome a little over the rim */
+  if (abs(px.x - GCX) > innerHalfAt(max(px.y, GINTOP)) || px.y < GINTOP - uBandPx * 0.55 || px.y > GINBOT) discard;
+
+  float f = fieldAt(px);
+  if (f < 0.10) discard;
+  /* Granular outline: a whisper of bubble-scale roughness on the edge */
+  float grain = vnoise(px * 0.9 + vec2(uTime * 0.04, 0.0));
+  float mask = smoothstep(0.13, 0.30, f + (grain - 0.5) * 0.05);
+
+  /* The head floats on the beer: cut the mask off cleanly at the front edge
+     of the surface so blobs cannot scallop down into the pour */
+  float front = surfaceAt(px.x) + ellipseDy(px.x);
+  mask *= 1.0 - smoothstep(front + 2.0, front + 9.0, px.y);
+  if (mask <= 0.001) discard;
+
+  /* Height within the head: 0 wet at the beer, 1 dry and old at the top.
+     Drainage runs downward, so the foam coarsens as it climbs */
+  float tH = clamp((front - px.y) / max(uBandPx + ellipseDy(px.x) * 1.5, 1.0), 0.0, 1.0);
+
+  float fx = fieldAt(px + vec2(2.5, 0.0)) - fieldAt(px - vec2(2.5, 0.0));
+  float fy = fieldAt(px + vec2(0.0, 2.5)) - fieldAt(px - vec2(0.0, 2.5));
+  /* The face of the head is pressed flat against the glass — relief belongs
+     to the outline, not to blob seams inside the solid mass */
+  float edgeW = 1.0 - smoothstep(0.35, 0.75, f);
+  vec3 nrm = normalize(vec3(-fx * uRelief * 30.0 * edgeW, -fy * uRelief * 30.0 * edgeW, 1.0));
+
+  vec3 L = normalize(vec3(uLightDir, 0.85));
+  float dif = clamp(dot(nrm, L) * 0.5 + 0.62, 0.0, 1.3);
+
+  float cells = vnoise(px * 0.16 + vec2(uTime * 0.05, 0.0)) * 0.7
+              + vnoise(px * 0.45 - vec2(0.0, uTime * 0.08)) * 0.3;
+  dif *= 0.90 + cells * 0.20;
+
+  /* Pores: fine where the foam is young and wet, coarser where it has drained.
+     uCoarse carries the style — a pilsner stays tight, a bock opens up */
+  float pf = mix(1.5, 0.6, uCoarse) * mix(1.2, 0.75, tH);
+  float pores  = vnoise(px * 0.85 * pf + vec2(uTime * 0.03, 0.0));
+  float pores2 = vnoise(px * 1.90 * pf + vec2(0.0, uTime * 0.02));
+  dif *= 1.0 - smoothstep(0.60, 0.95, pores) * (0.12 + uCoarse * 0.10 + tH * 0.05)
+             - smoothstep(0.68, 0.98, pores2) * 0.10;
+
+  /* Boulders: sparse bubbles that have merged large near the dry top */
+  vec2 cp = px * (0.05 * mix(1.25, 0.75, uCoarse));
+  vec2 ci = floor(cp), cf = fract(cp);
+  float on = step(0.90 - tH * 0.18 - uCoarse * 0.12, hash21(ci));
+  vec2 cc = 0.25 + 0.5 * vec2(hash21(ci + 3.7), hash21(ci + 9.1));
+  float cr = 0.16 + 0.20 * hash21(ci + 5.3);
+  float ring = smoothstep(0.09, 0.02, abs(distance(cf, cc) - cr)) * on;
+  float pip  = smoothstep(cr * 0.45, 0.0, distance(cf, cc + vec2(-0.09, -0.09))) * on;
+  dif -= ring * 0.14;
+
+  /* Wet foam at the bottom is soaked with beer; the top dries towards white */
+  vec3 base = mix(uFoamWet, uFoam, smoothstep(0.0, 0.55, tH));
+  vec3 col = mix(uFoamShade, base, clamp(dif, 0.0, 1.0));
+
+  /* Thin foam reads darker, but only at the true edges of the head */
+  col *= 0.88 + 0.12 * smoothstep(0.16, 0.40, f);
+
+  vec3 H = normalize(L + vec3(0.0, 0.0, 1.0));
+  /* Wet foam is glossy; dry foam goes matte */
+  col += vec3(1.0) * pow(clamp(dot(nrm, H), 0.0, 1.0), 26.0) * uGloss * mix(0.6, 0.25, tH);
+  col += vec3(1.0) * smoothstep(0.82, 0.99, pores2) * uGloss * 0.12;
+  col += vec3(1.0) * pip * (0.04 + uGloss * 0.10);
+
+  /* The last few pixels above the beer are cream soaked through */
+  col = mix(col, col * uBeerTint, smoothstep(5.0, -8.0, front - px.y) * 0.45);
+
+  frag = vec4(col, mask);
+}`;
+
+/* ------------------------------------------------------------------ *
+ * Pass 5 — the glass itself, in front of everything
+ * ------------------------------------------------------------------ */
+const FS_GLASS = `#version 300 es
+precision highp float;
+${GLSL_GLASS}
+uniform vec3 uEdge, uLight, uBeerGlow;
+uniform float uDark, uLightX, uLevel;
+out vec4 frag;
+
+void main(){
+  vec2 px = fragPx();
+
+  /* Perspective: the base ellipse is more open than the rim, and its front
+     arc bulges below GBOT — the glass stands on that arc */
+  float bw  = GBH;
+  float ryB = uRyKs.y * bw;
+  if (px.y < GTOP - 2.0 || px.y > GBOT + ryB + 2.0) discard;
+
+  /* The rim ellipse tops the silhouette: its widest points, at rimTanY, are
+     where the wall lines begin, so the outline reads as one closed shape */
+  float rimRy = GTH * GRYK;
+  float rimTanY = GTOP + rimRy;
+  float rimRx = halfAt(rimTanY);
+
+  float dx = abs(px.x - GCX);
+  float outer = dx - halfAt(px.y);            // negative inside the silhouette
+  float inner = dx - (halfAt(px.y) - GWALL);
+  float w = max(1.0, GWALL * 0.30);
+
+  vec3 col = vec3(0.0);
+  float a = 0.0;
+
+  /* Faint tint across the body of the glass; above the wall tangent the body
+     is bounded by the rim ellipse, below GBOT by the base ellipse */
+  vec2 rc = vec2((px.x - GCX) / rimRx, (px.y - rimTanY) / rimRy);
+  bool inTopLens = px.y < rimTanY && dot(rc, rc) < 1.0;
+  vec2 bcS = vec2((px.x - GCX) / max(bw, 1.0), (px.y - GBOT) / max(ryB, 1.0));
+  bool inBulge = px.y >= GBOT && dot(bcS, bcS) < 1.0;
+  if ((outer < 0.0 && px.y >= rimTanY && px.y <= GBOT) || inTopLens || inBulge){
+    col += uEdge; a += uDark > 0.5 ? 0.05 : 0.035;
+  }
+
+  /* The two walls: a dark outer edge and a bright inner one */
+  float outerLine = smoothstep(w, 0.0, abs(outer)) * step(rimTanY, px.y) * step(px.y, GBOT);
+  float innerLine = smoothstep(w, 0.0, abs(inner)) * step(rimTanY, px.y) * step(px.y, GINBOT + GBASE * 0.4);
+  col = mix(col, uEdge, clamp(outerLine, 0.0, 1.0));
+  a = max(a, outerLine * 0.72);
+  col = mix(col, uLight, clamp(innerLine * 0.75, 0.0, 1.0));
+  a = max(a, innerLine * 0.4);
+
+  /* Reflections running down the glass — brighter on the side facing the
+     light. The wall tapers, so each band sits at a fixed fraction of the
+     local half width and converges with it, rather than running straight
+     down while the glass narrows away from it. */
+  if (outer < 0.0 && px.y > rimTanY){
+    float u = dx / max(halfAt(px.y), 1.0);
+    float refl = 0.0;
+    refl += smoothstep(0.10, 0.0, abs(u - 0.66)) * 0.5;
+    refl += smoothstep(0.05, 0.0, abs(u - 0.48)) * 0.26;
+    refl *= smoothstep(rimTanY, rimTanY + rimRy * 2.0, px.y) * (1.0 - smoothstep(GBOT - GBASE * 1.4, GBOT, px.y));
+    float side = sign(px.x - GCX) * sign(uLightX);
+    refl *= 1.0 + side * 0.5 * min(abs(uLightX) * 1.6, 1.0);
+    col = mix(col, uLight, clamp(refl, 0.0, 1.0));
+    a = max(a, refl * (uDark > 0.5 ? 0.35 : 0.65));
+  }
+
+  /* Rim ellipse */
+  float rim = abs(length(rc) - 1.0) * rimRx;
+  float rimLine = smoothstep(GWALL * 0.55, 0.0, rim);
+  col = mix(col, px.y < rimTanY ? uEdge : uLight, clamp(rimLine, 0.0, 1.0));
+  a = max(a, rimLine * 0.75);
+
+  /* Thick base — it refracts the beer above it and glows amber */
+  if ((px.y > GBOT - GBASE * 2.1 && px.y <= GBOT && outer < 0.0) || inBulge){
+    float t = smoothstep(GBOT - GBASE * 2.1, GBOT + ryB, px.y);
+    col = mix(col, uLight, t * 0.7);
+    a = max(a, t * (uDark > 0.5 ? 0.22 : 0.38));
+    if (uLevel > 0.02){
+      float bt = smoothstep(GBOT - GBASE * 2.1, GBOT - GBASE * 0.7, px.y)
+               * (1.0 - smoothstep(GBOT - GBASE * 0.6, GBOT, px.y))
+               * (1.0 - smoothstep(GBH * 0.55, GBH * 0.95, dx));
+      col = mix(col, uBeerGlow, bt * 0.75);
+      a = max(a, bt * 0.5);
+    }
+  }
+
+  /* The standing ring: its outer edge is the silhouette's bottom arc, its
+     inner edge a second arc just inside */
+  float botD = abs(length(bcS) - 1.0) * bw;
+  float botLine = smoothstep(w, 0.0, botD) * step(GBOT - 1.0, px.y);
+  col = mix(col, uEdge, clamp(botLine, 0.0, 1.0));
+  a = max(a, botLine * 0.72);
+
+  vec2 bc = vec2((px.x - GCX) / max(bw * 0.86, 1.0), (px.y - GBOT) / max(ryB * 0.86, 1.0));
+  float baseArc = abs(length(bc) - 1.0) * bw * 0.86;
+  float baseLine = smoothstep(GWALL * 0.5, 0.0, baseArc);
+  col = mix(col, uLight, clamp(baseLine, 0.0, 1.0));
+  a = max(a, baseLine * 0.45);
+
+  /* Floor of the glass, seen through the beer */
+  vec2 fc = vec2((px.x - GCX) / max(innerHalfAt(GINBOT), 1.0), (px.y - GINBOT) / max(innerHalfAt(GINBOT) * uRyKs.y, 1.0));
+  float floorArc = abs(length(fc) - 1.0) * innerHalfAt(GINBOT);
+  float floorLine = smoothstep(GWALL * 0.4, 0.0, floorArc);
+  col = mix(col, uEdge, clamp(floorLine, 0.0, 1.0));
+  a = max(a, floorLine * 0.22);
+
+  if (a <= 0.003) discard;
+  frag = vec4(col, clamp(a, 0.0, 1.0));
+}`;
+
+const progLiquid = program(VS_FULL, FS_LIQUID);
+const progBand   = program(VS_FULL, FS_BAND);
+const progBlob   = program(VS_BLOB, FS_BLOB);
+const progSprite = program(VS_SPRITE, FS_SPRITE);
+const progFoam   = program(VS_FULL, FS_FOAM);
+const progGlass  = program(VS_FULL, FS_GLASS);
+
+/* ------------------------------------------------------------------ *
+ * Buffers and targets
+ * ------------------------------------------------------------------ */
+const vaoEmpty = gl.createVertexArray();
+const cornerBuf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, cornerBuf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+
+const MAX_BLOBS = 512, MAX_SPRITES = 1400;
+const blobData = new Float32Array(MAX_BLOBS * 4);
+const spriteData = new Float32Array(MAX_SPRITES * 6);
+
+function instancedVAO(prog, buf, stride, layout){
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, cornerBuf);
+  const corner = gl.getAttribLocation(prog.p, "aCorner");
+  gl.enableVertexAttribArray(corner);
+  gl.vertexAttribPointer(corner, 2, gl.FLOAT, false, 0, 0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  for (const [name, size, offset] of layout){
+    const loc = gl.getAttribLocation(prog.p, name);
+    if (loc < 0) continue;
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, size, gl.FLOAT, false, stride, offset);
+    gl.vertexAttribDivisor(loc, 1);
+  }
+  gl.bindVertexArray(null);
+  return vao;
+}
+
+const blobBuf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, blobBuf);
+gl.bufferData(gl.ARRAY_BUFFER, blobData.byteLength, gl.DYNAMIC_DRAW);
+const blobVAO = instancedVAO(progBlob, blobBuf, 16, [["aInst", 4, 0]]);
+
+const spriteBuf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, spriteBuf);
+gl.bufferData(gl.ARRAY_BUFFER, spriteData.byteLength, gl.DYNAMIC_DRAW);
+const spriteVAO = instancedVAO(progSprite, spriteBuf, 24, [["aInst", 4, 0], ["aMeta", 2, 16]]);
+
+const HEIGHT_TEX_W = 512;
+const heightTex = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, heightTex);
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, HEIGHT_TEX_W, 1, 0, gl.RED, gl.FLOAT, null);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+const heightUpload = new Float32Array(HEIGHT_TEX_W);
+
+/* ------------------------------------------------------------------ *
+ * The house mark (logo-no-name.svg), embedded so the page stays a
+ * single file. Rendered white into a texture; tinted in the shader.
+ * ------------------------------------------------------------------ */
+const LOGO_ASPECT = 1889.5428 / 1632.4294;
+const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1889.5428 1632.4294"><g transform="matrix(1.3333333,0,0,-1.3333333,-19.650821,2202.5766)" fill="#fff"><path d="M 123.29788,752.91372 412.78651,1306.2766 734.86356,966.86574 1003.6133,1496.6917 1330.9311,752.91372 H 740.4762 Z M 1431.8953,688.54037 1007.931,1651.9325 717.91485,1080.1818 396.70559,1418.6768 14.738226,688.54037 H 740.4762 Z"/><path d="M 14.738116,556.9782 H 1431.8942 v 64.37335 H 14.738116 Z"/><path d="M 14.738116,427.61037 H 1431.8942 v 64.37335 H 14.738116 Z"/></g></svg>`;
+
+/* The mark's bars run the full width of its artwork, and the lowest one sits
+   on the bottom edge. Rasterising at exactly that size would cut the blur off
+   square at the bitmap boundary, so the artwork is inset in a padded canvas
+   and the blur is free to fade out past it. */
+const LOGO_PAD = 0.08;
+
+const logoTex = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, logoTex);
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+let logoReady = false;
+{
+  const img = new Image();
+  img.onload = () => {
+    const w = 1024, h = Math.round(1024 / LOGO_ASPECT);
+    const pad = Math.round(w * LOGO_PAD);
+    const c = document.createElement("canvas");
+    c.width = w + pad * 2;
+    c.height = h + pad * 2;
+    const c2 = c.getContext("2d");
+    c2.filter = "blur(9px)";       /* depth of field: the wall is out of focus */
+    c2.drawImage(img, pad, pad, w, h);
+    gl.bindTexture(gl.TEXTURE_2D, logoTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    logoReady = true;
+    if (!cfg.running) render();
+  };
+  img.src = "data:image/svg+xml;utf8," + encodeURIComponent(LOGO_SVG);
+}
+
+/* Large behind the glass, standing just above the bar so it reflects in it.
+   A slow counter-parallax against the pointer sets it a step further back. */
+let parX = 0, parY = 0;
+/* The page's own gutter — the same clamp(20px, 3.6vmin, 48px) the CSS uses */
+const pageMargin = () => clamp(Math.min(W, H) * 0.036, 20, 48);
+
+function logoRect(){
+  /* The mark stands on the wall behind the bar, held one page margin clear
+     of the plane's edge, exactly as the copy is held off the page edges.
+     The rect returned covers the padded bitmap, so the blur's bleed lands
+     outside the artwork rather than being squeezed into it. */
+  const gap = pageMargin();
+  const hY = horizonY();
+  const lh = Math.min(H * 0.8, (W * 0.92) / LOGO_ASPECT, hY - gap - 8);
+  const lw = lh * LOGO_ASPECT;
+  const p = lw * LOGO_PAD;
+  return [G.cx - lw / 2 - p + parX, hY - gap - lh - p + parY, lw + 2 * p, lh + 2 * p];
+}
+
+function updateParallax(dt){
+  const ptx = ptr.x === -999 ? W / 2 : ptr.x;
+  const pty = ptr.y === -999 ? H / 2 : ptr.y;
+  const k = Math.min(1, dt * 3);
+  parX += ((W / 2 - ptx) * 0.022 - parX) * k;
+  parY += ((H / 2 - pty) * 0.010 - parY) * k;
+}
+
+const FIELD_SCALE = 2;
+let fieldTex = null, fieldFBO = null, fieldW = 1, fieldH = 1;
+
+function makeField(w, h){
+  if (fieldTex) gl.deleteTexture(fieldTex);
+  if (fieldFBO) gl.deleteFramebuffer(fieldFBO);
+  fieldW = Math.max(1, Math.round(w));
+  fieldH = Math.max(1, Math.round(h));
+  fieldTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, fieldTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, fieldW, fieldH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  fieldFBO = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fieldFBO);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, fieldTex, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+
+let W = 0, H = 0, dpr = 1, quality = 1;
+const isCoarse = matchMedia("(pointer: coarse)").matches;
+
+/* ------------------------------------------------------------------ *
+ * The glass. Proportions follow a shaker pint: tapered, thick base,
+ * with a shallow ellipse at the rim because we look slightly down on it.
+ * ------------------------------------------------------------------ */
+const G = {
+  cx:0, top:0, bottom:0, h:0, topHalf:0, botHalf:0,
+  wall:0, baseH:0, corner:0, inTop:0, inBottom:0, inH:0,
+  ryTop:0.13, scale:1
+};
+
+function layoutGlass(){
+  const compact = W < 1100;
+  const maxH = H * (compact ? 0.46 : 0.58) * (cfg.glassSize / 100);
+  let gh = clamp(maxH, 140, H * 0.80);
+  let topHalf = gh * 0.583 / 2;
+  const widthCap = W * (compact ? 0.34 : 0.30);
+  if (topHalf > widthCap){ topHalf = widthCap; gh = topHalf * 2 / 0.583; }
+
+  G.h = gh;
+  G.topHalf = topHalf;
+  G.botHalf = topHalf * 0.68;
+  G.cx = W / 2;
+  G.bottom = H * (compact ? 0.68 : 0.84);
+  G.top = G.bottom - gh;
+  G.wall = Math.max(2.5, topHalf * 0.045);
+  G.baseH = gh * 0.06;
+  G.corner = G.botHalf * 0.30;
+  G.inTop = G.top + G.wall * 0.5;
+  G.inBottom = G.bottom - G.baseH;
+  G.inH = G.inBottom - G.inTop;
+  /* The rim ellipse, resolved at the height its own tangent sits at */
+  G.ryTop = ryAt(G.top + G.topHalf * ryAt(G.top));
+  G.scale = (topHalf * 2) / 300;          /* everything else sizes off this */
+}
+
+/* Exterior half width at a given y: straight tapered walls — the base
+   ellipse supplies the bottom curve */
+function halfAt(y){
+  const t = clamp((y - G.top) / G.h, 0, 1);
+  return Math.max(1, lerp(G.topHalf, G.botHalf, t));
+}
+const innerHalfAt = y => Math.max(1, halfAt(y) - G.wall);
+
+/* ------------------------------------------------------------------ *
+ * Contents: level is the fraction of the interior that holds beer
+ * ------------------------------------------------------------------ */
+let level = 0;              /* 0 empty, 1 brim full */
+let poured = false;         /* true once it has first reached the fill line */
+let N = 0, hArr, vArr, maxAmp = 60;
+let bubbles = [], foam = [], drops = [], mist = [], drips = [], sites = [], dew = [], lace = [];
+let capBubbles = 300, capFoam = 260, capDew = 90;
+
+const targetLevel = () => cfg.fill / 100;
+const restSurfaceY = () => G.inBottom - level * G.inH;
+
+/* Wave columns span the interior at the current surface height */
+function surfaceSpan(){
+  const y = restSurfaceY();
+  const hw = innerHalfAt(y);
+  return [G.cx - hw, G.cx + hw, hw * 2];
+}
+
+function surfaceAt(x){
+  const [l, , w] = surfaceSpan();
+  const u = clamp((x - l) / w, 0, 1) * (N - 1);
+  const i = Math.floor(u);
+  const j = Math.min(N - 1, i + 1);
+  const t = u - i;
+  return restSurfaceY() + hArr[i] * (1 - t) + hArr[j] * t;
+}
+
+/* The camera. One eye level for the whole scene, fixed well above the frame:
+   a horizontal circle at eye level projects to a line, and the further one
+   sits below it the more open its ellipse. Rim, beer surface, interior floor
+   and base all follow this single rule, so resizing the glass swings its rim
+   the way moving a real glass would — rather than dragging the camera along
+   with it, which is what an ellipse ratio tied to the glass itself does. */
+const EYE_Y = -0.795;          // eye level, in viewport heights above the frame
+const EYE_K = 0.1232;          // how fast ellipses open with distance below it
+const ryAt = y => clamp(EYE_K * (y / Math.max(H, 1) - EYE_Y), 0.03, 0.42);
+const baseBulge = () => ryAt(G.bottom) * G.botHalf;
+/* How much bar top shows behind the glass — a property of the room, so it is
+   measured against the viewport, not the glass. Mirrored in the shader. */
+const BAR_DEPTH = 0.095;
+const horizonY = () => G.bottom + baseBulge() - H * BAR_DEPTH;
+
+/* How far the surface ellipse bulges at this x, front and back */
+function ellipseDy(x){
+  const [, , w] = surfaceSpan();
+  const hw = w / 2;
+  const t = (x - G.cx) / hw;
+  if (Math.abs(t) >= 1) return 0;
+  return ryAt(restSurfaceY()) * hw * Math.sqrt(1 - t * t);
+}
+const frontY = x => surfaceAt(x) + ellipseDy(x);
+const backY  = x => surfaceAt(x) - ellipseDy(x);
+const headBand = () => (G.topHalf * 2) * (0.05 + 0.14 * cfg.headDepth / 100);
+
+function resize(){
+  const r = stage.getBoundingClientRect();
+  W = Math.max(1, r.width);
+  H = Math.max(1, r.height);
+  dpr = Math.min(window.devicePixelRatio || 1, 1.75) * quality;
+
+  canvas.width  = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
+  makeField(canvas.width / FIELD_SCALE, canvas.height / FIELD_SCALE);
+
+  layoutGlass();
+
+  const span = innerHalfAt(G.inTop) * 2;
+  N = clamp(Math.round(span / 5), 32, Math.min(220, HEIGHT_TEX_W));
+  hArr = new Float32Array(N);
+  vArr = new Float32Array(N);
+  maxAmp = Math.min(G.inH * 0.30, G.topHalf * 1.1);
+
+  capBubbles = clamp(Math.round(G.topHalf * G.inH / 260), 60, isCoarse ? 220 : 380);
+  capFoam    = clamp(Math.round(G.topHalf / 1.6), 40, Math.min(240, MAX_BLOBS));
+  capDew     = clamp(Math.round(G.topHalf * G.inH / 900), 30, 140);
+
+  /* Nucleation sites sit on the floor of the glass */
+  sites = [];
+  const n = clamp(Math.round(G.topHalf / 26), 3, 12);
+  const floorHalf = innerHalfAt(G.inBottom - 4);
+  for (let i = 0; i < n; i++){
+    sites.push({
+      u: rand(-0.82, 0.82) * floorHalf,
+      acc: Math.random(), rate: rand(1.4, 3.2), scale: rand(0.6, 1.5)
+    });
+  }
+  bubbles.length = 0; foam.length = 0; drops.length = 0; mist.length = 0; drips.length = 0;
+  dew.length = 0; lace.length = 0;
+}
+
+/* ================================================================== *
+ * Surface physics
+ * ================================================================== */
+function splash(x, force, radius){
+  const [l, , w] = surfaceSpan();
+  const c = clamp((x - l) / w, 0, 1) * (N - 1);
+  const colW = w / (N - 1);
+  const span = Math.max(1, radius / colW);
+  const i0 = Math.max(0, Math.round(c - span * 2));
+  const i1 = Math.min(N - 1, Math.round(c + span * 2));
+  for (let i = i0; i <= i1; i++){
+    const d = (i - c) / span;
+    vArr[i] += force * Math.exp(-d * d * 1.6);
+  }
+}
+
+function stepWaves(){
+  const c2   = 0.18 + (cfg.waveSpeed / 100) * 0.30;
+  const rest = 0.0010 + (cfg.waveSpeed / 100) * 0.0040;
+  const damp = 0.9998 - (cfg.viscosity / 100) * 0.0200;
+  for (let sub = 0; sub < 2; sub++){
+    for (let i = 0; i < N; i++){
+      const l = hArr[i > 0 ? i - 1 : 0];
+      const r = hArr[i < N - 1 ? i + 1 : N - 1];
+      vArr[i] += c2 * (l + r - 2 * hArr[i]) - rest * hArr[i];
+      vArr[i] *= damp;
+    }
+    for (let i = 0; i < N; i++) hArr[i] = clamp(hArr[i] + vArr[i], -maxAmp, maxAmp);
+  }
+}
+
+/* Beer that climbs past the rim leaves the glass */
+function spillOverRim(dt){
+  const ry = restSurfaceY();
+  const rimY = G.inTop;
+  const [l, , w] = surfaceSpan();
+  const colW = w / (N - 1);
+  let lost = 0;
+
+  for (let i = 0; i < N; i++){
+    const y = ry + hArr[i];
+    if (y >= rimY) continue;
+    const excess = rimY - y;
+    hArr[i] = rimY - ry;
+    if (vArr[i] < 0) vArr[i] *= -0.25;
+    lost += excess * colW;
+
+    if (excess > 1.5 && Math.random() < clamp(excess * 0.06, 0.05, 0.75)){
+      const x = l + i * colW;
+      const outward = Math.sign(x - G.cx) || 1;
+      drops.push({
+        x, y: rimY - rand(0, 6),
+        vx: outward * rand(20, 120) * (0.4 + excess * 0.02),
+        vy: -rand(30, 190),
+        r: rand(1.4, 4.2) * G.scale, foamy: Math.random() < 0.6, out: true
+      });
+    }
+  }
+
+  if (lost > 0){
+    /* Convert the spilled area back into a drop in level */
+    const area = Math.max(1, innerHalfAt(ry) * 2 * G.inH);
+    level = clamp(level - (lost / area) * 1.3, 0.04, 1);
+  }
+
+  /* The head goes over the lip before the beer does, and runs down the glass */
+  let foamLost = 0;
+  for (let i = foam.length - 1; i >= 0; i--){
+    const f = foam[i];
+    const fy = surfaceAt(f.x) - ellipseDy(f.x) * 0.4 + f.oy;
+    if (fy < rimY - f.r * 0.4 && Math.random() < 0.5){
+      foamLost += f.r * f.r * Math.PI;
+      const outward = Math.sign(f.x - G.cx) || 1;
+      drips.push({
+        side: outward, y: rimY + rand(2, 10), vy: rand(5, 16) * G.scale,
+        r: Math.min(f.r * 0.42, 5 * G.scale),
+        len: f.r * rand(0.5, 1.1), life: rand(1.2, 2.8)
+      });
+      /* Foam that touched the wall dries on as lacing at the high-water mark */
+      const specks = 1 + (Math.random() * 3 | 0);
+      for (let s = 0; s < specks && lace.length < 90; s++){
+        const life = rand(12, 24);
+        lace.push({
+          x: f.x + rand(-f.r, f.r), y: rimY + rand(2, headBand() * 0.9),
+          r: rand(1.2, 2.6) * G.scale + f.r * 0.12, life, max: life
+        });
+      }
+      foam.splice(i, 1);
+    }
+  }
+  /* Foam is beer too, so losing a headful costs some of the pour */
+  if (foamLost > 0){
+    const area = Math.max(1, innerHalfAt(ry) * 2 * G.inH);
+    level = clamp(level - (foamLost / area) * 0.95, 0.04, 1);
+  }
+}
+
+/* Pour on load, then top the glass back up whenever it is short */
+function updateLevel(dt){
+  const target = targetLevel();
+  if (level >= target - 0.0005){
+    level = Math.min(level, target);
+    poured = true;
+    return;
+  }
+  /* The first pour is brisk; every top-up after that is slow */
+  const rate = poured
+    ? 0.004 + (cfg.refill / 100) * 0.045
+    : 0.34;
+  level = Math.min(target, level + rate * dt);
+  if (level >= target - 0.0005) poured = true;
+}
+
+/* ================================================================== *
+ * Pointer
+ * ================================================================== */
+const ptr = {x:-999, y:-999, lx:-999, ly:-999, vx:0, vy:0, inside:false, held:false};
+const overChrome = el => !!(el && el.closest && el.closest(".panel, .panel-toggle, .btn, .info"));
+const inGlass = (x, y) => y > G.top && y < G.inBottom && Math.abs(x - G.cx) < innerHalfAt(y) + 40;
+
+window.addEventListener("pointermove", e => {
+  ptr.x = e.clientX; ptr.y = e.clientY;
+  ptr.inside = !overChrome(e.target);
+}, {passive:true});
+document.addEventListener("pointerleave", () => { ptr.inside = false; }, {passive:true});
+window.addEventListener("pointerdown", e => {
+  if (overChrome(e.target)) return;
+  ptr.x = e.clientX; ptr.y = e.clientY; ptr.inside = true; ptr.held = true;
+  const sy = surfaceAt(ptr.x);
+  if (inGlass(ptr.x, ptr.y) && ptr.y > sy - 70){
+    const power = 1 + cfg.agitation / 100;
+    splash(ptr.x, 3.4 * power, G.topHalf * 0.5);
+    burstDrops(ptr.x, sy, 6 + Math.round(power * 5));
+    for (let i = 0; i < 16; i++){
+      addBubble(ptr.x + rand(-1, 1) * G.topHalf * 0.4, sy + rand(20, 140) * G.scale, rand(1, 4.5));
+    }
+    for (let i = 0; i < 8; i++) addFoam(ptr.x + rand(-1, 1) * G.topHalf * 0.5, rand(6, 16) * G.scale);
+  }
+}, {passive:true});
+window.addEventListener("pointerup", () => { ptr.held = false; }, {passive:true});
+
+function pointerForces(dt){
+  if (!ptr.inside || cfg.agitation === 0) return;
+  const agit = cfg.agitation / 100;
+  const sy = surfaceAt(ptr.x);
+  const depth = ptr.y - sy;
+  const speed = Math.hypot(ptr.vx, ptr.vy);
+  const reach = G.topHalf * 1.6;
+  if (Math.abs(ptr.x - G.cx) > reach) return;
+  /* Below the floor of the glass the pointer is over the bar top. The
+     reflection there is a picture of the pour, not the pour itself, so
+     nothing it passes over should stir, spawn or splash. */
+  if (ptr.y > G.inBottom + 12) return;
+
+  if (depth > -70 && depth < G.inH * 1.1 && speed > 0.2){
+    const near = 1 - clamp(Math.abs(depth) / (G.inH * 0.9), 0, 1);
+    const rate = 1 / Math.max(dt, 0.004);
+    const force = clamp((ptr.vy * 0.10 + Math.sign(ptr.vy || 1) * speed * 0.022) * rate / 60, -6.5, 6.5)
+                * agit * (0.35 + near * 0.65) * (dt * 60);
+    splash(ptr.x, force, G.topHalf * 0.35 + speed * 0.9);
+    if (ptr.held) splash(ptr.x, force * 0.4, G.topHalf);
+  }
+  /* Dragging sideways through the beer drives the sloshing mode: it piles up
+     on the leading wall, which is how a pint actually goes over the rim. */
+  if (depth > -20 && depth < G.inH * 0.8 && Math.abs(ptr.vx) > 0.5){
+    const nearTop = 1 - clamp(Math.max(0, depth) / (G.inH * 0.7), 0, 1);
+    /* Clamp the pointer's speed, not its per-frame step, so the glass is just
+       as easy to slosh at 30fps as at 144. */
+    const vps = ptr.vx / Math.max(dt, 0.004);
+    const tilt = clamp(vps * 0.00167, -5.4, 5.4) * agit * (0.35 + nearTop * 0.65) * (dt * 60);
+    for (let i = 0; i < N; i++){
+      vArr[i] += tilt * ((i / (N - 1)) - 0.5) * 2;
+    }
+  }
+
+  if (depth > -10 && depth < G.inH * 1.05){
+    const R = (90 + speed * 2.2) * G.scale;
+    for (const b of bubbles){
+      const dx = b.x - ptr.x, dy = b.y - ptr.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < R * R){
+        const w = (1 - Math.sqrt(d2) / R) * agit;
+        b.vx += ptr.vx * 9 * w;
+        b.vy -= ptr.vy * 4 * w;
+      }
+    }
+    if (speed > 1.2){
+      const n = Math.min(5, Math.round(speed * 0.18 * agit));
+      for (let i = 0; i < n; i++){
+        addBubble(ptr.x + rand(-30, 30) * G.scale, ptr.y + rand(-20, 40) * G.scale, rand(0.9, 3.4));
+      }
+    }
+  }
+  if (depth < 40 && depth > -80){
+    for (const f of foam){
+      const dx = f.x - ptr.x;
+      const R2 = G.topHalf * 0.8;
+      if (Math.abs(dx) < R2){
+        const w = (1 - Math.abs(dx) / R2) * agit;
+        f.vx += ptr.vx * 7 * w;
+        f.oy -= Math.abs(ptr.vy) * 0.06 * w;
+      }
+    }
+  }
+}
+
+/* ================================================================== *
+ * Contents: bubbles, head, spills
+ * ================================================================== */
+function addBubble(x, y, r){
+  if (bubbles.length >= capBubbles) return;
+  const lim = innerHalfAt(y) - 2;
+  bubbles.push({
+    x: clamp(x, G.cx - lim, G.cx + lim), y,
+    r: r * (0.35 + cfg.bubbleSize / 100 * 0.85) * G.scale,
+    vx: 0, rise: rand(0.85, 1.35), ph: Math.random() * TAU, wob: rand(3, 12) * G.scale
+  });
+}
+
+function foamRadius(depth){
+  /* Mostly small bubbles with the odd larger cluster — a real head is fine-grained */
+  const t = Math.random();
+  const big = t > 0.93 ? rand(1.3, 1.7) : t > 0.6 ? rand(0.9, 1.3) : rand(0.45, 0.9);
+  return clamp((3 + 6.5 * depth * big) * G.scale, 2.2, 17 * G.scale);
+}
+
+function addFoam(x, r){
+  if (foam.length >= capFoam) return;
+  /* Lift tops out below the band height, so the settled outline stays level */
+  const lift = rand(-0.25, 0.88);
+  const band = headBand();
+  const lim = innerHalfAt(restSurfaceY()) - r * 0.18;
+  foam.push({
+    x: clamp(x, G.cx - lim, G.cx + lim),
+    oy: -(r * 0.45 + lift * band) + rand(-3, 3),
+    vy: rand(-6, 2), vx: rand(-4, 4), r, lift,
+    cell: Math.random(), cellR: rand(0.48, 0.78),
+    seed: Math.random() * TAU, life: rand(4, 11)
+  });
+}
+
+function burstDrops(x, y, n){
+  for (let i = 0; i < n; i++){
+    drops.push({
+      x: x + rand(-20, 20) * G.scale, y: y - rand(0, 10),
+      vx: rand(-120, 120) * G.scale, vy: -rand(120, 380) * G.scale,
+      r: rand(1.6, 5.2) * G.scale, foamy: Math.random() < 0.45, out: false
+    });
+  }
+  for (let i = 0; i < n * 0.9; i++){
+    mist.push({
+      x: x + rand(-36, 36) * G.scale, y: y - rand(0, 22),
+      vx: rand(-50, 50) * G.scale, vy: rand(-150, -40) * G.scale,
+      r: rand(0.5, 1.3) * G.scale, life: rand(0.4, 1.1)
+    });
+  }
+}
+
+function updateBubbles(dt){
+  const fizz = cfg.carbonation / 100;
+  const pouring = level < targetLevel() - 0.01 ? 2.6 : 1;
+  for (const s of sites){
+    s.acc += dt * s.rate * fizz * pouring;
+    while (s.acc >= 1){
+      s.acc -= 1;
+      addBubble(G.cx + s.u + rand(-3, 3), G.inBottom - rand(1, 8), rand(0.7, 3.2) * s.scale);
+    }
+  }
+  if (Math.random() < dt * 20 * fizz){
+    const y = rand(restSurfaceY() + 20, G.inBottom);
+    addBubble(G.cx + rand(-1, 1) * innerHalfAt(y) * 0.9, y, rand(0.5, 2.2));
+  }
+
+  for (let i = bubbles.length - 1; i >= 0; i--){
+    const b = bubbles[i];
+    b.ph += dt * 3.4;
+    b.r += dt * 0.16 * G.scale;
+    b.vx *= 0.90;
+    b.x += (b.vx + Math.sin(b.ph) * b.wob) * dt;
+    b.y -= (48 + b.r * 26 / G.scale) * b.rise * G.scale * dt;
+
+    /* Keep them inside the walls */
+    const lim = innerHalfAt(b.y) - b.r - 1;
+    if (b.x < G.cx - lim){ b.x = G.cx - lim; b.vx *= -0.4; }
+    if (b.x > G.cx + lim){ b.x = G.cx + lim; b.vx *= -0.4; }
+
+    const sy = frontY(b.x);
+    if (b.y - b.r * 0.6 <= sy || b.y < G.inTop - 30){
+      if (b.y - b.r <= sy){
+        splash(b.x, -Math.min(0.5, b.r * 0.07), (14 + b.r * 3));
+        addFoam(b.x, clamp(b.r * 2.1 + 3, 3, 24 * G.scale));
+        if (b.r > 3.4 * G.scale && Math.random() < 0.22){
+          mist.push({x:b.x, y:sy, vx:rand(-24,24)*G.scale, vy:rand(-90,-25)*G.scale, r:rand(.6,1.4)*G.scale, life:rand(.3,.8)});
+        }
+      }
+      bubbles.splice(i, 1);
+    }
+  }
+}
+
+function updateFoam(dt){
+  const depth = cfg.headDepth / 100;
+  const churn = cfg.foamChurn / 100;
+  /* Malt and alcohol thin the bubble walls: a bock head dies faster than a pilsner's */
+  const malt = 0.8 + (cfg.richness / 100) * 0.6;
+  const band = headBand();
+  const hw = innerHalfAt(restSurfaceY());
+  const target = Math.round(clamp(hw / 3.2, 14, capFoam) * (0.25 + depth * 0.95));
+
+  let spawn = Math.min(8, target - foam.length);
+  while (spawn-- > 0) addFoam(G.cx + rand(-1, 1) * hw * 0.98, foamRadius(depth));
+
+  for (let i = foam.length - 1; i >= 0; i--){
+    const f = foam[i];
+    f.life -= dt * (0.55 + (1 - depth) * 0.9) * malt;
+    f.seed += dt * (1.4 + churn * 2.6);
+
+    const rest = -(f.r * 0.45 + f.lift * band);
+    f.vy += (rest - f.oy) * 26 * dt;
+    f.vy *= 0.90;
+    f.oy += f.vy * dt + Math.sin(f.seed * 2.1) * churn * 14 * G.scale * dt;
+
+    f.vx *= 0.93;
+    f.x += (f.vx + Math.sin(f.seed * 0.8 + f.r) * churn * 5) * dt;
+
+    /* The head is held by the walls, not wrapped around them */
+    const lim = hw - f.r * 0.18;
+    if (f.x < G.cx - lim){ f.x = G.cx - lim; f.vx *= -0.5; }
+    if (f.x > G.cx + lim){ f.x = G.cx + lim; f.vx *= -0.5; }
+
+    f.r -= dt * (0.35 + (1 - depth) * 1.1) * (churn * 0.5 + 0.7) * malt * G.scale;
+    if (f.r < 2.2 * G.scale || f.life < 0) foam.splice(i, 1);
+  }
+}
+
+function updateDrops(dt){
+  for (let i = drops.length - 1; i >= 0; i--){
+    const d = drops[i];
+    d.vy += 1150 * G.scale * dt;
+    d.x += d.vx * dt;
+    d.y += d.vy * dt;
+
+    const outsideGlass = Math.abs(d.x - G.cx) > innerHalfAt(d.y);
+    if (!d.out && !outsideGlass && d.vy > 0 && d.y > frontY(d.x)){
+      splash(d.x, 0.5 + d.r * 0.16 / G.scale, 18 + d.r * 4);
+      if (d.foamy) addFoam(d.x, d.r * 2);
+      drops.splice(i, 1);
+    } else if (d.y > G.bottom + baseBulge() - 2){
+      /* Landed on the bar */
+      mist.push({x:d.x, y:G.bottom + baseBulge() - 2, vx:rand(-30,30)*G.scale, vy:-rand(20,70)*G.scale, r:d.r*0.5, life:rand(.2,.5)});
+      drops.splice(i, 1);
+    } else if (d.x < -40 || d.x > W + 40){
+      drops.splice(i, 1);
+    }
+  }
+  for (let i = mist.length - 1; i >= 0; i--){
+    const m = mist[i];
+    m.life -= dt;
+    m.vy += 240 * G.scale * dt;
+    m.x += m.vx * dt;
+    m.y += m.vy * dt;
+    if (m.life <= 0) mist.splice(i, 1);
+  }
+  for (let i = drips.length - 1; i >= 0; i--){
+    const d = drips[i];
+    d.life -= dt;
+    d.vy += 34 * G.scale * dt;
+    d.y += d.vy * dt;
+    d.len = Math.min(d.len + d.vy * dt * 0.3, 26 * G.scale);
+    if (d.life <= 0 || d.y > G.bottom - G.baseH * 0.3) drips.splice(i, 1);
+  }
+}
+
+/* Condensation beads on the cold outside of the glass, below the beer line */
+function addDew(r){
+  const y = rand(restSurfaceY() + 8, G.bottom - G.baseH * 1.5);
+  const hw = Math.max(2, halfAt(y) - G.wall * 1.8);
+  dew.push({
+    x: G.cx + rand(-1, 1) * hw, y,
+    r: r * G.scale, grow: rand(0.03, 0.12) * G.scale,
+    slip: rand(3.4, 4.6) * G.scale, vy: 0
+  });
+}
+
+function updateDew(dt){
+  const amount = clamp(cfg.condensation / 100, 0, 2);
+  if (!amount){ dew.length = 0; return; }
+  const want = Math.min(Math.round(capDew * amount), 180);
+  if (poured && dew.length < want && Math.random() < dt * 30 * amount) addDew(rand(0.7, 1.6));
+
+  for (let i = dew.length - 1; i >= 0; i--){
+    const d = dew[i];
+    d.r += d.grow * dt;
+    if (d.r > d.slip || d.vy > 0){
+      /* Grown too heavy: the bead lets go and runs, shedding size as it goes */
+      d.vy = Math.min(d.vy + 70 * G.scale * dt, 90 * G.scale);
+      d.y += d.vy * dt;
+      d.r = Math.max(d.r - dt * 1.1 * G.scale, 1.4 * G.scale);
+      const hw = Math.max(2, halfAt(d.y) - G.wall * 1.8);
+      if (Math.abs(d.x - G.cx) > hw) d.x = G.cx + Math.sign(d.x - G.cx) * hw;
+      if (d.y > G.bottom - G.baseH * 0.8) dew.splice(i, 1);
+    }
+  }
+}
+
+/* Lacing fades slowly in the air, quickly once the refill submerges it */
+function updateLace(dt){
+  for (let i = lace.length - 1; i >= 0; i--){
+    const l = lace[i];
+    l.life -= dt * (l.y > surfaceAt(l.x) ? 6 : 1);
+    if (l.life <= 0) lace.splice(i, 1);
+  }
+}
+
+let idleAcc = 0;
+function ambient(dt){
+  idleAcc += dt;
+  if (idleAcc > 1.1){
+    idleAcc = 0;
+    splash(G.cx + rand(-1, 1) * G.topHalf, rand(-0.16, 0.16), G.topHalf * rand(0.4, 1.2));
+  }
+}
+
+/* ================================================================== *
+ * Palette
+ * ================================================================== */
+const mqDark = matchMedia("(prefers-color-scheme: dark)");
+const isDark = () => {
+  const t = document.documentElement.dataset.theme;
+  if (t === "dark") return true;
+  if (t === "light") return false;
+  return mqDark.matches;
+};
+
+const hexToRgb = hex => {
+  const h = hex.trim().replace("#", "");
+  const v = h.length === 3 ? h.split("").map(c => c + c).join("") : h;
+  const n = parseInt(v, 16);
+  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+};
+
+function hslToRgb(h, s, l){
+  h = ((h % 360) + 360) % 360 / 360; s /= 100; l /= 100;
+  if (s === 0) return [l, l, l];
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const f = t => {
+    t = (t + 1) % 1;
+    if (t < 1/6) return p + (q - p) * 6 * t;
+    if (t < 1/2) return q;
+    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+    return p;
+  };
+  return [f(h + 1/3), f(h), f(h - 1/3)];
+}
+
+let pal = {};
+function buildPalette(){
+  const dark = isDark();
+  const h = cfg.hue;
+  const r = cfg.richness / 100;
+  const clarity = cfg.clarity / 100;
+
+  /* Beer–Lambert: blue goes first, which is what turns a deep pour amber */
+  const base = 0.22 + r * 1.55;
+  const hueShift = (44 - h) / 22;
+  const absorb = [
+    base * (0.30 + hueShift * 0.10),
+    base * (0.95 + hueShift * 0.25),
+    base * (2.60 + hueShift * 0.70)
+  ].map(v => v * (1.35 - clarity * 0.55));
+
+  pal = {
+    dark,
+    ground: hexToRgb(getComputedStyle(document.documentElement).getPropertyValue("--ground") || (dark ? "#08090b" : "#f6f7f8")),
+    groundDeep: hexToRgb(getComputedStyle(document.documentElement).getPropertyValue("--ground-deep") || (dark ? "#040506" : "#e7eaec")),
+    lightTint: hslToRgb(h + 8, 92 - r * 10, 74 - r * 8),
+    absorb,
+    /* Foam is beer held in bubble walls: a pilsner head is bright white, a
+       bock head beige. The wet band at the beer line carries the most colour. */
+    foam: hslToRgb(38 + (h - 40) * 0.6, 24 + r * 30, dark ? 90 - r * 7 : 97 - r * 8),
+    foamShade: hslToRgb(34 + (h - 40) * 0.5, 26 + r * 22, (dark ? 54 : 60) - r * 12),
+    foamWet: hslToRgb(h + 4, 55 + r * 20, dark ? 74 - r * 12 : 84 - r * 14),
+    /* Coarseness: big-bubbled malty beers open up; fizzy fine ones stay tight */
+    foamCoarse: clamp(0.15 + (cfg.bubbleSize - 100) / 100 * 0.45 + r * 0.45
+                           - (cfg.carbonation - 100) / 100 * 0.15, 0, 1),
+    beerMid: hslToRgb(h + 2, 78, 54),
+    beerTint: hslToRgb(h, 70, 62),
+    glassEdge: dark ? [0.93, 0.95, 0.96] : [0.05, 0.07, 0.10],
+    glassLight: dark ? [1, 1, 1] : [1, 1, 1],
+    glow: dark ? 0.30 : 0.18
+  };
+}
+buildPalette();
+
+/* ================================================================== *
+ * Draw
+ * ================================================================== */
+let clock = 0;
+
+function uploadHeight(){
+  for (let i = 0; i < N; i++) heightUpload[i] = hArr[i];
+  gl.bindTexture(gl.TEXTURE_2D, heightTex);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, N, 1, gl.RED, gl.FLOAT, heightUpload);
+}
+
+function setShared(prog, pixelScale){
+  const [, , w] = surfaceSpan();
+  gl.uniform1i(prog.u.uHeight, 0);
+  gl.uniform1f(prog.u.uCols, N);
+  gl.uniform1f(prog.u.uRestY, restSurfaceY());
+  gl.uniform1f(prog.u.uSpanHw, w / 2);
+  gl.uniform1f(prog.u.uDpr, pixelScale);
+  gl.uniform2f(prog.u.uRes, W, H);
+  gl.uniform4f(prog.u.uGlassA, G.cx, G.top, G.bottom, G.h);
+  gl.uniform4f(prog.u.uGlassB, G.topHalf, G.botHalf, G.wall, G.baseH);
+  gl.uniform4f(prog.u.uGlassC, G.corner, G.inTop, G.inBottom, G.ryTop);
+  gl.uniform2f(prog.u.uRyKs, ryAt(restSurfaceY()), ryAt(G.bottom));
+}
+
+function drawField(){
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fieldFBO);
+  gl.viewport(0, 0, fieldW, fieldH);
+  gl.clearColor(0, 0, 0, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+
+  if (level <= 0.002){ gl.bindFramebuffer(gl.FRAMEBUFFER, null); return; }
+
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.ONE, gl.ONE);
+
+  gl.useProgram(progBand.p);
+  gl.bindVertexArray(vaoEmpty);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, heightTex);
+  setShared(progBand, fieldW / W);
+  gl.uniform1f(progBand.u.uBand, headBand());
+  gl.uniform1f(progBand.u.uTime, clock);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  let n = 0;
+  for (const f of foam){
+    if (n >= MAX_BLOBS) break;
+    const o = n * 4;
+    blobData[o]     = f.x;
+    blobData[o + 1] = surfaceAt(f.x) - ellipseDy(f.x) * 0.4 + f.oy;
+    blobData[o + 2] = f.r * 1.9;
+    blobData[o + 3] = 0.55 + 0.40 * Math.min(1, f.r / (10 * G.scale));
+    n++;
+  }
+  if (n){
+    gl.useProgram(progBlob.p);
+    gl.bindVertexArray(blobVAO);
+    gl.bindBuffer(gl.ARRAY_BUFFER, blobBuf);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, blobData, 0, n * 4);
+    gl.uniform2f(progBlob.u.uRes, W, H);
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, n);
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+
+function drawSprites(){
+  let n = 0;
+  const push = (x, y, rx, ry, kind, alpha) => {
+    if (n >= MAX_SPRITES) return;
+    const o = n * 6;
+    spriteData[o] = x; spriteData[o+1] = y; spriteData[o+2] = rx; spriteData[o+3] = ry;
+    spriteData[o+4] = kind; spriteData[o+5] = alpha;
+    n++;
+  };
+  for (const b of bubbles) push(b.x, b.y, Math.max(1.2, b.r), Math.max(1.2, b.r), 0, 1);
+  for (const d of drops)   push(d.x, d.y, Math.max(1.4, d.r), Math.max(1.4, d.r), 1, 1);
+  for (const m of mist)    push(m.x, m.y, Math.max(1, m.r * 1.6), Math.max(1, m.r * 1.6), 2, clamp(m.life, 0, 1));
+  for (const l of lace)    push(l.x, l.y, Math.max(1, l.r), Math.max(1, l.r), 5, clamp(l.life / l.max, 0, 1));
+  for (const d of dew)     push(d.x, d.y, Math.max(0.8, d.r), Math.max(0.8, d.r), 4, clamp(d.r / (1.4 * G.scale), 0, 1) * 0.9);
+  for (const d of drips){
+    const x = G.cx + d.side * (halfAt(d.y) - G.wall * 0.45);
+    const ry = Math.max(d.r, d.len * 0.5 + d.r);
+    push(x, d.y - d.len * 0.5 + d.r * 0.4, Math.max(1, d.r), ry, 3, clamp(d.life, 0, 1));
+  }
+  if (!n) return;
+
+  gl.useProgram(progSprite.p);
+  gl.bindVertexArray(spriteVAO);
+  gl.bindBuffer(gl.ARRAY_BUFFER, spriteBuf);
+  gl.bufferSubData(gl.ARRAY_BUFFER, 0, spriteData, 0, n * 6);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, heightTex);
+  setShared(progSprite, dpr);
+  gl.uniform3fv(progSprite.u.uFoam, pal.foam);
+  gl.uniform3fv(progSprite.u.uBeer, pal.beerMid);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, n);
+}
+
+function render(){
+  if (!hArr || !gl) return;
+  uploadHeight();
+  drawField();
+
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.disable(gl.BLEND);
+
+  /* Room and beer */
+  gl.useProgram(progLiquid.p);
+  gl.bindVertexArray(vaoEmpty);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, heightTex);
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, fieldTex);
+  gl.activeTexture(gl.TEXTURE2);
+  gl.bindTexture(gl.TEXTURE_2D, logoTex);
+  setShared(progLiquid, dpr);
+  gl.uniform1i(progLiquid.u.uField, 1);
+  gl.uniform1i(progLiquid.u.uLogo, 2);
+  const lr = logoRect();
+  gl.uniform4f(progLiquid.u.uLogoRect, lr[0], lr[1], lr[2], lr[3]);
+  gl.uniform1f(progLiquid.u.uLogoOn, logoReady ? 0.075 : 0);
+  gl.uniform1f(progLiquid.u.uTime, clock);
+  gl.uniform1f(progLiquid.u.uLevel, level);
+  gl.uniform3fv(progLiquid.u.uGround, pal.ground);
+  gl.uniform3fv(progLiquid.u.uGroundDeep, pal.groundDeep);
+  gl.uniform3fv(progLiquid.u.uLightTint, pal.lightTint);
+  gl.uniform3fv(progLiquid.u.uAbsorb, pal.absorb);
+  gl.uniform1f(progLiquid.u.uCaustics, cfg.caustics / 100 * 0.55);
+  gl.uniform1f(progLiquid.u.uHaze, 1 - cfg.clarity / 100);
+  gl.uniform1f(progLiquid.u.uGlow, pal.glow);
+  gl.uniform1f(progLiquid.u.uDark, pal.dark ? 1 : 0);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  /* Bubbles and anything in the air */
+  drawSprites();
+
+  /* Head */
+  if (level > 0.002){
+    const a = cfg.lightAngle * Math.PI / 180;
+    gl.useProgram(progFoam.p);
+    gl.bindVertexArray(vaoEmpty);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, heightTex);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, fieldTex);
+    setShared(progFoam, dpr);
+    gl.uniform1i(progFoam.u.uField, 1);
+    gl.uniform1f(progFoam.u.uTime, clock);
+    gl.uniform1f(progFoam.u.uRelief, cfg.relief / 100);
+    gl.uniform1f(progFoam.u.uGloss, cfg.gloss / 100);
+    gl.uniform1f(progFoam.u.uBandPx, headBand());
+    gl.uniform2f(progFoam.u.uLightDir, Math.cos(a), -Math.sin(a));
+    gl.uniform1f(progFoam.u.uCoarse, pal.foamCoarse);
+    gl.uniform3fv(progFoam.u.uFoam, pal.foam);
+    gl.uniform3fv(progFoam.u.uFoamShade, pal.foamShade);
+    gl.uniform3fv(progFoam.u.uFoamWet, pal.foamWet);
+    gl.uniform3fv(progFoam.u.uBeerTint, pal.beerTint);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
+  /* The glass, in front */
+  gl.useProgram(progGlass.p);
+  gl.bindVertexArray(vaoEmpty);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, heightTex);
+  setShared(progGlass, dpr);
+  gl.uniform3fv(progGlass.u.uEdge, pal.glassEdge);
+  gl.uniform3fv(progGlass.u.uLight, pal.glassLight);
+  gl.uniform3fv(progGlass.u.uBeerGlow, pal.beerTint);
+  gl.uniform1f(progGlass.u.uDark, pal.dark ? 1 : 0);
+  gl.uniform1f(progGlass.u.uLightX, Math.cos(cfg.lightAngle * Math.PI / 180));
+  gl.uniform1f(progGlass.u.uLevel, level);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  gl.bindVertexArray(null);
+}
+
+/* ================================================================== *
+ * Loop
+ * ================================================================== */
+const FIXED = 1 / 60;
+let acc = 0, last = performance.now(), emaFrame = 16.7, downgraded = 0;
+
+function frame(now){
+  requestAnimationFrame(frame);
+  let dt = (now - last) / 1000;
+  last = now;
+  if (dt > 0.25) dt = 0.25;
+
+  if (!cfg.running){
+    if (level < targetLevel() - 0.0005){
+      updateLevel(Math.min(dt, 0.05));
+      render();
+    }
+    return;
+  }
+
+  clock += dt;
+
+  if (ptr.lx === -999){ ptr.lx = ptr.x; ptr.ly = ptr.y; }
+  ptr.vx = ptr.x - ptr.lx;
+  ptr.vy = ptr.y - ptr.ly;
+  ptr.lx = ptr.x; ptr.ly = ptr.y;
+
+  updateLevel(dt);
+
+  acc += dt;
+  let steps = 0;
+  while (acc >= FIXED && steps < 4){ stepWaves(); acc -= FIXED; steps++; }
+  if (acc > FIXED) acc = 0;
+
+  updateParallax(dt);
+  pointerForces(dt);
+  ambient(dt);
+  spillOverRim(dt);
+  updateBubbles(dt);
+  updateFoam(dt);
+  updateDrops(dt);
+  updateDew(dt);
+  updateLace(dt);
+  render();
+
+  emaFrame += (dt * 1000 - emaFrame) * 0.05;
+  if (downgraded < 2 && emaFrame > 30 && clock > 3){
+    downgraded++;
+    quality = downgraded === 1 ? 0.8 : 0.62;
+    resize();
+    emaFrame = 16.7;
+    clock = 0;
+  }
+}
+
+/* ================================================================== *
+ * Controls
+ * ================================================================== */
+const slidersEl = document.getElementById("sliders");
+const inputs = {};
+
+function buildSliders(){
+  const frag = document.createDocumentFragment();
+  for (const s of SPECS){
+    if (s.group){
+      const g = document.createElement("p");
+      g.className = "group";
+      g.textContent = s.group;
+      frag.appendChild(g);
+    }
+    const wrap = document.createElement("div");
+    wrap.className = "ctl";
+    const id = "ctl-" + s.key;
+    wrap.innerHTML =
+      `<label for="${id}">${s.label}</label>` +
+      `<output for="${id}" id="out-${s.key}"></output>` +
+      `<input type="range" id="${id}" min="${s.min}" max="${s.max}" step="${s.step}" value="${cfg[s.key]}">`;
+    frag.appendChild(wrap);
+    const input = wrap.querySelector("input");
+    inputs[s.key] = input;
+    input.addEventListener("input", () => {
+      cfg[s.key] = Number(input.value);
+      if (["hue", "richness", "clarity", "bubbleSize", "carbonation"].includes(s.key)) buildPalette();
+      if (s.key === "glassSize"){ resize(); }
+      /* Moving the fill line is a deliberate adjustment, so the glass follows
+         at once. The slow top-up is reserved for beer that was sloshed out. */
+      if (s.key === "fill"){ level = cfg.fill / 100; poured = true; }
+      if (cfg.preset && s.key !== "fill" && s.key !== "agitation" && s.key !== "glassSize" && s.key !== "refill"){
+        cfg.preset = null;
+        syncChips();
+      }
+      readout(s);
+      save();
+      if (!cfg.running) render();
+    });
+  }
+  slidersEl.appendChild(frag);
+  SPECS.forEach(readout);
+}
+
+function readout(s){ document.getElementById("out-" + s.key).textContent = cfg[s.key] + s.unit; }
+
+function syncInputs(){
+  for (const s of SPECS){
+    if (inputs[s.key]) inputs[s.key].value = cfg[s.key];
+    readout(s);
+  }
+  buildPalette();
+  syncChips();
+  save();
+}
+
+const panelOpen = document.getElementById("panelOpen");
+const panelClose = document.getElementById("panelClose");
+function setPanel(open, moveFocus){
+  document.body.dataset.panel = open ? "open" : "closed";
+  panelOpen.setAttribute("aria-expanded", String(open));
+  if (!moveFocus) return;
+  if (open) panelClose.focus(); else panelOpen.focus();
+}
+panelOpen.addEventListener("click", () => setPanel(true, true));
+panelClose.addEventListener("click", () => setPanel(false, true));
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && document.body.dataset.panel === "open") setPanel(false, true);
+  if ((e.key === "c" || e.key === "C") && !/^(input|textarea)$/i.test(e.target.tagName)){
+    document.body.dataset.chrome = document.body.dataset.chrome === "off" ? "on" : "off";
+  }
+});
+
+document.querySelectorAll("[data-preset]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    Object.assign(cfg, PRESETS[btn.dataset.preset]);
+    cfg.preset = btn.dataset.preset;
+    syncInputs();
+    if (!cfg.running) render();
+  });
+});
+
+function applyTheme(){
+  if (cfg.theme === "auto") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = cfg.theme;
+  buildPalette();
+  if (!cfg.running) render();
+}
+document.querySelectorAll("[data-theme-set]").forEach(btn => {
+  btn.addEventListener("click", () => { cfg.theme = btn.dataset.themeSet; applyTheme(); syncChips(); save(); });
+});
+mqDark.addEventListener("change", () => { buildPalette(); if (!cfg.running) render(); });
+
+const motionBtn = document.getElementById("motionBtn");
+motionBtn.addEventListener("click", () => {
+  cfg.running = !cfg.running;
+  if (cfg.running){ last = performance.now(); acc = 0; }
+  syncChips(); save();
+});
+
+function syncChips(){
+  document.querySelectorAll("[data-preset]").forEach(b =>
+    b.setAttribute("aria-pressed", String(cfg.preset === b.dataset.preset)));
+  document.querySelectorAll("[data-theme-set]").forEach(b =>
+    b.setAttribute("aria-pressed", String(cfg.theme === b.dataset.themeSet)));
+  motionBtn.setAttribute("aria-pressed", String(cfg.running));
+  motionBtn.textContent = cfg.running ? "Running" : "Paused";
+}
+
+document.getElementById("reset").addEventListener("click", () => {
+  Object.assign(cfg, HOUSE, {preset:"helles"});
+  syncInputs();
+  resize();
+  if (!cfg.running) render();
+});
+
+/* ================================================================== *
+ * Boot
+ * ================================================================== */
+buildSliders();
+applyTheme();
+setPanel(params.get("panel") === "1");
+syncChips();
+
+let resizeTimer = 0;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { resize(); if (!cfg.running) render(); }, 120);
+});
+resize();
+
+/* A still page still shows a poured pint */
+if (reduceMotion.matches){
+  level = targetLevel();
+  poured = true;
+  const depth = cfg.headDepth / 100;
+  for (let i = 0; i < 140; i++) addFoam(G.cx + rand(-1, 1) * innerHalfAt(restSurfaceY()) * 0.95, foamRadius(depth));
+  for (let i = 0; i < 70; i++){
+    const y = rand(restSurfaceY() + 20, G.inBottom);
+    addBubble(G.cx + rand(-1, 1) * innerHalfAt(y) * 0.9, y, rand(0.6, 3.4));
+  }
+  const beads = Math.round(capDew * clamp(cfg.condensation / 100, 0, 2) * 0.7);
+  for (let i = 0; i < beads; i++) addDew(rand(1.0, 3.2));
+}
+
+render();
+requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>
