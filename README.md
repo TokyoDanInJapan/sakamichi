@@ -4,17 +4,21 @@ A splash page for a brewery. A pint glass stands in the middle of the page and
 pours itself. When it reaches the fill line it stops. Stir it hard enough to
 throw beer over the rim and the glass tops itself back up, slowly.
 
-Two renderings of the same pour, each a single file with no build step, no
-dependencies and no network requests:
+Two renderings of the same pour, with no build step, no dependencies and no
+network requests:
 
-| File          | Renderer  | Character                                              |
-| ------------- | --------- | ------------------------------------------------------ |
-| `index.html`  | Canvas 2D | Graphic and flat. Runs anywhere.                       |
-| `webgl.html`  | WebGL2    | Optical and photographic. Needs WebGL2.                |
+| File          | What it is                                              |
+| ------------- | ------------------------------------------------------- |
+| `index.html`  | Canvas 2D renderer — graphic and flat, runs anywhere    |
+| `webgl.html`  | WebGL2 renderer — optical and photographic              |
+| `sim.js`      | The pour itself, loaded by both                         |
 
-The simulation is identical in both — same wave equation, same bubbles, same
-head. Only the renderer differs, so they can be compared side by side. Each
-links to the other from the bottom of its control panel.
+The simulation is identical in both because it is the same file: `sim.js`
+carries the glass geometry, camera, wave equation, particles and controls,
+and each page wraps its own renderer around it. Each page defines its recipe
+(`SPECS`, `HOUSE`, `PRESETS`, storage key) before loading it, hands it a
+`redraw()` and a few hooks at boot, and links to the other from the bottom of
+its control panel.
 
 Open either file, or serve the folder:
 
