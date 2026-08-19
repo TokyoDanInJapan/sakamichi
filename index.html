@@ -711,9 +711,10 @@ function spillOverRim(dt){
     const fy = surfaceAt(f.x) - ellipseDy(f.x) * 0.4 + f.oy;
     if (fy < rimY - f.r * 0.4 && Math.random() < 0.5){
       foamLost += f.r * f.r * Math.PI;
-      const outward = Math.sign(f.x - G.cx) || 1;
+      const hwRim = Math.max(1, innerHalfAt(rimY));
       drips.push({
-        side: outward, y: rimY + rand(2, 10), vy: rand(5, 16) * G.scale,
+        th: Math.asin(clamp((f.x - G.cx) / hwRim, -1, 1)),
+        h: rimY + rand(2, 10), vy: rand(5, 16) * G.scale,
         r: Math.min(f.r * 0.42, 5 * G.scale),
         len: f.r * rand(0.5, 1.1), life: rand(1.2, 2.8)
       });
@@ -1009,9 +1010,9 @@ function updateDrops(dt){
     const d = drips[i];
     d.life -= dt;
     d.vy += 34 * G.scale * dt;
-    d.y += d.vy * dt;
+    d.h += d.vy * dt;
     d.len = Math.min(d.len + d.vy * dt * 0.3, 26 * G.scale);
-    if (d.life <= 0 || d.y > G.bottom - G.baseH * 0.3) drips.splice(i, 1);
+    if (d.life <= 0 || d.h > G.bottom - G.baseH * 0.3) drips.splice(i, 1);
   }
 }
 
@@ -1893,15 +1894,16 @@ function drawDetail(){
 
   /* Beer running down the outside of the glass */
   for (const d of drips){
-    const x = G.cx + d.side * (halfAt(d.y) - G.wall * 0.45);
-    ctxD.globalAlpha = clamp(d.life, 0, 1) * 0.9;
+    const [x, y, c] = dewPos(d);            /* it runs on the outside, as beads do */
+    const rw = Math.max(0.6, d.r * Math.max(0.3, Math.abs(c)));
+    ctxD.globalAlpha = clamp(d.life, 0, 1) * 0.9 * (0.6 + 0.4 * (0.5 + 0.5 * c));
     ctxD.beginPath();
-    if (ctxD.roundRect) ctxD.roundRect(x - d.r * 0.5, d.y - d.len, d.r, d.len + d.r, d.r);
-    else ctxD.rect(x - d.r * 0.5, d.y - d.len, d.r, d.len + d.r);
+    if (ctxD.roundRect) ctxD.roundRect(x - rw * 0.5, y - d.len, rw, d.len + d.r, rw);
+    else ctxD.rect(x - rw * 0.5, y - d.len, rw, d.len + d.r);
     ctxD.fillStyle = pal.foam;
     ctxD.fill();
     ctxD.beginPath();                       /* the bead at the leading edge */
-    ctxD.arc(x, d.y + d.r * 0.4, d.r * 0.75, 0, TAU);
+    ctxD.ellipse(x, y + d.r * 0.4, rw * 0.75, d.r * 0.75, 0, 0, TAU);
     ctxD.fill();
   }
   ctxD.globalAlpha = 1;
