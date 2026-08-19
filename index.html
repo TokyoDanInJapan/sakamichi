@@ -490,7 +490,12 @@ const G = {
 
 function layoutGlass(){
   const compact = W < 1100;
-  const maxH = H * (compact ? 0.46 : 0.58) * (cfg.glassSize / 100);
+  const bottomAt = compact ? 0.68 : 0.84;      /* where the glass stands */
+  const nominal  = compact ? 0.46 : 0.58;      /* its height at the house size */
+  /* the camera that gives a house-sized glass the shape it should have here */
+  camLens = nominal / (BASE_OPEN - RIM_OPEN);
+  camEye  = BASE_OPEN * camLens - bottomAt;
+  const maxH = H * nominal * (cfg.glassSize / 100);
   let gh = clamp(maxH, 140, H * 0.80);
   let topHalf = gh * 0.583 / 2;
   const widthCap = W * (compact ? 0.34 : 0.30);
@@ -500,7 +505,7 @@ function layoutGlass(){
   G.topHalf = topHalf;
   G.botHalf = topHalf * 0.68;
   G.cx = W / 2;
-  G.bottom = H * (compact ? 0.68 : 0.84);
+  G.bottom = H * bottomAt;
   G.top = G.bottom - gh;
   G.wall = Math.max(2.5, topHalf * 0.045);
   G.baseH = gh * 0.06;
@@ -555,15 +560,21 @@ function surfaceAt(x){
    and base all follow this single rule, so resizing the glass swings its rim
    the way moving a real glass would — rather than dragging the camera along
    with it, which is what an ellipse ratio tied to the glass itself does. */
-const EYE_Y = -0.201;          // eye level, in viewport heights above the frame
-const LENS  = 3.30;            // focal length, in viewport heights
+/* Rather than fixing an eye level and a lens outright, the glass is given the
+   shape it ought to have — these two, read off the reference photograph — and
+   the camera that produces them follows from wherever the layout has stood
+   the glass. A narrow screen stands it higher in the frame to leave room for
+   the copy, and without this it would be photographed from somewhere else and
+   come out a different shape on a phone than on a desk. */
+const RIM_OPEN = 0.1397, BASE_OPEN = 0.3155;
+let camEye = 0.201, camLens = 3.30;   // both in viewport heights, set by layoutGlass
 /* A horizontal circle sitting a depth d below the eye opens to an ellipse of
    ry/rx = d / f. Both the rim and the base take their openness from this one
    camera, so the ratio between them is the eye level's to set and nothing
    else's: sit the eye too high and the base flattens towards the rim, which
    is what told on the glass in the reference photograph — its base opens to
    0.316 where its rim is barely a fifth of that. */
-const ryAt = y => clamp((y / Math.max(H, 1) - EYE_Y) / LENS, 0.03, 0.55);
+const ryAt = y => clamp((y / Math.max(H, 1) + camEye) / camLens, 0.03, 0.55);
 const baseBulge = () => ryAt(G.bottom) * G.botHalf;
 /* How much bar top shows behind the glass — a property of the room, so it is
    measured against the viewport, not the glass. Mirrored in the shader. */
@@ -874,10 +885,13 @@ function addFoam(x, r){
   /* Lift tops out below the band height, so the settled outline stays level */
   const lift = rand(-0.25, 0.88);
   const band = headBand();
-  const lim = innerHalfAt(restSurfaceY()) - r * 0.18;
+  const oy = -(r * 0.45 + lift * band) + rand(-3, 3);
+  /* The wall that holds it is the one at the height it rides at: measured at
+     the rest level instead, a swell pens the head in and a trough lets it out. */
+  const lim = Math.max(4, innerHalfAt(surfaceAt(x) - ellipseDy(x) * 0.4 + oy) - r * 0.18);
   foam.push({
     x: clamp(x, G.cx - lim, G.cx + lim),
-    oy: -(r * 0.45 + lift * band) + rand(-3, 3),
+    oy,
     vy: rand(-6, 2), vx: rand(-4, 4), r, lift,
     cell: Math.random(), cellR: rand(0.48, 0.78),
     seed: Math.random() * TAU, life: rand(4, 11)
@@ -953,7 +967,13 @@ function updateFoam(dt){
   const target = Math.round(clamp(hw / 3.2, 14, capFoam) * (0.25 + depth * 0.95));
 
   let spawn = Math.min(8, target - foam.length);
-  while (spawn-- > 0) addFoam(G.cx + rand(-1, 1) * hw * 0.98, foamRadius(depth));
+  while (spawn-- > 0){
+    /* placed by its share of the width the glass has where the head is riding,
+       so the crest reaches the wall and the trough is not overfilled */
+    const u = rand(-0.98, 0.98);
+    const ride = innerHalfAt(surfaceAt(G.cx + u * hw));
+    addFoam(G.cx + u * Math.max(4, ride), foamRadius(depth));
+  }
 
   for (let i = foam.length - 1; i >= 0; i--){
     const f = foam[i];
@@ -968,8 +988,9 @@ function updateFoam(dt){
     f.vx *= 0.93;
     f.x += (f.vx + Math.sin(f.seed * 0.8 + f.r) * churn * 5) * dt;
 
-    /* The head is held by the walls, not wrapped around them */
-    const lim = hw - f.r * 0.18;
+    /* The head is held by the walls, not wrapped around them — by the wall at
+       the height this blob rides at, which a swell and a trough both move */
+    const lim = Math.max(4, innerHalfAt(surfaceAt(f.x) - ellipseDy(f.x) * 0.4 + f.oy) - f.r * 0.18);
     if (f.x < G.cx - lim){ f.x = G.cx - lim; f.vx *= -0.5; }
     if (f.x > G.cx + lim){ f.x = G.cx + lim; f.vx *= -0.5; }
 

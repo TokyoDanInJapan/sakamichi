@@ -176,8 +176,11 @@ edge to edge, so keep that padding if you swap in your own.
 the base is 0.68 of the rim. Change `HOUSE` in the script to set the default
 recipe, and `PRESETS` for the style chips.
 
-**Camera.** One camera serves the whole scene, stated as two numbers in
-viewport heights: `EYE_Y`, the eye level, and `LENS`, the focal length. A
+**Camera.** One camera serves the whole scene. Rather than fixing it outright,
+the glass is given the shape it ought to have — `RIM_OPEN` and `BASE_OPEN`,
+read off the reference photograph — and the eye level and focal length that
+produce them follow from wherever the layout has stood the glass, so a phone
+and a desk show the same glass rather than two different ones. A
 horizontal circle sitting a depth `d` below the eye projects to an ellipse of
 `ry/rx = d / f`, so `ryAt(y)` gives every ellipse — rim, beer surface,
 interior floor, base — its openness from its own height alone.
@@ -185,8 +188,8 @@ interior floor, base — its openness from its own height alone.
 The eye level alone fixes how much rounder the base is than the rim, and the
 lens then fixes both absolutely. Sit the eye too high and the base flattens
 towards the rim, which is the giveaway of a distant, telephoto view; the
-values here are read off the reference photograph, whose base ellipse opens to
-0.316 against a rim of 0.14.
+photograph's base ellipse opens to 0.316 against a rim of 0.14, and every
+viewport here is held to that.
 
 Because the rule belongs to the camera rather than to the glass, resizing the
 glass swings its ellipses the way moving a real glass would: a short glass
