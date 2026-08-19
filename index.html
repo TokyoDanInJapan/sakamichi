@@ -693,10 +693,10 @@ function liquidPath(ctx){
 /* ================================================================== *
  * Rendering
  * ================================================================== */
-/* Everything on the bar top, drawn in page coordinates. At rest none of it
-   changes frame to frame, so it is rendered once into an offscreen strip and
-   blitted until something it depends on moves — the blurred reflections and
-   their gradients were being repainted every frame for a still image. */
+/* Everything on the bar top, drawn in page coordinates. Kept as its own
+   function: caching it to an offscreen strip and blitting that composites
+   differently from painting it in place, and the difference tells on the
+   plane, so it is drawn straight onto the canvas. */
 function drawBarTop(ctx){
   /* The bar top: the wall meets it back at the horizon, behind the glass,
      so the floor shows behind the pour and the glass stands ON the plane.
@@ -810,7 +810,6 @@ function drawBarTop(ctx){
   ctx.fillRect(0, hY, W, 1);
 }
 
-let barCanvas = null, barCtx = null, barKey = "";
 
 function drawLiquid(){
   ctxL.clearRect(0, 0, W, H);
@@ -823,27 +822,8 @@ function drawLiquid(){
     ctxL.globalAlpha = 1;
   }
 
-  /* The bar top, cached: repainted only while the wave is live or when the
-     level, parallax, palette or layout has moved it */
   const hY = horizonY();
-  let wave = 0;
-  for (let i = 0; i < N; i++){ const a = Math.abs(hArr[i]); if (a > wave) wave = a; }
-  /* The wave only shows in the reflection's far, faded end — its visible part
-     near the foot is the beer's bottom, which the wave does not move. Ambient
-     ripples sit under ~10px, so only a real slosh forces a live repaint. */
-  const live = wave > 14;
-  const key = live ? "" : [W | 0, H | 0, dpr, pal.dark, palVersion, !!logoWall, cfg.glassSize,
-    Math.round(level * 400), Math.round(parX * 2), Math.round(parY * 2)].join();
-  if (live || key !== barKey){
-    barKey = key;
-    const bw = Math.round(W * dpr), bh = Math.round((H - hY) * dpr);
-    if (!barCanvas){ barCanvas = document.createElement("canvas"); barCtx = barCanvas.getContext("2d"); }
-    if (barCanvas.width !== bw || barCanvas.height !== bh){ barCanvas.width = bw; barCanvas.height = bh; }
-    barCtx.setTransform(dpr, 0, 0, dpr, 0, -hY * dpr);
-    barCtx.clearRect(0, hY, W, H - hY);
-    drawBarTop(barCtx);
-  }
-  ctxL.drawImage(barCanvas, 0, hY, W, H - hY);
+  drawBarTop(ctxL);
 
   if (level <= 0.001) return;
 
@@ -1047,6 +1027,21 @@ function drawFoam(){
     ctxF.arc(f.x, surfaceAt(f.x) - ellipseDy(f.x) * 0.4 + f.oy, f.r, 0, TAU);
     ctxF.fill();
   }
+
+  /* The head is soaked through where it stands in the beer, and takes its
+     colour there. Painted onto the head itself, so it can only tint foam that
+     is actually there: anchored to the beer line instead, it ruled a stripe
+     across the head, whose blobs hang well below that line. */
+  const wy = restSurfaceY() + ellipseDy(G.cx);
+  const wet = ctxF.createLinearGradient(0, wy + 26 * G.scale, 0, wy - 20 * G.scale);
+  wet.addColorStop(0, pal.foamWet);
+  wet.addColorStop(1, "transparent");
+  ctxF.globalCompositeOperation = "source-atop";
+  ctxF.globalAlpha = 0.5;
+  ctxF.fillStyle = wet;
+  ctxF.fillRect(G.cx - G.topHalf, wy - 20 * G.scale, G.topHalf * 2, 46 * G.scale + 2);
+  ctxF.globalCompositeOperation = "source-over";
+  ctxF.globalAlpha = 1;
   ctxF.restore();
 }
 
@@ -1252,24 +1247,6 @@ function drawDetail(){
     ctxD.save();
     wallPath(ctxD, true, G.inTop - headBand() * 0.55, G.inBottom);
     ctxD.clip();
-
-    /* Wet foam at the beer line, soaked with the beer's colour */
-    const [l, , w] = surfaceSpan();
-    const colW = w / (N - 1);
-    const wetH = 9 * G.scale;
-    ctxD.beginPath();
-    ctxD.moveTo(l, frontY(l) + 1);
-    for (let i = 1; i < N; i++){ const x = l + i * colW; ctxD.lineTo(x, frontY(x) + 1); }
-    for (let i = N - 1; i >= 0; i--){ const x = l + i * colW; ctxD.lineTo(x, frontY(x) - wetH); }
-    ctxD.closePath();
-    const wy = restSurfaceY() + ellipseDy(G.cx);
-    const wet = ctxD.createLinearGradient(0, wy + 1, 0, wy - wetH);
-    wet.addColorStop(0, pal.foamWet);
-    wet.addColorStop(1, "transparent");
-    ctxD.globalAlpha = 0.55;
-    ctxD.fillStyle = wet;
-    ctxD.fill();
-    ctxD.globalAlpha = 1;
 
     ctxD.lineWidth = 1;
     ctxD.strokeStyle = pal.cell;
