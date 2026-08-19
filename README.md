@@ -176,14 +176,22 @@ edge to edge, so keep that padding if you swap in your own.
 the base is 0.68 of the rim. Change `HOUSE` in the script to set the default
 recipe, and `PRESETS` for the style chips.
 
-**Camera.** One eye level serves the whole scene: `EYE_Y` sets it (in viewport
-heights above the frame) and `EYE_K` how fast ellipses open with distance
-below it. A horizontal circle at eye level would project to a line, so `ryAt(y)`
-gives every ellipse — rim, beer surface, interior floor, base — its openness
-from its own height alone. Because the rule belongs to the camera rather than
-to the glass, resizing the glass swings its rim the way moving a real glass
-would: a short glass sits lower, so its rim opens up; a tall one closes
-towards eye level. `BAR_DEPTH` sets how much bar shows behind the glass and is
+**Camera.** One camera serves the whole scene, stated as two numbers in
+viewport heights: `EYE_Y`, the eye level, and `LENS`, the focal length. A
+horizontal circle sitting a depth `d` below the eye projects to an ellipse of
+`ry/rx = d / f`, so `ryAt(y)` gives every ellipse — rim, beer surface,
+interior floor, base — its openness from its own height alone.
+
+The eye level alone fixes how much rounder the base is than the rim, and the
+lens then fixes both absolutely. Sit the eye too high and the base flattens
+towards the rim, which is the giveaway of a distant, telephoto view; the
+values here are read off the reference photograph, whose base ellipse opens to
+0.316 against a rim of 0.14.
+
+Because the rule belongs to the camera rather than to the glass, resizing the
+glass swings its ellipses the way moving a real glass would: a short glass
+sits lower, so both open up; a tall one carries its rim towards eye level and
+closes it. `BAR_DEPTH` sets how much bar shows behind the glass and is
 measured against the viewport for the same reason (its value is mirrored in
 the shader's `horizonY`).
 

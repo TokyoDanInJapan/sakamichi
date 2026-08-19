@@ -555,9 +555,15 @@ function surfaceAt(x){
    and base all follow this single rule, so resizing the glass swings its rim
    the way moving a real glass would — rather than dragging the camera along
    with it, which is what an ellipse ratio tied to the glass itself does. */
-const EYE_Y = -0.795;          // eye level, in viewport heights above the frame
-const EYE_K = 0.1232;          // how fast ellipses open with distance below it
-const ryAt = y => clamp(EYE_K * (y / Math.max(H, 1) - EYE_Y), 0.03, 0.42);
+const EYE_Y = -0.201;          // eye level, in viewport heights above the frame
+const LENS  = 3.30;            // focal length, in viewport heights
+/* A horizontal circle sitting a depth d below the eye opens to an ellipse of
+   ry/rx = d / f. Both the rim and the base take their openness from this one
+   camera, so the ratio between them is the eye level's to set and nothing
+   else's: sit the eye too high and the base flattens towards the rim, which
+   is what told on the glass in the reference photograph — its base opens to
+   0.316 where its rim is barely a fifth of that. */
+const ryAt = y => clamp((y / Math.max(H, 1) - EYE_Y) / LENS, 0.03, 0.55);
 const baseBulge = () => ryAt(G.bottom) * G.botHalf;
 /* How much bar top shows behind the glass — a property of the room, so it is
    measured against the viewport, not the glass. Mirrored in the shader. */
