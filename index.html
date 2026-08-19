@@ -388,8 +388,12 @@ body[data-chrome="off"] .panel-toggle{opacity:0;pointer-events:none}
       <span>Motion</span>
       <div class="chips"><button class="chip" id="motionBtn" aria-pressed="true">Running</button></div>
     </div>
+    <div class="row" id="tiltRow" hidden>
+      <span>Tilt</span>
+      <div class="chips"><button class="chip" id="tiltBtn" aria-pressed="false">Off</button></div>
+    </div>
     <button class="reset" id="reset">Reset to house recipe</button>
-    <p class="hint">Stir the beer with your cursor. Click for a splash. Slosh it over the rim and the glass tops itself back up. Press <b>C</b> to hide the interface.</p>
+    <p class="hint">Stir the beer with your cursor, or tilt the phone and let it lean. Click for a splash. Slosh it over the rim and the glass tops itself back up. Press <b>C</b> to hide the interface.</p>
     <p class="renderer"><span>Canvas 2D</span> <a href="webgl.html">Shader version</a></p>
   </div>
 </section>
@@ -430,7 +434,7 @@ const PRESETS = {
 };
 
 const STORE_KEY = "sakamichi-splash-v2";
-const cfg = Object.assign({}, HOUSE, {theme:"auto", goo:true, running:true, preset:"helles"});
+const cfg = Object.assign({}, HOUSE, {tilt:false, theme:"auto", goo:true, running:true, preset:"helles"});
 
 try{
   const saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
@@ -670,11 +674,13 @@ function stepWaves(){
   const c2   = 0.18 + (cfg.waveSpeed / 100) * 0.30;
   const rest = 0.0010 + (cfg.waveSpeed / 100) * 0.0040;
   const damp = 0.9998 - (cfg.viscosity / 100) * 0.0200;
+  const tf = tiltForce();
   for (let sub = 0; sub < 2; sub++){
     for (let i = 0; i < N; i++){
       const l = hArr[i > 0 ? i - 1 : 0];
       const r = hArr[i < N - 1 ? i + 1 : N - 1];
-      vArr[i] += c2 * (l + r - 2 * hArr[i]) - rest * hArr[i];
+      vArr[i] += c2 * (l + r - 2 * hArr[i]) - rest * hArr[i]
+               + tf * ((i / (N - 1)) - 0.5) * 2;
       vArr[i] *= damp;
     }
     for (let i = 0; i < N; i++) hArr[i] = clamp(hArr[i] + vArr[i], -maxAmp, maxAmp);
@@ -765,6 +771,62 @@ function updateLevel(dt){
     : 0.34;
   level = Math.min(target, level + rate * dt);
   if (level >= target - 0.0005) poured = true;
+}
+
+/* ================================================================== *
+ * Tilt — the phone's own gravity, which the beer answers to
+ * ================================================================== */
+let tiltWant = 0, tiltNow = 0, tiltLive = false;
+
+/* beta and gamma are the device's own axes, so they have to be turned into
+   the page's before the beer can lean the way the phone is leaning */
+function onOrient(e){
+  if (e.beta == null && e.gamma == null) return;
+  const r = Math.PI / 180;
+  const a = (((screen.orientation && screen.orientation.angle) || window.orientation || 0)) * r;
+  const gx = Math.sin((e.gamma || 0) * r);
+  const gy = Math.sin((e.beta  || 0) * r);
+  tiltWant = clamp(gx * Math.cos(a) + gy * Math.sin(a), -1, 1);
+  tiltLive = true;
+}
+
+/* a shake throws the pour about, as knocking the bar would */
+function onMotion(e){
+  const a = e.acceleration;
+  if (!a) return;
+  const m = Math.hypot(a.x || 0, a.y || 0, a.z || 0);
+  if (m > 11 && level > 0.02){
+    splash(G.cx + rand(-1, 1) * G.topHalf * 0.6, clamp(m * 0.12, 0.4, 4) * (cfg.agitation / 100),
+           G.topHalf * rand(0.4, 0.9));
+  }
+}
+
+const tiltAsks = typeof DeviceOrientationEvent !== "undefined" &&
+                 typeof DeviceOrientationEvent.requestPermission === "function";
+
+function tiltListen(){
+  window.addEventListener("deviceorientation", onOrient, {passive:true});
+  window.addEventListener("devicemotion", onMotion, {passive:true});
+}
+
+async function tiltEnable(){
+  try{
+    if (tiltAsks){
+      const ok = await DeviceOrientationEvent.requestPermission();
+      if (ok !== "granted") return false;
+      if (typeof DeviceMotionEvent !== "undefined" && DeviceMotionEvent.requestPermission){
+        await DeviceMotionEvent.requestPermission().catch(() => {});
+      }
+    }
+    tiltListen();
+    return true;
+  }catch(e){ return false; }
+}
+
+/* How hard the beer is pulled downhill. It is a standing force, not a nudge,
+   so the surface settles at a lean and sloshes on the way there. */
+function tiltForce(){
+  return cfg.tilt && tiltLive ? tiltNow * 0.22 * (cfg.agitation / 100) : 0;
 }
 
 /* ================================================================== *
@@ -2015,6 +2077,7 @@ function frame(now){
   while (acc >= FIXED && steps < 4){ stepWaves(); acc -= FIXED; steps++; }
   if (acc > FIXED) acc = 0;
 
+  tiltNow += (tiltWant - tiltNow) * Math.min(1, dt * 6);
   updateParallax(dt);
   pointerForces(dt);
   ambient(dt);
@@ -2131,6 +2194,21 @@ document.querySelectorAll("[data-theme-set]").forEach(btn => {
 mqDark.addEventListener("change", () => { buildPalette(); if (!cfg.running) renderAll(); });
 
 const gooBtn = document.getElementById("gooBtn");
+const tiltRow = document.getElementById("tiltRow");
+const tiltBtn = document.getElementById("tiltBtn");
+/* Desktop browsers carry the interface without the hardware, so the control
+   is offered only where the pointer says there is a device to tilt */
+if (isCoarse && typeof DeviceOrientationEvent !== "undefined") tiltRow.hidden = false;
+/* Where permission has to be asked it can only be asked from a tap, so a
+   remembered setting reattaches quietly and waits for one if it must. */
+if (cfg.tilt && !tiltAsks) tiltListen();
+tiltBtn.addEventListener("click", async () => {
+  if (cfg.tilt){ cfg.tilt = false; }
+  else if (await tiltEnable()){ cfg.tilt = true; }
+  else { tiltBtn.textContent = "Blocked"; save(); return; }
+  syncChips(); save();
+});
+
 const motionBtn = document.getElementById("motionBtn");
 gooBtn.addEventListener("click", () => { cfg.goo = !cfg.goo; applyGoo(); syncChips(); save(); });
 motionBtn.addEventListener("click", () => {
@@ -2149,6 +2227,8 @@ function syncChips(){
   gooBtn.textContent = cfg.goo ? "On" : "Off";
   motionBtn.setAttribute("aria-pressed", String(cfg.running));
   motionBtn.textContent = cfg.running ? "Running" : "Paused";
+  tiltBtn.setAttribute("aria-pressed", String(cfg.tilt));
+  tiltBtn.textContent = cfg.tilt ? "On" : "Off";
 }
 
 document.getElementById("reset").addEventListener("click", () => {

@@ -37,6 +37,13 @@ drops. The beer is bounded by that geometry, not by the viewport.
   it piles up against the leading wall. Anything that climbs past the rim
   leaves the glass: the wave is clipped at the lip, the level drops by the
   volume lost, and the head is thrown over the edge to run down the outside.
+- **Tilting.** On a phone, turning the **Tilt** control on lets the device's
+  own gravity pull the pour downhill: the surface settles at a lean and sloshes
+  on the way there, and a hard shake throws a splash. It is a standing force
+  rather than a nudge, so holding the phone over will empty the glass over the
+  rim the same way stirring it hard does. Where the browser insists on
+  permission the control asks for it on the tap, and it is offered only on a
+  device that reports a coarse pointer.
 - **Refilling.** Once it has been poured, the glass tops itself back up at the
   slow refill rate — a spilled tenth takes several seconds to return. Moving
   the fill line by hand is treated as a deliberate change and applies at once.
@@ -127,7 +134,7 @@ to hide the whole interface.
 - **Glass** — size and condensation (plus foam relief, shader version)
 - **Colour** — beer hue and richness (plus clarity, shader version)
 - **Optics** — caustics, light angle, gloss (shader version)
-- **Display** — light/dark/auto, gooey head on or off, motion running or paused
+- **Display** — light/dark/auto, gooey head on or off, motion running or paused, tilt (phones)
 
 Settings persist in `localStorage`. **Reset to house recipe** restores the
 defaults.
