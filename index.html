@@ -488,7 +488,7 @@ const isCoarse = matchMedia("(pointer: coarse)").matches;
  * ------------------------------------------------------------------ */
 const G = {
   cx:0, top:0, bottom:0, h:0, topHalf:0, botHalf:0,
-  wall:0, baseH:0, corner:0, inTop:0, inBottom:0, inH:0,
+  wall:0, baseH:0, inTop:0, inBottom:0, inH:0,
   ryTop:0.13, scale:1
 };
 
@@ -513,7 +513,6 @@ function layoutGlass(){
   G.top = G.bottom - gh;
   G.wall = Math.max(2.5, topHalf * 0.045);
   G.baseH = gh * 0.06;
-  G.corner = G.botHalf * 0.30;
   G.inTop = G.top + G.wall * 0.5;
   G.inBottom = G.bottom - G.baseH;
   G.inH = G.inBottom - G.inTop;
@@ -543,10 +542,16 @@ const targetLevel = () => cfg.fill / 100;
 const restSurfaceY = () => G.inBottom - level * G.inH;
 
 /* Wave columns span the interior at the current surface height */
+const spanCache = [0, 0, 0];
+let spanKey = NaN;
 function surfaceSpan(){
   const y = restSurfaceY();
-  const hw = innerHalfAt(y);
-  return [G.cx - hw, G.cx + hw, hw * 2];
+  if (y !== spanKey){
+    spanKey = y;
+    const hw = innerHalfAt(y);
+    spanCache[0] = G.cx - hw; spanCache[1] = G.cx + hw; spanCache[2] = hw * 2;
+  }
+  return spanCache;
 }
 
 function surfaceAt(x){
@@ -629,6 +634,7 @@ function resize(){
   }
 
   layoutGlass();
+  buildPaths();
 
   const span = innerHalfAt(G.inTop) * 2;
   N = clamp(Math.round(span / 5), 32, 220);
@@ -652,6 +658,7 @@ function resize(){
   }
   bubbles.length = 0; foam.length = 0; drops.length = 0; mist.length = 0; drips.length = 0;
   dew.length = 0; lace.length = 0;
+  spanKey = NaN;
 }
 
 /* ================================================================== *
@@ -1254,7 +1261,9 @@ const isDark = () => {
 };
 
 let pal = {};
+let palVersion = 0;
 function buildPalette(){
+  palVersion++;
   const dark = isDark();
   const h = cfg.hue;
   const r = cfg.richness / 100;
@@ -1313,12 +1322,21 @@ function wallPath(ctx, inner, fromY, toY){
    joined to the walls at the ellipse's widest points, down to the front arc
    of the base ellipse the glass stands on. Pass fromY to start below the rim
    with a flat chord instead (useful as a clip for the base). */
-function glassSilhouette(ctx, fromY){
+/* Static per layout, so each is traced once in resize() and reused as a
+   Path2D — they were being rebuilt point by point several times a frame */
+const PATHS = {sil:null, base:null, interior:null};
+function buildPaths(){
+  PATHS.sil = glassSilhouette();
+  PATHS.base = glassSilhouette(G.bottom - G.baseH * 2.1);
+  PATHS.interior = interiorPath();
+}
+
+function glassSilhouette(fromY){
+  const ctx = new Path2D();
   const rimRy = G.topHalf * G.ryTop;
   const yT = fromY == null ? G.top + rimRy : fromY;
   const bry = baseBulge();
   const steps = 22;
-  ctx.beginPath();
   if (fromY == null) ctx.ellipse(G.cx, yT, halfAt(yT), rimRy, 0, Math.PI, TAU);
   else { ctx.moveTo(G.cx - halfAt(yT), yT); ctx.lineTo(G.cx + halfAt(yT), yT); }
   for (let i = 1; i <= steps; i++){
@@ -1331,14 +1349,15 @@ function glassSilhouette(ctx, fromY){
     ctx.lineTo(G.cx - halfAt(y), y);
   }
   ctx.closePath();
+  return ctx;
 }
 
 /* The inside of the glass: the walls at every height, closed by the floor's
    own front arc. The beer is bounded by this, not by its own outline. */
-function interiorPath(ctx){
+function interiorPath(){
+  const ctx = new Path2D();
   const steps = 20;
   const ihw = innerHalfAt(G.inBottom);
-  ctx.beginPath();
   for (let i = 0; i <= steps; i++){
     const y = lerp(G.inTop, G.inBottom, i / steps);
     const x = G.cx - innerHalfAt(y);
@@ -1350,6 +1369,7 @@ function interiorPath(ctx){
     ctx.lineTo(G.cx + innerHalfAt(y), y);
   }
   ctx.closePath();
+  return ctx;
 }
 
 /* The beer: bounded above by the far edge of its surface, below by the glass */
@@ -1383,6 +1403,125 @@ function liquidPath(ctx){
 /* ================================================================== *
  * Rendering
  * ================================================================== */
+/* Everything on the bar top, drawn in page coordinates. At rest none of it
+   changes frame to frame, so it is rendered once into an offscreen strip and
+   blitted until something it depends on moves — the blurred reflections and
+   their gradients were being repainted every frame for a still image. */
+function drawBarTop(ctx){
+  /* The bar top: the wall meets it back at the horizon, behind the glass,
+     so the floor shows behind the pour and the glass stands ON the plane.
+     The wall mirrors about the horizon; the pour about its own contact. */
+  const bry = baseBulge();
+  const hY = horizonY();
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, hY, W, H - hY);
+  ctx.clip();
+  if (logoWall){
+    const [lx, ly, lw, lh] = logoRect();
+    ctx.save();
+    ctx.translate(0, 2 * hY);
+    ctx.scale(1, -1);
+    ctx.filter = "blur(5px)";                 /* frosted, not polished */
+    ctx.globalAlpha = pal.dark ? 0.07 : 0.06;
+    ctx.drawImage(logoWall, lx, ly, lw, lh);
+    ctx.restore();
+  }
+  /* The wall reflection sinks into the bar */
+  const fadeR = ctx.createLinearGradient(0, hY, 0, hY + Math.max(140, G.h * 0.4));
+  fadeR.addColorStop(0, hexA(pal.ground, 0.35));
+  fadeR.addColorStop(1, hexA(pal.ground, 1));
+  ctx.fillStyle = fadeR;
+  ctx.fillRect(0, hY, W, H - hY);
+
+  if (level > 0.001){
+    const syR = restSurfaceY();
+    const bodyR = ctx.createLinearGradient(0, syR - maxAmp, 0, G.inBottom);
+    bodyR.addColorStop(0,    pal.beerTop);
+    bodyR.addColorStop(0.34, pal.beerMid);
+    bodyR.addColorStop(0.86, pal.beerBot);
+    bodyR.addColorStop(1,    pal.beerDeep);
+    ctx.save();
+    /* Clipped to below the footprint's front arc — the glass meets the floor
+       along that whole curve, so the reflection begins on it, not on a line */
+    ctx.beginPath();
+    ctx.moveTo(W, H);
+    ctx.lineTo(W, G.bottom);
+    ctx.lineTo(G.cx + G.botHalf, G.bottom);
+    ctx.ellipse(G.cx, G.bottom, G.botHalf, bry, 0, 0, Math.PI);
+    ctx.lineTo(0, G.bottom);
+    ctx.lineTo(0, H);
+    ctx.closePath();
+    ctx.clip();
+    /* Mirrored about the footprint centre, which is where the glass touches */
+    ctx.translate(0, 2 * G.bottom);
+    ctx.scale(1, -1);
+    ctx.filter = "blur(6px)";
+    /* The glass reflects as well as the beer it holds. Without its silhouette
+       the reflection is only as wide as the pour, so it leaves the foot as a
+       flat slab set in from the glass's edges instead of flowing out of them. */
+    ctx.globalAlpha = pal.dark ? 0.16 : 0.12;
+    ctx.fillStyle = pal.glassLight;
+    ctx.fill(PATHS.sil);
+    ctx.globalAlpha = pal.dark ? 0.30 : 0.22;
+    ctx.lineWidth = Math.max(1.5, G.wall * 0.7);
+    ctx.strokeStyle = pal.glassLight;
+    ctx.stroke();
+    ctx.globalAlpha = 0.22;
+    liquidPath(ctxL);
+    ctx.fillStyle = bodyR;
+    ctx.fill();
+    /* The beer stands a base-thickness above the floor, so its mirror image
+       starts that far below the foot. The thick base between them is lit
+       through by the pour, so it carries the beer's own deep colour and the
+       reflection runs unbroken out of the glass. */
+    ctx.beginPath();
+    ctx.moveTo(G.cx - halfAt(G.inBottom), G.inBottom);
+    ctx.lineTo(G.cx + halfAt(G.inBottom), G.inBottom);
+    ctx.lineTo(G.cx + halfAt(G.bottom), G.bottom);
+    ctx.lineTo(G.cx - halfAt(G.bottom), G.bottom);
+    ctx.closePath();
+    ctx.fillStyle = pal.beerDeep;
+    ctx.fill();
+    ctx.restore();
+
+    /* ...and the whole reflection sinks into the bar as it runs away from
+       the foot, which is what reads as distance across the surface */
+    const rFade = ctx.createLinearGradient(0, G.bottom, 0, G.bottom + Math.max(130, G.h * 0.5));
+    rFade.addColorStop(0, hexA(pal.ground, 0));
+    rFade.addColorStop(0.5, hexA(pal.ground, 0.62));
+    rFade.addColorStop(1, hexA(pal.ground, 1));
+    ctx.fillStyle = rFade;
+    ctx.fillRect(0, G.bottom, W, H - G.bottom);
+  }
+
+  /* A plane, not a band: bright at the grazing horizon, falling toward the
+     viewer, with frost streaks that spread apart as they approach */
+  const tone = ctx.createLinearGradient(0, hY, 0, H);
+  if (pal.dark){
+    tone.addColorStop(0, "rgba(255,255,255,.05)");
+    tone.addColorStop(0.35, "rgba(255,255,255,0)");
+    tone.addColorStop(1, "rgba(0,0,0,.34)");
+  } else {
+    tone.addColorStop(0, "rgba(255,255,255,.35)");
+    tone.addColorStop(0.4, "rgba(255,255,255,0)");
+    tone.addColorStop(1, "rgba(14,19,25,.08)");
+  }
+  ctx.fillStyle = tone;
+  ctx.fillRect(0, hY, W, H - hY);
+  ctx.fillStyle = pal.dark ? "rgba(255,255,255,.016)" : "rgba(14,19,25,.02)";
+  for (let i = 0, ty = 3; hY + ty < H && i < 30; i++){
+    ctx.fillRect(0, hY + ty, W, 1);
+    ty *= 1.33;
+  }
+  ctx.restore();
+  /* A hairline where the wall meets the bar */
+  ctx.fillStyle = pal.dark ? "rgba(238,241,243,.05)" : "rgba(14,19,25,.06)";
+  ctx.fillRect(0, hY, W, 1);
+}
+
+let barCanvas = null, barCtx = null, barKey = "";
+
 function drawLiquid(){
   ctxL.clearRect(0, 0, W, H);
 
@@ -1394,117 +1533,27 @@ function drawLiquid(){
     ctxL.globalAlpha = 1;
   }
 
-  /* The bar top: the wall meets it back at the horizon, behind the glass,
-     so the floor shows behind the pour and the glass stands ON the plane.
-     The wall mirrors about the horizon; the pour about its own contact. */
-  const bry = baseBulge();
+  /* The bar top, cached: repainted only while the wave is live or when the
+     level, parallax, palette or layout has moved it */
   const hY = horizonY();
-  ctxL.save();
-  ctxL.beginPath();
-  ctxL.rect(0, hY, W, H - hY);
-  ctxL.clip();
-  if (logoWall){
-    const [lx, ly, lw, lh] = logoRect();
-    ctxL.save();
-    ctxL.translate(0, 2 * hY);
-    ctxL.scale(1, -1);
-    ctxL.filter = "blur(5px)";                 /* frosted, not polished */
-    ctxL.globalAlpha = pal.dark ? 0.07 : 0.06;
-    ctxL.drawImage(logoWall, lx, ly, lw, lh);
-    ctxL.restore();
+  let wave = 0;
+  for (let i = 0; i < N; i++){ const a = Math.abs(hArr[i]); if (a > wave) wave = a; }
+  /* The wave only shows in the reflection's far, faded end — its visible part
+     near the foot is the beer's bottom, which the wave does not move. Ambient
+     ripples sit under ~10px, so only a real slosh forces a live repaint. */
+  const live = wave > 14;
+  const key = live ? "" : [W | 0, H | 0, dpr, pal.dark, palVersion, !!logoWall, cfg.glassSize,
+    Math.round(level * 400), Math.round(parX * 2), Math.round(parY * 2)].join();
+  if (live || key !== barKey){
+    barKey = key;
+    const bw = Math.round(W * dpr), bh = Math.round((H - hY) * dpr);
+    if (!barCanvas){ barCanvas = document.createElement("canvas"); barCtx = barCanvas.getContext("2d"); }
+    if (barCanvas.width !== bw || barCanvas.height !== bh){ barCanvas.width = bw; barCanvas.height = bh; }
+    barCtx.setTransform(dpr, 0, 0, dpr, 0, -hY * dpr);
+    barCtx.clearRect(0, hY, W, H - hY);
+    drawBarTop(barCtx);
   }
-  /* The wall reflection sinks into the bar */
-  const fadeR = ctxL.createLinearGradient(0, hY, 0, hY + Math.max(140, G.h * 0.4));
-  fadeR.addColorStop(0, hexA(pal.ground, 0.35));
-  fadeR.addColorStop(1, hexA(pal.ground, 1));
-  ctxL.fillStyle = fadeR;
-  ctxL.fillRect(0, hY, W, H - hY);
-
-  if (level > 0.001){
-    const syR = restSurfaceY();
-    const bodyR = ctxL.createLinearGradient(0, syR - maxAmp, 0, G.inBottom);
-    bodyR.addColorStop(0,    pal.beerTop);
-    bodyR.addColorStop(0.34, pal.beerMid);
-    bodyR.addColorStop(0.86, pal.beerBot);
-    bodyR.addColorStop(1,    pal.beerDeep);
-    ctxL.save();
-    /* Clipped to below the footprint's front arc — the glass meets the floor
-       along that whole curve, so the reflection begins on it, not on a line */
-    ctxL.beginPath();
-    ctxL.moveTo(W, H);
-    ctxL.lineTo(W, G.bottom);
-    ctxL.lineTo(G.cx + G.botHalf, G.bottom);
-    ctxL.ellipse(G.cx, G.bottom, G.botHalf, bry, 0, 0, Math.PI);
-    ctxL.lineTo(0, G.bottom);
-    ctxL.lineTo(0, H);
-    ctxL.closePath();
-    ctxL.clip();
-    /* Mirrored about the footprint centre, which is where the glass touches */
-    ctxL.translate(0, 2 * G.bottom);
-    ctxL.scale(1, -1);
-    ctxL.filter = "blur(6px)";
-    /* The glass reflects as well as the beer it holds. Without its silhouette
-       the reflection is only as wide as the pour, so it leaves the foot as a
-       flat slab set in from the glass's edges instead of flowing out of them. */
-    ctxL.globalAlpha = pal.dark ? 0.16 : 0.12;
-    glassSilhouette(ctxL);
-    ctxL.fillStyle = pal.glassLight;
-    ctxL.fill();
-    ctxL.globalAlpha = pal.dark ? 0.30 : 0.22;
-    ctxL.lineWidth = Math.max(1.5, G.wall * 0.7);
-    ctxL.strokeStyle = pal.glassLight;
-    ctxL.stroke();
-    ctxL.globalAlpha = 0.22;
-    liquidPath(ctxL);
-    ctxL.fillStyle = bodyR;
-    ctxL.fill();
-    /* The beer stands a base-thickness above the floor, so its mirror image
-       starts that far below the foot. The thick base between them is lit
-       through by the pour, so it carries the beer's own deep colour and the
-       reflection runs unbroken out of the glass. */
-    ctxL.beginPath();
-    ctxL.moveTo(G.cx - halfAt(G.inBottom), G.inBottom);
-    ctxL.lineTo(G.cx + halfAt(G.inBottom), G.inBottom);
-    ctxL.lineTo(G.cx + halfAt(G.bottom), G.bottom);
-    ctxL.lineTo(G.cx - halfAt(G.bottom), G.bottom);
-    ctxL.closePath();
-    ctxL.fillStyle = pal.beerDeep;
-    ctxL.fill();
-    ctxL.restore();
-
-    /* ...and the whole reflection sinks into the bar as it runs away from
-       the foot, which is what reads as distance across the surface */
-    const rFade = ctxL.createLinearGradient(0, G.bottom, 0, G.bottom + Math.max(130, G.h * 0.5));
-    rFade.addColorStop(0, hexA(pal.ground, 0));
-    rFade.addColorStop(0.5, hexA(pal.ground, 0.62));
-    rFade.addColorStop(1, hexA(pal.ground, 1));
-    ctxL.fillStyle = rFade;
-    ctxL.fillRect(0, G.bottom, W, H - G.bottom);
-  }
-
-  /* A plane, not a band: bright at the grazing horizon, falling toward the
-     viewer, with frost streaks that spread apart as they approach */
-  const tone = ctxL.createLinearGradient(0, hY, 0, H);
-  if (pal.dark){
-    tone.addColorStop(0, "rgba(255,255,255,.05)");
-    tone.addColorStop(0.35, "rgba(255,255,255,0)");
-    tone.addColorStop(1, "rgba(0,0,0,.34)");
-  } else {
-    tone.addColorStop(0, "rgba(255,255,255,.35)");
-    tone.addColorStop(0.4, "rgba(255,255,255,0)");
-    tone.addColorStop(1, "rgba(14,19,25,.08)");
-  }
-  ctxL.fillStyle = tone;
-  ctxL.fillRect(0, hY, W, H - hY);
-  ctxL.fillStyle = pal.dark ? "rgba(255,255,255,.016)" : "rgba(14,19,25,.02)";
-  for (let i = 0, ty = 3; hY + ty < H && i < 30; i++){
-    ctxL.fillRect(0, hY + ty, W, 1);
-    ty *= 1.33;
-  }
-  ctxL.restore();
-  /* A hairline where the wall meets the bar */
-  ctxL.fillStyle = pal.dark ? "rgba(238,241,243,.05)" : "rgba(14,19,25,.06)";
-  ctxL.fillRect(0, hY, W, 1);
+  ctxL.drawImage(barCanvas, 0, hY, W, H - hY);
 
   if (level <= 0.001) return;
 
@@ -1541,8 +1590,7 @@ function drawLiquid(){
   ctxL.restore();
 
   ctxL.save();
-  interiorPath(ctxL);
-  ctxL.clip();
+  ctxL.clip(PATHS.interior);
   liquidPath(ctxL);
   const body = ctxL.createLinearGradient(0, sy - maxAmp, 0, G.inBottom);
   body.addColorStop(0,    pal.beerTop);
@@ -1736,17 +1784,15 @@ function drawGlass(ctx){
   ctx.restore();
 
   /* Body of the glass, rim ellipse and walls as one silhouette */
-  glassSilhouette(ctx);
   ctx.fillStyle = pal.glassTint;
-  ctx.fill();
+  ctx.fill(PATHS.sil);
 
   /* Walls: a bright inner line and a soft outer edge that follows the rim */
   ctx.save();
   ctx.lineJoin = "round";
   ctx.strokeStyle = pal.glassEdge;
   ctx.lineWidth = Math.max(1, G.wall * 0.28);
-  glassSilhouette(ctx);
-  ctx.stroke();
+  ctx.stroke(PATHS.sil);
 
   ctx.strokeStyle = pal.glassLight;
   ctx.lineWidth = Math.max(1, G.wall * 0.34);
@@ -1769,8 +1815,7 @@ function drawGlass(ctx){
      one rotated gradient draws it smoothly, where a stack of slices would
      step sideways at every boundary. */
   ctx.save();
-  glassSilhouette(ctx);
-  ctx.clip();
+  ctx.clip(PATHS.sil);
   /* Clipped again to below the near lip. The bands run down the wall we see
      through, and that wall starts at the rim's front arc — so each band is
      cut by the lip's own curve and emerges from it, rather than every band
@@ -1849,8 +1894,7 @@ function drawGlass(ctx){
   /* Thick base, down to the front arc the glass stands on */
   const bry = baseBulge();
   ctx.save();
-  glassSilhouette(ctx, G.bottom - G.baseH * 2.1);
-  ctx.clip();
+  ctx.clip(PATHS.base);
   const baseGrad = ctx.createLinearGradient(0, G.bottom - G.baseH * 2.1, 0, G.bottom + bry);
   baseGrad.addColorStop(0, "rgba(255,255,255,0)");
   baseGrad.addColorStop(0.55, pal.dark ? "rgba(255,255,255,.10)" : "rgba(255,255,255,.45)");

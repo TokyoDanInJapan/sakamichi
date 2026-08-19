@@ -523,7 +523,7 @@ uniform vec2  uRes;
 uniform vec2  uRyKs;     // ellipse openness: x at the surface, y at the base
 uniform vec4  uGlassA;   // cx, top, bottom, height
 uniform vec4  uGlassB;   // topHalf, botHalf, wall, baseH
-uniform vec4  uGlassC;   // corner, interiorTop, interiorBottom, rimRatio
+uniform vec4  uGlassC;   // (unused), interiorTop, interiorBottom, rimRatio
 
 #define GCX     uGlassA.x
 #define GTOP    uGlassA.y
@@ -533,7 +533,6 @@ uniform vec4  uGlassC;   // corner, interiorTop, interiorBottom, rimRatio
 #define GBH     uGlassB.y
 #define GWALL   uGlassB.z
 #define GBASE   uGlassB.w
-#define GCORNER uGlassC.x
 #define GINTOP  uGlassC.y
 #define GINBOT  uGlassC.z
 #define GRYK    uGlassC.w
@@ -1317,7 +1316,7 @@ const isCoarse = matchMedia("(pointer: coarse)").matches;
  * ------------------------------------------------------------------ */
 const G = {
   cx:0, top:0, bottom:0, h:0, topHalf:0, botHalf:0,
-  wall:0, baseH:0, corner:0, inTop:0, inBottom:0, inH:0,
+  wall:0, baseH:0, inTop:0, inBottom:0, inH:0,
   ryTop:0.13, scale:1
 };
 
@@ -1342,7 +1341,6 @@ function layoutGlass(){
   G.top = G.bottom - gh;
   G.wall = Math.max(2.5, topHalf * 0.045);
   G.baseH = gh * 0.06;
-  G.corner = G.botHalf * 0.30;
   G.inTop = G.top + G.wall * 0.5;
   G.inBottom = G.bottom - G.baseH;
   G.inH = G.inBottom - G.inTop;
@@ -1372,10 +1370,16 @@ const targetLevel = () => cfg.fill / 100;
 const restSurfaceY = () => G.inBottom - level * G.inH;
 
 /* Wave columns span the interior at the current surface height */
+const spanCache = [0, 0, 0];
+let spanKey = NaN;
 function surfaceSpan(){
   const y = restSurfaceY();
-  const hw = innerHalfAt(y);
-  return [G.cx - hw, G.cx + hw, hw * 2];
+  if (y !== spanKey){
+    spanKey = y;
+    const hw = innerHalfAt(y);
+    spanCache[0] = G.cx - hw; spanCache[1] = G.cx + hw; spanCache[2] = hw * 2;
+  }
+  return spanCache;
 }
 
 function surfaceAt(x){
@@ -1478,6 +1482,7 @@ function resize(){
   }
   bubbles.length = 0; foam.length = 0; drops.length = 0; mist.length = 0; drips.length = 0;
   dew.length = 0; lace.length = 0;
+  spanKey = NaN;
 }
 
 /* ================================================================== *
@@ -2096,7 +2101,7 @@ function setShared(prog, pixelScale){
   gl.uniform2f(prog.u.uRes, W, H);
   gl.uniform4f(prog.u.uGlassA, G.cx, G.top, G.bottom, G.h);
   gl.uniform4f(prog.u.uGlassB, G.topHalf, G.botHalf, G.wall, G.baseH);
-  gl.uniform4f(prog.u.uGlassC, G.corner, G.inTop, G.inBottom, G.ryTop);
+  gl.uniform4f(prog.u.uGlassC, 0, G.inTop, G.inBottom, G.ryTop);
   gl.uniform2f(prog.u.uRyKs, ryAt(restSurfaceY()), ryAt(G.bottom));
 }
 
