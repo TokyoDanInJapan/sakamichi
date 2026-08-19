@@ -577,6 +577,17 @@ float vnoise(vec2 p){
 }
 `;
 
+const GLSL_LOGO = `
+uniform sampler2D uLogo;
+uniform vec4  uLogoRect;      // x, y, w, h in page px
+uniform float uLogoOn;
+float logoA(vec2 p){
+  vec2 uv = (p - uLogoRect.xy) / max(uLogoRect.zw, vec2(1.0));
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
+  return texture(uLogo, uv).a;
+}
+`;
+
 const VS_FULL = `#version 300 es
 void main(){
   vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
@@ -586,50 +597,18 @@ void main(){
 /* ------------------------------------------------------------------ *
  * Pass 1 — the room, then the beer inside the glass
  * ------------------------------------------------------------------ */
-const FS_LIQUID = `#version 300 es
+/* Pass A — the pour and nothing else, premultiplied over a clear ground, so
+   the whole dressed glass ends up in one texture the reflection can sample */
+const FS_BEER = `#version 300 es
 precision highp float;
 ${GLSL_GLASS}
 ${GLSL_NOISE}
+${GLSL_LOGO}
 uniform sampler2D uField;
-uniform sampler2D uLogo;
-uniform vec4  uLogoRect;      // x, y, w, h in page px
-uniform float uTime, uCaustics, uGlow, uDark, uLevel, uHaze, uLogoOn;
-uniform vec3  uGround, uGroundDeep, uLightTint, uAbsorb;
+uniform float uTime, uCaustics, uLevel, uHaze;
+uniform vec3  uLightTint, uAbsorb;
 out vec4 frag;
 
-float logoA(vec2 p){
-  vec2 uv = (p - uLogoRect.xy) / max(uLogoRect.zw, vec2(1.0));
-  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
-  return texture(uLogo, uv).a;
-}
-
-/* The wall behind the bar: ground, mark and glow. For its reflection it is
-   mirrored about the wall–floor junction. */
-vec3 sceneWall(vec2 px){
-  vec3 col = uGround;
-
-  /* The house mark painted on the wall behind the bar. Seen through the
-     empty glass it bends a little; the beer bends it properly further down. */
-  vec2 lp = px;
-  float ihHere = max(innerHalfAt(px.y), 1.0);
-  float nxg = (px.x - GCX) / ihHere;
-  /* The glass bends what stands behind it, but the bend has to ease in at
-     the silhouette's edges: switched on across a hard boundary it displaces
-     the mark in a step, which reads as a pane of glass above the lip. */
-  float bendX = 1.0 - smoothstep(0.80, 1.0, abs(nxg));
-  float bendY = smoothstep(GTOP - 1.0, GTOP + GTH * GRYK * 2.2, px.y)
-              * (1.0 - smoothstep(GBOT - GBASE * 1.5, GBOT, px.y));
-  lp.x = GCX + nxg * ihHere * (1.0 - 0.16 * nxg * nxg * bendX * bendY);
-  vec3 inkT = uDark > 0.5 ? vec3(0.72, 0.75, 0.78) : vec3(0.15, 0.18, 0.22);
-  col = mix(col, inkT, logoA(lp) * uLogoOn);
-
-  /* Light spilling out of the glass onto the wall behind it */
-  float gy = uRestY + (GINBOT - uRestY) * 0.35;
-  float gd = length((px - vec2(GCX, gy)) / vec2(GTH * 3.4, GHT * 1.15));
-  col += uLightTint * uGlow * exp(-gd * 2.4) * (0.4 + 0.6 * uDark) * smoothstep(0.02, 0.62, uLevel) * 0.85;
-
-  return col;
-}
 
 /* The pour and its coverage. For its reflection it is mirrored about its
    own contact with the bar, not the wall's horizon. */
@@ -702,6 +681,57 @@ vec4 beerAt(vec2 px){
 }
 
 void main(){
+  vec4 b = beerAt(fragPx());
+  frag = vec4(b.rgb * b.a, b.a);
+}`;
+
+/* Pass B — the room: wall, frosted bar and both reflections. The pour arrives
+   as a texture, so each frost tap is one sample instead of a re-brew, and the
+   reflection carries the foam, bubbles and glass lines it used to lack. */
+const FS_COMPOSE = `#version 300 es
+precision highp float;
+${GLSL_GLASS}
+${GLSL_NOISE}
+${GLSL_LOGO}
+uniform sampler2D uScene;
+uniform float uGlow, uDark, uLevel;
+uniform vec3  uGround, uGroundDeep, uLightTint;
+out vec4 frag;
+
+/* The wall behind the bar: ground, mark and glow. For its reflection it is
+   mirrored about the wall–floor junction. */
+vec3 sceneWall(vec2 px){
+  vec3 col = uGround;
+
+  /* The house mark painted on the wall behind the bar. Seen through the
+     empty glass it bends a little; the beer bends it properly further down. */
+  vec2 lp = px;
+  float ihHere = max(innerHalfAt(px.y), 1.0);
+  float nxg = (px.x - GCX) / ihHere;
+  /* The glass bends what stands behind it, but the bend has to ease in at
+     the silhouette's edges: switched on across a hard boundary it displaces
+     the mark in a step, which reads as a pane of glass above the lip. */
+  float bendX = 1.0 - smoothstep(0.80, 1.0, abs(nxg));
+  float bendY = smoothstep(GTOP - 1.0, GTOP + GTH * GRYK * 2.2, px.y)
+              * (1.0 - smoothstep(GBOT - GBASE * 1.5, GBOT, px.y));
+  lp.x = GCX + nxg * ihHere * (1.0 - 0.16 * nxg * nxg * bendX * bendY);
+  vec3 inkT = uDark > 0.5 ? vec3(0.72, 0.75, 0.78) : vec3(0.15, 0.18, 0.22);
+  col = mix(col, inkT, logoA(lp) * uLogoOn);
+
+  /* Light spilling out of the glass onto the wall behind it */
+  float gy = uRestY + (GINBOT - uRestY) * 0.35;
+  float gd = length((px - vec2(GCX, gy)) / vec2(GTH * 3.4, GHT * 1.15));
+  col += uLightTint * uGlow * exp(-gd * 2.4) * (0.4 + 0.6 * uDark) * smoothstep(0.02, 0.62, uLevel) * 0.85;
+
+  return col;
+}
+
+
+vec4 sceneAt(vec2 p){
+  return texture(uScene, vec2(p.x, uRes.y - p.y) / uRes);
+}
+
+void main(){
   vec2 px = fragPx();
   float bw  = GBH;
   float ryB = uRyKs.y * bw;
@@ -715,7 +745,6 @@ void main(){
   float nxb = clamp((px.x - GCX) / bw, -1.0, 1.0);
   float footY = baseCY + ryB * sqrt(max(0.0, 1.0 - nxb * nxb));
 
-  vec4 bHere = beerAt(px);
   vec3 col;
 
   if (px.y <= horizonY){
@@ -733,15 +762,15 @@ void main(){
                  + sceneWall(pw + vec2( 0.8,  0.50) * blur) ) * 0.25;
 
     /* ...the glass about its own footprint centre, so its reflection begins
-       exactly where it touches. The clamp fills the band under the foot with
-       the beer's deepest colour — the mirror of the thick, beer-lit base. */
+       exactly where it touches. The scene texture holds the glass and its
+       beer-lit base along with the pour, so the mirror is sampled true. */
     float tg = max(px.y - footY, 0.0);
-    vec2 pg = vec2(px.x + wob, min(2.0 * baseCY - px.y, GINBOT - 1.0));
+    vec2 pg = vec2(px.x + wob, 2.0 * baseCY - px.y);
     float blurG = 1.5 + tg * 0.16;
-    vec4 reflB = ( beerAt(pg + vec2(-1.0, -0.45) * blurG)
-                 + beerAt(pg + vec2( 0.9, -0.90) * blurG)
-                 + beerAt(pg + vec2(-0.5,  0.85) * blurG)
-                 + beerAt(pg + vec2( 0.8,  0.50) * blurG) ) * 0.25;
+    vec4 reflB = ( sceneAt(pg + vec2(-1.0, -0.45) * blurG)
+                 + sceneAt(pg + vec2( 0.9, -0.90) * blurG)
+                 + sceneAt(pg + vec2(-0.5,  0.85) * blurG)
+                 + sceneAt(pg + vec2( 0.8,  0.50) * blurG) ) * 0.25;
 
     /* A plane: bright with reflected wall at grazing angles near the
        horizon, falling to its own tone toward the viewer */
@@ -752,21 +781,9 @@ void main(){
     float fadeG = exp(-tg / (GHT * 0.30)) * (uDark > 0.5 ? 0.52 : 0.34);
     col = mix(floorCol, reflW, fadeW);
 
-    /* The glass reflects as well as the beer it holds. Without its silhouette
-       the reflection is only as wide as the pour, so it leaves the foot as a
-       flat slab set in from the glass's edges instead of flowing out of them. */
-    float pgy  = 2.0 * baseCY - px.y;                     // mirrored height
-    float dxm  = abs(px.x + wob - GCX);
-    float hwm  = halfAt(pgy);
-    float lit  = step(GTOP, pgy);
-    float inGl = (1.0 - smoothstep(hwm - 1.0, hwm + 1.5, dxm)) * lit;
-    float wallM = smoothstep(max(GWALL, 2.0) * 1.4, 0.0, abs(dxm - hwm)) * lit;
-
-    float ba = clamp(reflB.a, 0.0, 1.0);
-    vec3 rcol = mix(uLightTint * 0.22, reflB.rgb, ba);
-    rcol += vec3(1.0) * wallM * 0.30;
-    float cover = max(ba, max(inGl * 0.45, wallM * 0.75));
-    col = mix(col, rcol, cover * fadeG * step(footY, px.y));
+    /* the sample is premultiplied, so it composites over the floor directly */
+    float k = fadeG * step(footY, px.y);
+    col = col * (1.0 - clamp(reflB.a, 0.0, 1.0) * k) + reflB.rgb * k;
 
     float depthT = 1.0 / (t + 18.0);
     float streak = vnoise(vec2(px.x * 0.013, depthT * 2400.0));
@@ -790,8 +807,9 @@ void main(){
     col *= 1.0 - smoothstep(1.34, 1.0, rq) * (uDark > 0.5 ? 0.62 : 0.42);
   }
 
-  /* The pour stands in front of all of it */
-  col = mix(col, bHere.rgb, bHere.a);
+  /* The pour and everything it wears stand in front of all of it */
+  vec4 src = sceneAt(px);
+  col = col * (1.0 - src.a) + src.rgb;
 
   /* A hairline where the wall meets the bar */
   col = mix(col, mix(vec3(0.30, 0.33, 0.37), vec3(0.80, 0.83, 0.86), uDark),
@@ -1159,7 +1177,8 @@ void main(){
   frag = vec4(col, clamp(a, 0.0, 1.0));
 }`;
 
-const progLiquid = program(VS_FULL, FS_LIQUID);
+const progBeer    = program(VS_FULL, FS_BEER);
+const progCompose = program(VS_FULL, FS_COMPOSE);
 const progBand   = program(VS_FULL, FS_BAND);
 const progBlob   = program(VS_BLOB, FS_BLOB);
 const progSprite = program(VS_SPRITE, FS_SPRITE);
@@ -1284,6 +1303,26 @@ function updateParallax(dt){
   const k = Math.min(1, dt * 3);
   parX += ((W / 2 - ptx) * 0.022 - parX) * k;
   parY += ((H / 2 - pty) * 0.010 - parY) * k;
+}
+
+let sceneTex = null, sceneFBO = null, sceneW = 1, sceneH = 1;
+
+function makeScene(w, h){
+  if (sceneTex) gl.deleteTexture(sceneTex);
+  if (sceneFBO) gl.deleteFramebuffer(sceneFBO);
+  sceneW = Math.max(1, Math.round(w));
+  sceneH = Math.max(1, Math.round(h));
+  sceneTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, sceneTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, sceneW, sceneH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  sceneFBO = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, sceneFBO);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, sceneTex, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 }
 
 const FIELD_SCALE = 2;
@@ -1457,6 +1496,7 @@ function resize(){
   canvas.width  = Math.round(W * dpr);
   canvas.height = Math.round(H * dpr);
   makeField(canvas.width / FIELD_SCALE, canvas.height / FIELD_SCALE);
+  makeScene(canvas.width, canvas.height);
 
   layoutGlass();
 
@@ -2187,7 +2227,7 @@ function drawSprites(){
   gl.uniform3fv(progSprite.u.uFoam, pal.foam);
   gl.uniform3fv(progSprite.u.uBeer, pal.beerMid);
   gl.enable(gl.BLEND);
-  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, n);
 }
 
@@ -2196,12 +2236,14 @@ function render(){
   uploadHeight();
   drawField();
 
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  gl.viewport(0, 0, canvas.width, canvas.height);
+  /* Pass A: the dressed pour, alone, into the scene texture */
+  gl.bindFramebuffer(gl.FRAMEBUFFER, sceneFBO);
+  gl.viewport(0, 0, sceneW, sceneH);
+  gl.clearColor(0, 0, 0, 0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
   gl.disable(gl.BLEND);
 
-  /* Room and beer */
-  gl.useProgram(progLiquid.p);
+  gl.useProgram(progBeer.p);
   gl.bindVertexArray(vaoEmpty);
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, heightTex);
@@ -2209,22 +2251,18 @@ function render(){
   gl.bindTexture(gl.TEXTURE_2D, fieldTex);
   gl.activeTexture(gl.TEXTURE2);
   gl.bindTexture(gl.TEXTURE_2D, logoTex);
-  setShared(progLiquid, dpr);
-  gl.uniform1i(progLiquid.u.uField, 1);
-  gl.uniform1i(progLiquid.u.uLogo, 2);
+  setShared(progBeer, dpr);
+  gl.uniform1i(progBeer.u.uField, 1);
+  gl.uniform1i(progBeer.u.uLogo, 2);
   const lr = logoRect();
-  gl.uniform4f(progLiquid.u.uLogoRect, lr[0], lr[1], lr[2], lr[3]);
-  gl.uniform1f(progLiquid.u.uLogoOn, logoReady ? 0.075 : 0);
-  gl.uniform1f(progLiquid.u.uTime, clock);
-  gl.uniform1f(progLiquid.u.uLevel, level);
-  gl.uniform3fv(progLiquid.u.uGround, pal.ground);
-  gl.uniform3fv(progLiquid.u.uGroundDeep, pal.groundDeep);
-  gl.uniform3fv(progLiquid.u.uLightTint, pal.lightTint);
-  gl.uniform3fv(progLiquid.u.uAbsorb, pal.absorb);
-  gl.uniform1f(progLiquid.u.uCaustics, cfg.caustics / 100 * 0.55);
-  gl.uniform1f(progLiquid.u.uHaze, 1 - cfg.clarity / 100);
-  gl.uniform1f(progLiquid.u.uGlow, pal.glow);
-  gl.uniform1f(progLiquid.u.uDark, pal.dark ? 1 : 0);
+  gl.uniform4f(progBeer.u.uLogoRect, lr[0], lr[1], lr[2], lr[3]);
+  gl.uniform1f(progBeer.u.uLogoOn, logoReady ? 0.075 : 0);
+  gl.uniform1f(progBeer.u.uTime, clock);
+  gl.uniform1f(progBeer.u.uLevel, level);
+  gl.uniform3fv(progBeer.u.uLightTint, pal.lightTint);
+  gl.uniform3fv(progBeer.u.uAbsorb, pal.absorb);
+  gl.uniform1f(progBeer.u.uCaustics, cfg.caustics / 100 * 0.55);
+  gl.uniform1f(progBeer.u.uHaze, 1 - cfg.clarity / 100);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 
   /* Bubbles and anything in the air */
@@ -2252,7 +2290,7 @@ function render(){
     gl.uniform3fv(progFoam.u.uFoamWet, pal.foamWet);
     gl.uniform3fv(progFoam.u.uBeerTint, pal.beerTint);
     gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
@@ -2269,7 +2307,33 @@ function render(){
   gl.uniform1f(progGlass.u.uLightX, Math.cos(cfg.lightAngle * Math.PI / 180));
   gl.uniform1f(progGlass.u.uLevel, level);
   gl.enable(gl.BLEND);
-  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  /* Pass B: the room — wall, bar and both reflections — with the scene
+     texture composited in front */
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.disable(gl.BLEND);
+  gl.useProgram(progCompose.p);
+  gl.bindVertexArray(vaoEmpty);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, heightTex);
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, sceneTex);
+  gl.activeTexture(gl.TEXTURE2);
+  gl.bindTexture(gl.TEXTURE_2D, logoTex);
+  setShared(progCompose, dpr);
+  gl.uniform1i(progCompose.u.uScene, 1);
+  gl.uniform1i(progCompose.u.uLogo, 2);
+  gl.uniform4f(progCompose.u.uLogoRect, lr[0], lr[1], lr[2], lr[3]);
+  gl.uniform1f(progCompose.u.uLogoOn, logoReady ? 0.075 : 0);
+  gl.uniform1f(progCompose.u.uLevel, level);
+  gl.uniform3fv(progCompose.u.uGround, pal.ground);
+  gl.uniform3fv(progCompose.u.uGroundDeep, pal.groundDeep);
+  gl.uniform3fv(progCompose.u.uLightTint, pal.lightTint);
+  gl.uniform1f(progCompose.u.uGlow, pal.glow);
+  gl.uniform1f(progCompose.u.uDark, pal.dark ? 1 : 0);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 
   gl.bindVertexArray(null);
