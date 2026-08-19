@@ -1249,17 +1249,38 @@ function glassSilhouette(ctx, fromY){
   ctx.closePath();
 }
 
+/* The inside of the glass: the walls at every height, closed by the floor's
+   own front arc. The beer is bounded by this, not by its own outline. */
+function interiorPath(ctx){
+  const steps = 20;
+  const ihw = innerHalfAt(G.inBottom);
+  ctx.beginPath();
+  for (let i = 0; i <= steps; i++){
+    const y = lerp(G.inTop, G.inBottom, i / steps);
+    const x = G.cx - innerHalfAt(y);
+    if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+  }
+  ctx.ellipse(G.cx, G.inBottom, ihw, ihw * ryAt(G.inBottom), 0, Math.PI, 0, true);
+  for (let i = steps; i >= 0; i--){
+    const y = lerp(G.inTop, G.inBottom, i / steps);
+    ctx.lineTo(G.cx + innerHalfAt(y), y);
+  }
+  ctx.closePath();
+}
+
 /* The beer: bounded above by the far edge of its surface, below by the glass */
 function liquidPath(ctx){
   const [l, , w] = surfaceSpan();
   const colW = w / (N - 1);
   const sy = restSurfaceY();
+  const over = Math.max(12, G.topHalf - w / 2 + 12);
   ctx.beginPath();
-  ctx.moveTo(l, backY(l));
-  for (let i = 1; i < N; i++){
+  ctx.moveTo(l - over, backY(l));
+  for (let i = 0; i < N; i++){
     const x = l + i * colW;
     ctx.lineTo(x, backY(x));
   }
+  ctx.lineTo(l + w + over, backY(l + w));
   const steps = 18;
   for (let i = 0; i <= steps; i++){
     const y = lerp(sy, G.inBottom, i / steps);
@@ -1435,6 +1456,9 @@ function drawLiquid(){
   ctxL.globalAlpha = 1;
   ctxL.restore();
 
+  ctxL.save();
+  interiorPath(ctxL);
+  ctxL.clip();
   liquidPath(ctxL);
   const body = ctxL.createLinearGradient(0, sy - maxAmp, 0, G.inBottom);
   body.addColorStop(0,    pal.beerTop);
@@ -1565,6 +1589,7 @@ function drawLiquid(){
       ctxL.fill();
     }
   }
+  ctxL.restore();
   ctxL.restore();
 }
 
