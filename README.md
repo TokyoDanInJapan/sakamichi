@@ -41,9 +41,6 @@ drops. The beer is bounded by that geometry, not by the viewport.
   slow refill rate — a spilled tenth takes several seconds to return. Moving
   the fill line by hand is treated as a deliberate change and applies at once.
 
-The measure standing beside the glass reads the level, so you can watch it drop
-and climb back.
-
 Two smaller systems dress the glass itself. Condensation beads on the cold
 outside below the beer line; a bead that grows too heavy lets go and runs down
 to the base. And foam lost over the rim in a spill dries on as lacing at the
