@@ -644,6 +644,29 @@ function glassSilhouette(fromY){
 
 /* The inside of the glass: the walls at every height, closed by the floor's
    own front arc. The beer is bounded by this, not by its own outline. */
+/* Where the head is allowed to be: the walls at every height, and above the
+   lip a dome closing to nothing. Carrying the interior's full width up there
+   instead — which is what clamping innerHalfAt does — lets a high pour sit
+   over the glass as a slab with square shoulders, wider than the glass it
+   came out of. */
+function headClip(ctx, domeH){
+  const steps = 20;
+  const ihwTop = innerHalfAt(G.inTop);
+  ctx.beginPath();
+  for (let i = 0; i <= steps; i++){
+    const y = lerp(G.inTop, G.inBottom, i / steps);
+    const x = G.cx - innerHalfAt(y);
+    if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+  }
+  ctx.lineTo(G.cx + innerHalfAt(G.inBottom), G.inBottom);
+  for (let i = steps; i >= 0; i--){
+    const y = lerp(G.inTop, G.inBottom, i / steps);
+    ctx.lineTo(G.cx + innerHalfAt(y), y);
+  }
+  ctx.ellipse(G.cx, G.inTop, ihwTop, Math.max(1, domeH), 0, 0, Math.PI, true);
+  ctx.closePath();
+}
+
 function interiorPath(){
   const ctx = new Path2D();
   const steps = 20;
@@ -1003,7 +1026,7 @@ function drawFoam(){
 
   /* The head is held by the glass, but may dome a little over the rim */
   ctxF.save();
-  wallPath(ctxF, true, G.inTop - band * 0.55, G.inBottom);
+  headClip(ctxF, band * 0.55);
   ctxF.clip();
 
   ctxF.fillStyle = pal.foam;
@@ -1245,7 +1268,7 @@ function drawDetail(){
   /* Head texture, kept inside the glass */
   if (level > 0.001 && foam.length){
     ctxD.save();
-    wallPath(ctxD, true, G.inTop - headBand() * 0.55, G.inBottom);
+    headClip(ctxD, headBand() * 0.55);
     ctxD.clip();
 
     ctxD.lineWidth = 1;

@@ -970,8 +970,15 @@ float fieldAt(vec2 p){ return texture(uField, vec2(p.x / uRes.x, 1.0 - p.y / uRe
 
 void main(){
   vec2 px = fragPx();
-  /* The head is held by the glass, but may dome a little over the rim */
-  if (abs(px.x - GCX) > innerHalfAt(max(px.y, GINTOP)) || px.y < GINTOP - uBandPx * 0.55 || px.y > GINBOT) discard;
+  /* The head is held by the glass, and over the lip closes as a dome. Carry
+     the interior's full width up there instead — which is what clamping does —
+     and a high pour sits over the glass as a slab with square shoulders. */
+  float domeH = max(uBandPx * 0.55, 1.0);
+  float up = max(0.0, GINTOP - px.y);
+  float lim = up > 0.0
+            ? innerHalfAt(GINTOP) * sqrt(max(0.0, 1.0 - (up / domeH) * (up / domeH)))
+            : innerHalfAt(px.y);
+  if (abs(px.x - GCX) > lim || px.y > GINBOT) discard;
 
   float f = fieldAt(px);
   if (f < 0.10) discard;
