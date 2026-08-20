@@ -616,7 +616,7 @@ vec4 beerAt(vec2 px){
   float ihb = innerHalfAt(GINBOT);
   float fxn = clamp((px.x - GCX) / max(ihb, 1.0), -1.0, 1.0);
   float floorY = GINBOT + uRyKs.y * ihb * sqrt(1.0 - fxn * fxn);
-  bool inWalls = abs(px.x - GCX) < ih && px.y < floorY && px.y > GTOP;
+  bool inWalls = abs(px.x - GCX) < ih && px.y < floorY + 1.5 && px.y > GTOP;
 
   if (inWalls && uLevel > 0.002 && px.y > top - 1.5){
     float d = max(px.y - top, 0.0);
@@ -672,7 +672,11 @@ vec4 beerAt(vec2 px){
     beer *= 1.0 - 0.34 * clamp(fd, 0.0, 1.0) * exp(-d * 0.024);
 
     beer += (hash21(px * 1.7 + uTime) - 0.5) * 0.006;
-    return vec4(beer, smoothstep(top - 1.2, top + 1.2, px.y));
+    /* Softened against the floor as well as the surface. The floor's arc runs
+       almost level through the middle, so cutting the beer off it with a hard
+       test leaves a long stepped edge — many pixels wide at each tread. */
+    return vec4(beer, smoothstep(top - 1.2, top + 1.2, px.y)
+                    * (1.0 - smoothstep(floorY - 1.2, floorY + 1.2, px.y)));
   }
   return vec4(0.0);
 }
