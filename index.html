@@ -571,6 +571,9 @@ function buildPalette(){
     glow:    `hsla(${h - 3} 88% 54% / ${dark ? 0.20 : 0.13})`,
     pool:    `hsla(${h} 90% 56% / ${dark ? 0.30 : 0.18})`,
     baseBeer:`hsla(${h + 2} 82% 52% / .55)`,
+    /* the thick base is lit through by the pour but is still glass, so it is
+       cooled away from the beer's own colour */
+    baseGlass:`hsla(${h + 12} 44% 60% / .5)`,
     /* Foam is beer held in bubble walls: a pilsner head is bright white, a
        bock head beige. The wet band at the beer line carries the most colour. */
     foam:    `hsl(${38 + (h - 40) * 0.6} ${24 + r * 30}% ${dark ? 88 - r * 7 : 97 - r * 8}%)`,
@@ -1234,7 +1237,7 @@ function drawGlass(ctx){
     ctx.scale(1, iry / ihw);
     const bt = ctx.createRadialGradient(0, 0, ihw * 0.98, 0, 0, ihw * 2.1);
     bt.addColorStop(0, "transparent");
-    bt.addColorStop(0.26, pal.baseBeer);
+    bt.addColorStop(0.26, pal.baseGlass);   /* glass, not more beer below beer */
     bt.addColorStop(1, "transparent");
     const blv = clamp((level - 0.02) / 0.6, 0, 1);
     ctx.globalAlpha = blv * blv * (3 - 2 * blv) * 0.7;
@@ -1247,11 +1250,21 @@ function drawGlass(ctx){
   }
   ctx.restore();
 
-  /* Floor of the glass, seen through the beer */
-  ctx.beginPath();
-  ctx.ellipse(G.cx, G.inBottom, innerHalfAt(G.inBottom), innerHalfAt(G.inBottom) * ryAt(G.inBottom), 0, 0, TAU);
+  /* The floor the beer stands on. Drawn faintly it left the pour, the base
+     and the reflection running together as one amber mass with nothing to
+     divide them, so it is given weight — and its near arc takes the light
+     while its far arc stays a dark line, which is what tells a surface from
+     a scratch. */
+  const fihw = innerHalfAt(G.inBottom), firy = fihw * ryAt(G.inBottom);
+  ctx.lineWidth = Math.max(1, G.wall * 0.3);
   ctx.strokeStyle = pal.glassEdge;
-  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.ellipse(G.cx, G.inBottom, fihw, firy, 0, Math.PI, TAU);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.ellipse(G.cx, G.inBottom, fihw, firy, 0, 0, Math.PI);
+  ctx.strokeStyle = pal.glassLight;
+  ctx.lineWidth = Math.max(1.2, G.wall * 0.38);
   ctx.stroke();
 
   /* Inner edge of the standing ring */

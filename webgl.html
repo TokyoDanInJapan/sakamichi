@@ -1156,8 +1156,11 @@ void main(){
       float lvl = smoothstep(0.02, 0.62, uLevel);
       float bt = smoothstep(1.0, 1.4, fr) * (1.0 - smoothstep(1.6, 2.3, fr))
                * smoothstep(floorFront - 1.0, floorFront + 5.0, px.y) * lvl;
-      col = mix(col, uBeerGlow, bt * 0.52);
-      a = max(a, bt * 0.33);
+      /* cooled towards the glass it is, so the base does not read as more
+         beer below the beer */
+      vec3 lit = mix(uBeerGlow, vec3(0.62, 0.68, 0.72), 0.42);
+      col = mix(col, lit, bt * 0.52);
+      a = max(a, bt * 0.36);
     }
   }
 
@@ -1174,12 +1177,18 @@ void main(){
   col = mix(col, uLight, clamp(baseLine, 0.0, 1.0));
   a = max(a, baseLine * 0.45);
 
-  /* Floor of the glass, seen through the beer */
-  vec2 fc = vec2((px.x - GCX) / max(innerHalfAt(GINBOT), 1.0), (px.y - GINBOT) / max(innerHalfAt(GINBOT) * uRyKs.y, 1.0));
-  float floorArc = abs(length(fc) - 1.0) * innerHalfAt(GINBOT);
-  float floorLine = smoothstep(GWALL * 0.4, 0.0, floorArc);
-  col = mix(col, uEdge, clamp(floorLine, 0.0, 1.0));
-  a = max(a, floorLine * 0.22);
+  /* The floor the beer stands on. Drawn faintly it left the pour, the base
+     and the reflection running together as one amber mass with nothing to
+     divide them, so it is given weight — and its near arc takes the light
+     while its far arc stays a dark line, which is what tells a surface from
+     a scratch. */
+  float fihw = max(innerHalfAt(GINBOT), 1.0);
+  vec2 fc = vec2((px.x - GCX) / fihw, (px.y - GINBOT) / max(fihw * uRyKs.y, 1.0));
+  float floorArc = abs(length(fc) - 1.0) * fihw;
+  float floorNear = clamp((px.y - GINBOT) / max(fihw * uRyKs.y, 1.0) * 0.5 + 0.5, 0.0, 1.0);
+  float floorLine = smoothstep(GWALL * 0.55, 0.0, floorArc);
+  col = mix(col, mix(uEdge, uLight, floorNear), clamp(floorLine, 0.0, 1.0));
+  a = max(a, floorLine * mix(0.42, 0.72, floorNear));
 
   if (a <= 0.003) discard;
   frag = vec4(col, clamp(a, 0.0, 1.0));
