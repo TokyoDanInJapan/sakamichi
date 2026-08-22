@@ -1018,25 +1018,27 @@ void main(){
   float lim = innerHalfAt(max(px.y, lipCy));
   if (abs(px.x - GCX) > lim || px.y > GINBOT) discard;
 
-  float f = fieldAt(px);
-  /* Granular outline: a whisper of bubble-scale roughness on the edge */
-  float grain = vnoise(px * 0.9 + vec2(uTime * 0.04, 0.0));
-
   /* A head is a body of foam, not a heap of blobs. The canvas fills its own
      outline and lets the texture play inside it; here the blobs alone said
      where the foam was, and where they thinned — which is at the wall, where
-     each one is cut in half by it — they left holes. Under the collar's mouth,
-     which is cut out of the collar so the contents show through the ring, one
-     of those holes read as a dark notch bitten out of the rim on either side.
-     So the field gives the grain and the relief, and the outline is the head's
-     own: solid from a couple of pixels inside it. */
-  /* The outline is not cut to it, only filled up to it. Cut, the head came out
-     as a slab with a ruled edge: a crest surging up the glass ran into the
-     crown of the dome and stopped there on a straight line, which is a lid
+     each one is cut in half by it — they left holes.
+
+     So the head's own outline is filled in as field rather than added on as a
+     second mask. Added on, everything the blobs did not reach came out flat
+     and a shade darker — the shading reads the field, and there was none there
+     to read — so the glass wore two heads, a smooth pale dome with a bubbled
+     one standing in front of it. Filled in, the whole body shades alike and
+     the pores and boulders, which are noise rather than blobs, carry the
+     texture right across it.
+
+     And the outline fills; it does not cut. Cut to it, a crest surging up the
+     glass ran into the crown and stopped on a straight line, which is a lid
      rather than a wave. The blobs are what a crest is made of and they are
-     left free to carry it as high as the beer throws them. */
-  float mask = max(smoothstep(0.13, 0.30, f + (grain - 0.5) * 0.05),
-                   smoothstep(headTop, headTop + 2.0, px.y));
+     free to carry it as high as the beer throws them. */
+  float f = max(fieldAt(px), smoothstep(headTop, headTop + 2.0, px.y));
+  /* Granular outline: a whisper of bubble-scale roughness on the edge */
+  float grain = vnoise(px * 0.9 + vec2(uTime * 0.04, 0.0));
+  float mask = smoothstep(0.13, 0.30, f + (grain - 0.5) * 0.05);
 
   /* The head floats on the beer: cut the mask off cleanly at the front edge
      of the surface so blobs cannot scallop down into the pour */
@@ -1311,9 +1313,10 @@ void main(){
 const FS_WEEP = `#version 300 es
 precision highp float;
 ${GLSL_GLASS}
+${GLSL_NOISE}
 uniform vec3  uFoam;
 uniform vec4  uWeep;         // collar, creep, weepReach, weepDeep
-uniform float uScale;
+uniform float uScale, uTime, uCoarse;
 uniform int   uRibN;
 uniform vec4  uRibA[6];      // th, top, bottom h, shoulder width
 uniform vec4  uRibB[6];      // bead r, wob, wobA, pool
@@ -1381,6 +1384,25 @@ bool inSilhouette(vec2 px){
   bool lens  = px.y < rt && dot(rc, rc) < 1.0;
   bool bulge = px.y > GBOT && dot(bc, bc) < 1.0;
   return wall || lens || bulge;
+}
+
+/* The same cells and pores the head is made of. Flat, the collar came out as a
+   smooth pale dome standing in front of a bubbled one, and the glass looked to
+   be wearing two heads: it is one body of foam that has come over the lip, and
+   it should carry the grain of the foam it came from. */
+vec3 foamGrain(vec2 px){
+  float cells = vnoise(px * 0.16 + vec2(uTime * 0.05, 0.0)) * 0.7
+              + vnoise(px * 0.45 - vec2(0.0, uTime * 0.08)) * 0.3;
+  float pf = mix(1.5, 0.6, uCoarse);
+  float pores  = vnoise(px * 0.85 * pf + vec2(uTime * 0.03, 0.0));
+  float pores2 = vnoise(px * 1.90 * pf + vec2(0.0, uTime * 0.02));
+  /* A touch of it, not a coat: this is foam seen through the whole thickness of
+     itself where it has folded over the lip, not the open face of the head. Laid
+     on at the head's own strength it came out as grey mottling. */
+  float k = 0.995 + (cells - 0.5) * 0.022
+          - smoothstep(0.76, 0.99, pores)  * 0.022
+          - smoothstep(0.84, 0.99, pores2) * 0.016;
+  return uFoam * clamp(k, 0.96, 1.02);
 }
 
 void over(inout vec4 acc, vec3 c, float a){
@@ -1491,7 +1513,7 @@ void main(){
         cover = smoothstep(1.0, 1.0 - 1.4 / max(endHw, 1.0), length(q));
       }
     }
-    over(acc, uFoam, cover * underLip * a);
+    over(acc, foamGrain(px), cover * underLip * a);
 
     /* The light runs down the standing edge of it — but only once there is a
        standing edge to catch it. On a ribbon drawn down to a thread the
@@ -1544,12 +1566,12 @@ void main(){
        side of the rim — the dark comma. The canvas closes it by accident,
        its blobs being blurred out past the head's own top; here it is closed
        on purpose. */
-    float inset = 6.0 * uScale;
+    float inset = 8.0 * uScale;
     float mrx = max(2.0, halfAt(rimCy()) - GWALL - inset);
     vec2 m = vec2((px.x - GCX) / mrx,
                   (px.y - rimCy()) / max(1.0, rimRy() * 0.94 - inset));
     band *= smoothstep(1.0 - 1.2 / mrx, 1.0, length(m));
-    over(acc, uFoam, band * 0.94);
+    over(acc, foamGrain(px), band * 0.94);
   }
 
   if (acc.a <= 0.002) discard;
@@ -2013,6 +2035,8 @@ function render(){
     gl.uniform3fv(progWeep.u.uFoam, pal.foam);
     gl.uniform4f(progWeep.u.uWeep, collar, creep, weepReach, weepDeep());
     gl.uniform1f(progWeep.u.uScale, G.scale);
+    gl.uniform1f(progWeep.u.uTime, clock);
+    gl.uniform1f(progWeep.u.uCoarse, pal.foamCoarse);
     const n = Math.min(6, drips.length);
     gl.uniform1i(progWeep.u.uRibN, n);
     if (n){
