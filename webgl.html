@@ -1068,12 +1068,22 @@ void main(){
      into is the dark room behind it. Foam has an edge; it keeps one here, and
      the edge is what moves.
 
+     And leaned on a curve rather than a slope. Leaning it by a fixed amount
+     for each pixel it rises is a straight line, and a straight line at an
+     angle to the wall is still an angle: measured against the canvas, whose
+     edge sweeps nineteen pixels in over the first five rows and four over the
+     last, this one moved one or two per five rows for forty rows together. So
+     the lean is nothing at the rim and gathers as it climbs, which puts the
+     bend where the canvas has it — a shoulder at the top of the crest, and the
+     wall itself where the foam meets the lip.
+
      And leaned rather than domed. A dome centred on the glass curves to the
      rim prettily and then cuts away the very crest it is meant to round, since
      a crest rides one wall and not the middle: sized to clear the surge, it
      squeezed that surge to a third of its width, which is where the foam
      actually was. */
-  mask *= smoothstep(lim - up * 0.34, lim - up * 0.34 - 1.5, abs(px.x - GCX));
+  float lean = lim * 0.44 * pow(clamp(up / (80.0 * uScale), 0.0, 1.0), 2.0);
+  mask *= smoothstep(lim - lean, lim - lean - 1.5, abs(px.x - GCX));
 
   /* The head floats on the beer: cut the mask off cleanly at the front edge
      of the surface so blobs cannot scallop down into the pour */
