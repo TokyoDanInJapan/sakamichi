@@ -1117,7 +1117,18 @@ void main(){
 
   /* The two walls: a dark outer edge and a bright inner one */
   float outerLine = smoothstep(w, 0.0, abs(outer)) * step(rimTanY, px.y) * step(px.y, GBOT);
-  float innerLine = smoothstep(w, 0.0, abs(inner)) * smoothstep(rimTanY - 1.0, rimTanY + 3.0, px.y) * step(px.y, GINBOT + GBASE * 0.4);
+  /* The inner wall runs from the rim's widest points down to the floor's, and
+     stops there. Those are the two places where a wall seen edge-on meets the
+     ellipse it stands on, and the curves are tangent at them, so the line hands
+     over to the floor's own arc without a join to draw. Carried on past the
+     floor — it used to run four tenths of the base below it — the line crossed
+     the floor ellipse it was supposed to meet, hung under it through the solid
+     glass of the base where there is no bore left to have a wall, and ended in
+     mid air on a flat cut. The outer wall has always stopped at its own
+     ellipse's widest points, which is the same rule. */
+  float innerLine = smoothstep(w, 0.0, abs(inner))
+                  * smoothstep(rimTanY - 1.0, rimTanY + 3.0, px.y)
+                  * (1.0 - smoothstep(GINBOT - 1.0, GINBOT + 0.5, px.y));
   col = mix(col, uEdge, clamp(outerLine, 0.0, 1.0));
   a = max(a, outerLine * 0.72);
   col = mix(col, uLight, clamp(innerLine * 0.75, 0.0, 1.0));
