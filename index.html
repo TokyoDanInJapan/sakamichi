@@ -819,25 +819,34 @@ function clipUnderRim(ctx){
 /* The beer: bounded above by the far edge of its surface, below by the glass */
 function liquidPath(ctx){
   const [l, , w] = surfaceSpan();
-  const sy = restSurfaceY();
+  /* Each wall starts at the beer standing against it, not at the level the
+     beer would stand at if it were still. They are the same thing in a quiet
+     glass, which is why this held for so long; tilt the surface and they are
+     not. The top edge ends on the wave and the wall began a whole amplitude
+     away from it, so the outline jumped there and the shape closed across
+     itself — a black wedge cut out of the beer under the low side, with the
+     straight edge of the resting level along the bottom of it. Worst in a
+     glass with little in it, where the wave is large against what is left.
+     The reflection is drawn from this same outline, so it wore the wedge too. */
+  const syR = backY(l + w), syL = backY(l);
   const over = Math.max(12, G.topHalf - w / 2 + 12);
   ctx.beginPath();
-  ctx.moveTo(l - over, backY(l));
+  ctx.moveTo(l - over, syL);
   for (let i = 0; i < N; i++){
     const x = colX(i);
     ctx.lineTo(x, backY(x));
   }
-  ctx.lineTo(l + w + over, backY(l + w));
+  ctx.lineTo(l + w + over, syR);
   const steps = 18;
   for (let i = 0; i <= steps; i++){
-    const y = lerp(sy, G.inBottom, i / steps);
+    const y = lerp(syR, G.inBottom, i / steps);
     ctx.lineTo(G.cx + innerHalfAt(y), y);
   }
   /* The beer sits on the interior floor, whose front arc dips below inBottom */
   const ihw = innerHalfAt(G.inBottom);
   ctx.ellipse(G.cx, G.inBottom, ihw, ihw * ryAt(G.inBottom), 0, 0, Math.PI);
   for (let i = steps; i >= 0; i--){
-    const y = lerp(sy, G.inBottom, i / steps);
+    const y = lerp(syL, G.inBottom, i / steps);
     ctx.lineTo(G.cx - innerHalfAt(y), y);
   }
   ctx.closePath();
@@ -909,11 +918,25 @@ function drawBarTop(ctx){
     ctx.globalAlpha = pal.dark ? 0.30 : 0.22;
     ctx.lineWidth = Math.max(1.5, G.wall * 0.7);
     ctx.strokeStyle = pal.glassLight;
-    ctx.stroke();
+    /* the silhouette by name. Stroked bare it took whatever path was last
+       built, which is the clip this is drawn inside, so the glass's outline
+       came out as a line ruled across the whole bar. */
+    ctx.stroke(PATHS.sil);
     ctx.globalAlpha = 0.22;
-    liquidPath(ctxL);
+    /* The beer's own reflection, kept inside the glass that is holding it.
+       The surface outline runs out past the walls on purpose — the fill has to
+       cover the corners of the interior it is normally clipped to — and down
+       here there was no such clip, so the overhang came out on the bar as a
+       slab wider than the glass. Tilt the beer and the slab tilts with it,
+       which is what turned the reflection into a streak leaning off to one
+       side whenever the pour was swilled. Worst with little in the glass,
+       where the overhang is widest and the tilt steepest. */
+    ctx.save();
+    ctx.clip(PATHS.interior);
+    liquidPath(ctx);
     ctx.fillStyle = bodyR;
     ctx.fill();
+    ctx.restore();
     /* The beer stands a base-thickness above the floor, so its mirror image
        starts that far below the foot. The thick base between them is lit
        through by the pour, so it carries the beer's own deep colour and the
