@@ -1045,13 +1045,22 @@ void main(){
      it there is no wall, and cutting there gave a swilled head a dead straight
      edge standing a hundred pixels over the rim — a slab sawn off rather than
      a crest. What stands up there sits on the ring of the mouth, and the ring
-     runs away from us at the two sides: seen edge-on there is hardly any of it
-     to see, and less the higher it goes. So the edge is softened by height
-     rather than moved by it, and the foam thins into the rim instead of
-     ending on a line. Nothing is taken from the crest itself, which is why the
-     softening is a feather and not a dome — a dome centred on the glass cuts
-     away the very crest it is meant to round, since a crest rides one wall. */
-  mask *= smoothstep(lim, lim - (1.0 + up * 0.35), abs(px.x - GCX));
+     runs away from us at the two sides: seen edge-on there is less of it to
+     see the higher it goes. So the edge leans in as it climbs, and the foam
+     curves into the rim instead of ending on a line.
+
+     Leaned rather than faded. Holding the edge where it was and letting the
+     foam thin away over thirty or forty pixels turned a sawn-off slab into a
+     bank of white fog hanging off the side of the glass, because what it fades
+     into is the dark room behind it. Foam has an edge; it keeps one here, and
+     the edge is what moves.
+
+     And leaned rather than domed. A dome centred on the glass curves to the
+     rim prettily and then cuts away the very crest it is meant to round, since
+     a crest rides one wall and not the middle: sized to clear the surge, it
+     squeezed that surge to a third of its width, which is where the foam
+     actually was. */
+  mask *= smoothstep(lim - up * 0.34, lim - up * 0.34 - 1.5, abs(px.x - GCX));
 
   /* The head floats on the beer: cut the mask off cleanly at the front edge
      of the surface so blobs cannot scallop down into the pour */
