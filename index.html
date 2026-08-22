@@ -418,6 +418,7 @@ const SPECS = [
   {key:"foamChurn",  label:"Foam churn",  min:0,   max:200, step:5, unit:"%",  group:null},
   {key:"weep",       label:"Weep",        min:0,   max:200, step:5, unit:"%",  group:null},
   {key:"glassSize",  label:"Glass size",  min:60,  max:130, step:1, unit:"%",  group:"Glass"},
+  {key:"glassLine",  label:"Glass lines", min:0,   max:100, step:1, unit:"",   group:null},
   {key:"condensation",label:"Condensation",min:0,  max:200, step:5, unit:"%",  group:null},
   {key:"dewSize",    label:"Bead size",   min:20,  max:220, step:5, unit:"%",  group:null},
   {key:"hue",        label:"Beer hue",    min:22,  max:50,  step:1, unit:"°",  group:"Colour"},
@@ -427,7 +428,7 @@ const SPECS = [
 const HOUSE = {
   fill:78, refill:32, pace:100, agitation:100, waveSpeed:46, viscosity:40,
   carbonation:100, bubbleSize:100, headDepth:100, foamChurn:100, weep:100,
-  glassSize:100, condensation:70, dewSize:100, hue:40, richness:46
+  glassSize:100, glassLine:100, condensation:70, dewSize:100, hue:40, richness:46
 };
 
 const PRESETS = {
@@ -1365,6 +1366,41 @@ function buildReflections(){
   Object.assign(REFL, {cv:c, x:x0, y:y0, w, h, ver:palVersion});
 }
 
+/* The mouth of a glass is a hole you look through to its far side, and a head
+   standing proud of the rim fills that hole. So everything the glass draws
+   above the rim's own plane and inside the head's outline — the back of the
+   lip, the top of the silhouette — is the far side of the glass seen through
+   foam, which is not a thing foam lets you see. Left in, the rim ran on across
+   the head as a bright arc laid over it and the head read as tissue paper.
+
+   The plane is the right place to cut. The rim ellipse divides there: above it
+   is the far half of the lip, behind the foam; below it the near half, in
+   front of the foam and drawn over it as it should be. No stroke straddles the
+   cut except at the two points where the arcs meet, so nothing is halved. And
+   nothing below the plane is subtracted — the glass we see there is the near
+   wall, which stands between the eye and the foam and tints it.
+
+   The head's cap comes down to the plane exactly at the walls, so the region is
+   closed by a chord along the plane. When the head sits lower than the rim the
+   cap is never above the plane and there is nothing to cut. */
+function headDome(){
+  const plane = G.top + G.topHalf * G.ryTop;
+  const hw = Math.max(1, innerHalfAt(G.inTop));
+  const steps = 48;
+  const p = new Path2D();
+  let any = false;
+  for (let i = 0; i <= steps; i++){
+    const x = G.cx + (-1 + 2 * i / steps) * hw;
+    const y = Math.min(plane, headTopAt(x));
+    if (y < plane - 0.5) any = true;
+    if (i) p.lineTo(x, y); else p.moveTo(x, y);
+  }
+  p.lineTo(G.cx + hw, plane);
+  p.lineTo(G.cx - hw, plane);
+  p.closePath();
+  return any ? p : null;
+}
+
 function drawGlass(ctx){
   const rimRy = G.topHalf * G.ryTop;
 
@@ -1388,20 +1424,44 @@ function drawGlass(ctx){
   ctx.globalAlpha = 1;
   ctx.restore();
 
-  /* Body of the glass, rim ellipse and walls as one silhouette */
+  /* Body of the glass, rim ellipse and walls as one silhouette. It fades with
+     the lines: it is not one of them, but it is the same glass, and left at
+     full weight while they went it stood there as a grey slab with no edges. */
+  ctx.save();
+  ctx.globalAlpha = glassLine();
   ctx.fillStyle = pal.glassTint;
   ctx.fill(PATHS.sil);
+  ctx.restore();
 
-  /* Walls: a bright inner line and a soft outer edge that follows the rim */
+  /* Everything from here on is line rather than body, and the head hides the
+     lines that run behind it. The tint above is left alone: it is a whole-glass
+     wash a twentieth of a step deep, and cutting it at the plane would rule a
+     level line across the foam to save nothing anyone can see. */
+  const dome = headDome();
   ctx.save();
+  if (dome){
+    const seen = new Path2D();
+    seen.rect(0, 0, W, H);
+    seen.addPath(dome);
+    ctx.clip(seen, "evenodd");
+  }
+
+  /* Walls: a bright inner line and a soft outer edge that follows the rim.
+     Everything from here to the end of the rim is the glass's own drawing —
+     the lines and ellipses that say a glass is there — and the slider fades
+     the lot of them together. Faded one at a time they would come apart into
+     a wall without a rim, or a rim floating over nothing. */
+  ctx.save();
+  const lineA = glassLine();
   ctx.lineJoin = "round";
   ctx.strokeStyle = pal.glassEdge;
+  ctx.globalAlpha = lineA;
   ctx.lineWidth = Math.max(1, G.wall * 0.28);
   ctx.stroke(PATHS.sil);
 
   ctx.strokeStyle = pal.glassLight;
   ctx.lineWidth = Math.max(1, G.wall * 0.34);
-  ctx.globalAlpha = 0.5;
+  ctx.globalAlpha = 0.5 * lineA;
   for (const s of [-1, 1]){
     ctx.beginPath();
     const steps = 22;
@@ -1460,6 +1520,7 @@ function drawGlass(ctx){
     return g;
   };
   ctx.save();
+  ctx.globalAlpha = glassLine();
   ctx.beginPath();
   ctx.ellipse(G.cx, rimCy, rimRx, rimRy, 0, 0, TAU);
   ctx.lineWidth = Math.max(1, G.wall * 0.32);
@@ -1541,6 +1602,13 @@ function drawGlass(ctx){
      carrying its weighting round on a vertical gradient. Fading a whole stroke
      out rather than stopping it is also what hides the width change: the
      heavier one has no width left where it would have shown. */
+  /* These are the glass's lines too — the floor it stands the beer on and the
+     ring it stands on itself — so they fade with the rest of it. Left out, the
+     slider took the walls and the rim away and left two ellipses lying in the
+     bottom of nothing. */
+  ctx.save();
+  ctx.globalAlpha = glassLine();
+
   const floorFade = (c, back, front, cy, ry, to = cy + ry) => {
     const g = ctx.createLinearGradient(0, cy - ry, 0, to);
     g.addColorStop(0, `rgba(${c.rgb},${back})`);
@@ -1582,6 +1650,8 @@ function drawGlass(ctx){
   ctx.lineWidth = Math.max(1, G.wall * 0.4);
   ctx.strokeStyle = floorFade(pal.floorNear, 0, pal.floorNear.a, G.bottom, bryF * 0.86);
   ctx.stroke();
+  ctx.restore();
+  ctx.restore();          /* the head's clip */
 }
 
 function drawDetail(){

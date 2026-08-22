@@ -420,6 +420,7 @@ const SPECS = [
   {key:"foamChurn",  label:"Foam churn",  min:0,   max:200, step:5, unit:"%",  group:null},
   {key:"weep",       label:"Weep",        min:0,   max:200, step:5, unit:"%",  group:null},
   {key:"glassSize",  label:"Glass size",  min:60,  max:130, step:1, unit:"%",  group:"Glass"},
+  {key:"glassLine",  label:"Glass lines", min:0,   max:100, step:1, unit:"",   group:null},
   {key:"relief",     label:"Foam relief", min:0,   max:200, step:5, unit:"%",  group:null},
   {key:"condensation",label:"Condensation",min:0,  max:200, step:5, unit:"%",  group:null},
   {key:"dewSize",    label:"Bead size",   min:20,  max:220, step:5, unit:"%",  group:null},
@@ -434,7 +435,7 @@ const SPECS = [
 const HOUSE = {
   fill:78, refill:32, agitation:100, waveSpeed:46, viscosity:40,
   carbonation:100, bubbleSize:100, headDepth:100, foamChurn:100, weep:100,
-  glassSize:100, relief:100, condensation:70, dewSize:100, hue:40, richness:46, clarity:70,
+  glassSize:100, glassLine:100, relief:100, condensation:70, dewSize:100, hue:40, richness:46, clarity:70,
   caustics:100, lightAngle:62, gloss:55
 };
 
@@ -953,8 +954,20 @@ void main(){
     vec3 col = mix(vec3(0.03, 0.04, 0.05), vec3(1.0), clamp(pip * 1.4, 0.0, 1.0));
     frag = vec4(col, clamp(ring * 0.45 + sag * 0.20 + pip * 0.9, 0.0, 1.0) * vAlpha);
   } else {
-    /* Lacing: dried foam stuck to the wall above the beer line */
+    /* Lacing: dried foam stuck to the wall above the beer line — and never
+       above the lip, where there is no inside of the glass to stick to. The
+       canvas clips its lacing to the wall and to the rim's own far arc; a
+       sprite cannot be clipped, so the same arc is tested here, and the same
+       cut is made. Without it a speck on the far wall, carried up the screen
+       by the whole bulge of the rim's ellipse, was drawn clear over the back
+       of the glass and hung in the dark above it. */
     if (d > 1.0) discard;
+    float lrRy = GTH * GRYK;
+    float lrCy = GTOP + lrRy;
+    float lrRx = max(innerHalfAt(lrCy), 2.0);
+    float lu = (vPx.x - GCX) / lrRx;
+    if (abs(lu) > 1.0) discard;
+    if (vPx.y < lrCy - lrRy * 0.94 * sqrt(max(0.0, 1.0 - lu * lu))) discard;
     frag = vec4(uFoam, smoothstep(1.0, 0.2, d) * 0.55 * vAlpha);
   }
 }`;
@@ -1194,6 +1207,30 @@ void main(){
   float floorLine = smoothstep(GWALL * 0.55, 0.0, floorArc);
   col = mix(col, mix(uEdge, uLight, floorNear), clamp(floorLine, 0.0, 1.0));
   a = max(a, floorLine * mix(0.42, 0.72, floorNear));
+
+  /* The mouth of a glass is a hole you look through to its far side, and a
+     head standing proud of the rim fills that hole. Above the rim's plane the
+     only glass left to draw is the back of the lip and the top of the
+     silhouette, and both of those are behind the foam. Painted over it the rim
+     ran on across the head as a bright arc and the head read as tissue.
+
+     The plane is the right place to cut, because the rim ellipse divides
+     there: above it the far half of the lip, behind the foam; below it the
+     near half, in front of the foam and drawn over it as it should be. Nothing
+     below the plane is taken away — the glass we see there is the near wall,
+     which stands between the eye and the foam and tints it.
+
+     The head's own dome is read back out of the same field the foam pass
+     draws from, so the rim is hidden by exactly the foam that is there and no
+     more: a shallow head leaves the lip whole. */
+  if (px.y < rimTanY && uLevel > 0.001){
+    float domeH = max(uBandPx * 0.55, 1.0);
+    float up    = max(0.0, GINTOP - px.y);
+    float lim   = up > 0.0
+                ? innerHalfAt(GINTOP) * sqrt(max(0.0, 1.0 - (up / domeH) * (up / domeH)))
+                : innerHalfAt(px.y);
+    if (abs(px.x - GCX) <= lim) a *= 1.0 - smoothstep(0.13, 0.30, fieldAt(px));
+  }
 
   if (a <= 0.003) discard;
   frag = vec4(col, clamp(a, 0.0, 1.0));
@@ -1688,6 +1725,8 @@ function render(){
   gl.bindVertexArray(vaoEmpty);
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, heightTex);
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, fieldTex);
   setShared(progGlass, dpr);
   gl.uniform3fv(progGlass.u.uEdge, pal.glassEdge);
   gl.uniform3fv(progGlass.u.uLight, pal.glassLight);
@@ -1695,6 +1734,8 @@ function render(){
   gl.uniform1f(progGlass.u.uDark, pal.dark ? 1 : 0);
   gl.uniform1f(progGlass.u.uLightX, Math.cos(cfg.lightAngle * Math.PI / 180));
   gl.uniform1f(progGlass.u.uLevel, level);
+  gl.uniform1i(progGlass.u.uField, 1);
+  gl.uniform1f(progGlass.u.uBandPx, headBand());
   gl.enable(gl.BLEND);
   gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   gl.drawArrays(gl.TRIANGLES, 0, 3);

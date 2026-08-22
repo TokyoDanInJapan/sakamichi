@@ -592,6 +592,12 @@ function breakCrests(){
  */
 const RIBBON_MAX = 6;
 
+/* How plainly the glass is drawn: the strokes that stand for its walls and its
+   rim. They are the only thing saying a glass is there at all, so they are kept
+   apart from what is in it — turned down, the beer goes on exactly as it was
+   and the vessel around it fades. */
+const glassLine = () => clamp((cfg.glassLine == null ? 100 : cfg.glassLine) / 100, 0, 1);
+
 /* How much bigger a bead is drawn for having come towards you, or smaller for
    having gone away. Nearly nothing at the far lip and better than twice over by
    the time it is about to pass the eye. */
