@@ -592,6 +592,13 @@ function breakCrests(){
  */
 const RIBBON_MAX = 6;
 
+/* How much weeping there is, and how deep it hangs. Measured against the glass
+   and not against the head: the two were the same number, so a deeper head grew
+   a deeper weep — but how far foam runs down the outside of a glass is a fact
+   about the foam and the glass, not about how much of it is standing inside. */
+const weepAmount = () => clamp((cfg.weep == null ? 100 : cfg.weep) / 100, 0, 2);
+const weepDeep = () => (G.topHalf * 2) * 0.18 * weepAmount();
+
 /* Before any of it runs, the head comes over the lip as a sheet and hangs there
    — the collar you see on a glass poured proud, which the ribbons are drawn out
    of. It is not a tally of what has spilled but a state of the pour: however
@@ -614,7 +621,7 @@ let creep = 0;
 let weepReach = 0;
 function collarWant(){
   const band = headBand();
-  if (band < 1) return 0;
+  if (band < 1 || weepAmount() <= 0.001) return 0;
   /* The weep is what the head sheds once the glass is filled to the lip: there
      is no room left for it to stand in, so it goes over the side. So it is the
      beer coming up to the brim that brings it on, and nothing else — a rim and
@@ -665,6 +672,7 @@ function ribbonHalf(d, t){
    starting another, which is why a glass sheds a few thick ribbons rather than
    a fringe of identical ones. */
 function spillFoam(x, r){
+  if (weepAmount() <= 0.001) return;      /* turned right down, nothing runs */
   const rimY = G.inTop;
   const hwRim = Math.max(1, innerHalfAt(rimY));
   const th = Math.asin(clamp((x - G.cx) / hwRim, -1, 1));

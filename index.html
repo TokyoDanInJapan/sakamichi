@@ -416,6 +416,7 @@ const SPECS = [
   {key:"bubbleSize", label:"Bubble size", min:20,  max:220, step:5, unit:"%",  group:null},
   {key:"headDepth",  label:"Head depth",  min:0,   max:200, step:5, unit:"%",  group:"Head"},
   {key:"foamChurn",  label:"Foam churn",  min:0,   max:200, step:5, unit:"%",  group:null},
+  {key:"weep",       label:"Weep",        min:0,   max:200, step:5, unit:"%",  group:null},
   {key:"glassSize",  label:"Glass size",  min:60,  max:130, step:1, unit:"%",  group:"Glass"},
   {key:"condensation",label:"Condensation",min:0,  max:200, step:5, unit:"%",  group:null},
   {key:"dewSize",    label:"Bead size",   min:20,  max:220, step:5, unit:"%",  group:null},
@@ -425,7 +426,7 @@ const SPECS = [
 
 const HOUSE = {
   fill:78, refill:32, pace:100, agitation:100, waveSpeed:46, viscosity:40,
-  carbonation:100, bubbleSize:100, headDepth:100, foamChurn:100,
+  carbonation:100, bubbleSize:100, headDepth:100, foamChurn:100, weep:100,
   glassSize:100, condensation:70, dewSize:100, hue:40, richness:46
 };
 
@@ -1669,7 +1670,7 @@ function drawDetail(){
   const colRy = G.topHalf * G.ryTop;
   const colCy = G.top + colRy;
   const colRx = halfAt(colCy);
-  const colDeep = headBand() * 0.95;
+  const colDeep = weepDeep();
   const colSteps = 48;
   const hemAt = th => colCy + weepReach + creep * collar * colDeep * collarDrape(th);
   const showCollar = collar > 0.012 && creep > 0.004;
