@@ -1016,7 +1016,7 @@ void main(){
   float headTop = max(back - uBandPx, cap);
   /* and above the lip the bore stops widening: there is no more glass to hold it */
   float lim = innerHalfAt(max(px.y, lipCy));
-  if (abs(px.x - GCX) > lim || px.y < headTop || px.y > GINBOT) discard;
+  if (abs(px.x - GCX) > lim || px.y > GINBOT) discard;
 
   float f = fieldAt(px);
   /* Granular outline: a whisper of bubble-scale roughness on the edge */
@@ -1030,6 +1030,11 @@ void main(){
      of those holes read as a dark notch bitten out of the rim on either side.
      So the field gives the grain and the relief, and the outline is the head's
      own: solid from a couple of pixels inside it. */
+  /* The outline is not cut to it, only filled up to it. Cut, the head came out
+     as a slab with a ruled edge: a crest surging up the glass ran into the
+     crown of the dome and stopped there on a straight line, which is a lid
+     rather than a wave. The blobs are what a crest is made of and they are
+     left free to carry it as high as the beer throws them. */
   float mask = max(smoothstep(0.13, 0.30, f + (grain - 0.5) * 0.05),
                    smoothstep(headTop, headTop + 2.0, px.y));
 
@@ -1103,6 +1108,13 @@ ${GLSL_GLASS}
 uniform sampler2D uField;
 uniform vec3 uEdge, uLight, uBeerGlow;
 uniform float uDark, uLightX, uLevel, uBandPx;
+/* How plainly the glass is drawn. It fades the lot together — the silhouette
+   and its tint, both rim ellipses and the lip's light, the wall lines, the
+   floor the beer stands on and the ring the glass stands on. Not the
+   reflections running down the wall and not the light in the thick base:
+   those are light on the glass rather than lines saying a glass is there, and
+   the canvas leaves them alone too. */
+uniform float uLine;
 out vec4 frag;
 
 float fieldAt(vec2 p){ return texture(uField, vec2(p.x / uRes.x, 1.0 - p.y / uRes.y)).r; }
@@ -1137,7 +1149,7 @@ void main(){
   vec2 bcS = vec2((px.x - GCX) / max(bw, 1.0), (px.y - GBOT) / max(ryB, 1.0));
   bool inBulge = px.y >= GBOT && dot(bcS, bcS) < 1.0;
   if ((outer < 0.0 && px.y >= rimTanY && px.y <= GBOT) || inTopLens || inBulge){
-    col += uEdge; a += uDark > 0.5 ? 0.05 : 0.035;
+    col += uEdge; a += (uDark > 0.5 ? 0.05 : 0.035) * uLine;
   }
 
   /* The two walls: a dark outer edge and a bright inner one */
@@ -1155,9 +1167,9 @@ void main(){
                   * smoothstep(rimTanY - 1.0, rimTanY + 3.0, px.y)
                   * (1.0 - smoothstep(GINBOT - 1.0, GINBOT + 0.5, px.y));
   col = mix(col, uEdge, clamp(outerLine, 0.0, 1.0));
-  a = max(a, outerLine * 0.72);
+  a = max(a, outerLine * 0.72 * uLine);
   col = mix(col, uLight, clamp(innerLine * 0.75, 0.0, 1.0));
-  a = max(a, innerLine * 0.4);
+  a = max(a, innerLine * 0.4 * uLine);
 
   /* Reflections running down the glass — brighter on the side facing the
      light. The wall tapers, so each band sits at a fixed fraction of the
@@ -1185,13 +1197,13 @@ void main(){
   float rim = abs(length(rc) - 1.0) * rimRx;
   float rimLine = smoothstep(GWALL * mix(0.34, 0.78, lipF), 0.0, rim);
   col = mix(col, mix(uEdge, uLight, lipF), clamp(rimLine * mix(0.75, 1.2, lipF), 0.0, 1.0));
-  a = max(a, rimLine * mix(0.38, 1.0, lipF));
+  a = max(a, rimLine * mix(0.38, 1.0, lipF) * uLine);
 
   float riRx = max(rimRx - GWALL, 1.0);
   vec2 ric = vec2((px.x - GCX) / riRx, (px.y - rimTanY) / max(rimRy * 0.94, 1.0));
   float rimInLine = smoothstep(GWALL * mix(0.28, 0.52, lipF), 0.0, abs(length(ric) - 1.0) * riRx);
   col = mix(col, uLight, clamp(rimInLine * 0.85, 0.0, 1.0));
-  a = max(a, rimInLine * mix(0.26, 0.66, lipF));
+  a = max(a, rimInLine * mix(0.26, 0.66, lipF) * uLine);
 
   /* Thick base — it refracts the beer above it and glows amber */
   if ((px.y > GBOT - GBASE * 2.1 && px.y <= GBOT && outer < 0.0) || inBulge){
@@ -1226,13 +1238,13 @@ void main(){
   float botD = abs(length(bcS) - 1.0) * bw;
   float botLine = smoothstep(w, 0.0, botD) * step(GBOT - 1.0, px.y);
   col = mix(col, uEdge, clamp(botLine, 0.0, 1.0));
-  a = max(a, botLine * 0.72);
+  a = max(a, botLine * 0.72 * uLine);
 
   vec2 bc = vec2((px.x - GCX) / max(bw * 0.86, 1.0), (px.y - GBOT) / max(ryB * 0.86, 1.0));
   float baseArc = abs(length(bc) - 1.0) * bw * 0.86;
   float baseLine = smoothstep(GWALL * 0.5, 0.0, baseArc);
   col = mix(col, uLight, clamp(baseLine, 0.0, 1.0));
-  a = max(a, baseLine * 0.45);
+  a = max(a, baseLine * 0.45 * uLine);
 
   /* The floor the beer stands on. Drawn faintly it left the pour, the base
      and the reflection running together as one amber mass with nothing to
@@ -1245,7 +1257,7 @@ void main(){
   float floorNear = clamp((px.y - GINBOT) / max(fihw * uRyKs.y, 1.0) * 0.5 + 0.5, 0.0, 1.0);
   float floorLine = smoothstep(GWALL * 0.55, 0.0, floorArc);
   col = mix(col, mix(uEdge, uLight, floorNear), clamp(floorLine, 0.0, 1.0));
-  a = max(a, floorLine * mix(0.42, 0.72, floorNear));
+  a = max(a, floorLine * mix(0.42, 0.72, floorNear) * uLine);
 
   /* The mouth of a glass is a hole you look through to its far side, and a
      head standing proud of the rim fills that hole. Above the rim's plane the
@@ -1973,6 +1985,7 @@ function render(){
   gl.uniform1f(progGlass.u.uLevel, level);
   gl.uniform1i(progGlass.u.uField, 1);
   gl.uniform1f(progGlass.u.uBandPx, headBand());
+  gl.uniform1f(progGlass.u.uLine, glassLine());
   gl.enable(gl.BLEND);
   gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
