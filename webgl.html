@@ -997,21 +997,41 @@ float fieldAt(vec2 p){ return texture(uField, vec2(p.x / uRes.x, 1.0 - p.y / uRe
 
 void main(){
   vec2 px = fragPx();
-  /* The head is held by the glass, and over the lip closes as a dome. Carry
-     the interior's full width up there instead — which is what clamping does —
-     and a high pour sits over the glass as a slab with square shoulders. */
-  float domeH = max(uBandPx * 0.55, 1.0);
-  float up = max(0.0, GINTOP - px.y);
-  float lim = up > 0.0
-            ? innerHalfAt(GINTOP) * sqrt(max(0.0, 1.0 - (up / domeH) * (up / domeH)))
-            : innerHalfAt(px.y);
-  if (abs(px.x - GCX) > lim || px.y > GINBOT) discard;
+
+  /* The head's own top, read the way the canvas reads it: the far edge of the
+     beer less the band the head stands, or the crown arching over the lip,
+     whichever is the higher. Two things follow that a fixed dome above the lip
+     could not give. The head rides the wave — swilled hard it comes up the
+     glass and over the lip, where before it stopped dead on a line at the rim
+     however hard the beer was thrown at it. And the crown is the canvas's own
+     curve, so it meets the head's body at the wall instead of stopping short
+     of it and handing over with a step. */
+  float rry   = GTH * GRYK;
+  float lipCy = GTOP + rry;
+  float cu    = clamp((px.x - GCX) / max(1.0, innerHalfAt(lipCy)), -1.0, 1.0);
+  float disc  = sqrt(max(0.0, 1.0 - cu * cu));
+  float mound = sqrt(max(0.0, 1.0 - pow(abs(cu), 6.0)));
+  float cap   = lipCy - rry * 0.55 * mound - rry * disc;
+  float back  = surfaceAt(px.x) - ellipseDy(px.x);
+  float headTop = max(back - uBandPx, cap);
+  /* and above the lip the bore stops widening: there is no more glass to hold it */
+  float lim = innerHalfAt(max(px.y, lipCy));
+  if (abs(px.x - GCX) > lim || px.y < headTop || px.y > GINBOT) discard;
 
   float f = fieldAt(px);
-  if (f < 0.10) discard;
   /* Granular outline: a whisper of bubble-scale roughness on the edge */
   float grain = vnoise(px * 0.9 + vec2(uTime * 0.04, 0.0));
-  float mask = smoothstep(0.13, 0.30, f + (grain - 0.5) * 0.05);
+
+  /* A head is a body of foam, not a heap of blobs. The canvas fills its own
+     outline and lets the texture play inside it; here the blobs alone said
+     where the foam was, and where they thinned — which is at the wall, where
+     each one is cut in half by it — they left holes. Under the collar's mouth,
+     which is cut out of the collar so the contents show through the ring, one
+     of those holes read as a dark notch bitten out of the rim on either side.
+     So the field gives the grain and the relief, and the outline is the head's
+     own: solid from a couple of pixels inside it. */
+  float mask = max(smoothstep(0.13, 0.30, f + (grain - 0.5) * 0.05),
+                   smoothstep(headTop, headTop + 2.0, px.y));
 
   /* The head floats on the beer: cut the mask off cleanly at the front edge
      of the surface so blobs cannot scallop down into the pour */
@@ -1239,16 +1259,22 @@ void main(){
      below the plane is taken away — the glass we see there is the near wall,
      which stands between the eye and the foam and tints it.
 
-     The head's own dome is read back out of the same field the foam pass
-     draws from, so the rim is hidden by exactly the foam that is there and no
-     more: a shallow head leaves the lip whole. */
+     The head is read back out of its own outline — the same one the foam pass
+     fills, so the rim is hidden by exactly the foam that is there and no more:
+     a shallow head leaves the lip whole. Asking a dome of its own instead, and
+     the field alone inside it, left the two disagreeing at the walls, where a
+     blob is cut in half and the field thins: the rim's own line was drawn
+     across the foam there and read as a dark comma bitten out of the head at
+     either side of the lip. */
   if (px.y < rimTanY && uLevel > 0.001){
-    float domeH = max(uBandPx * 0.55, 1.0);
-    float up    = max(0.0, GINTOP - px.y);
-    float lim   = up > 0.0
-                ? innerHalfAt(GINTOP) * sqrt(max(0.0, 1.0 - (up / domeH) * (up / domeH)))
-                : innerHalfAt(px.y);
-    if (abs(px.x - GCX) <= lim) a *= 1.0 - smoothstep(0.13, 0.30, fieldAt(px));
+    float cu    = clamp((px.x - GCX) / max(1.0, innerHalfAt(rimTanY)), -1.0, 1.0);
+    float disc  = sqrt(max(0.0, 1.0 - cu * cu));
+    float mound = sqrt(max(0.0, 1.0 - pow(abs(cu), 6.0)));
+    float cap   = rimTanY - rimRy * 0.55 * mound - rimRy * disc;
+    float back  = surfaceAt(px.x) - ellipseDy(px.x);
+    float headTop = max(back - uBandPx, cap);
+    if (abs(px.x - GCX) <= innerHalfAt(rimTanY))
+      a *= 1.0 - smoothstep(headTop - 1.0, headTop + 2.0, px.y);
   }
 
   if (a <= 0.003) discard;
@@ -1399,7 +1425,17 @@ void main(){
     vec2 d = hemPt(th + e) - hemPt(th - e);
     float perp = abs(px.y - hp.y) * abs(d.x) / max(length(d), 1e-4);
     float lw = max(1.0, GWALL * 0.35);
-    over(acc, vec3(0.353, 0.282, 0.173), smoothstep(lw * 0.5, lw * 0.5 - 1.0, perp) * 0.28 * 0.5);
+    /* Closed off at the two sides, the way the drape itself is. The pixel is
+       placed round the glass by its x, so where the hem runs straight down the
+       screen — which is at the sides, where the glass has turned away — that
+       reading has no width left to divide by and the line spread into a blot.
+       It sat just inside the mouth, which is cut out of the collar, so nothing
+       was laid over it: a dark comma bitten out of the foam at either side of
+       the rim. There is no shade to see there in any case. A stroke seen
+       edge-on is a point. */
+    float edge = min(1.0, abs(cos(th)) * 3.4);
+    over(acc, vec3(0.353, 0.282, 0.173),
+         smoothstep(lw * 0.5, lw * 0.5 - 1.0, perp) * 0.28 * 0.5 * edge);
   }
 
   /* Foam over the lip, running down the outside. One body apiece: the tail and
