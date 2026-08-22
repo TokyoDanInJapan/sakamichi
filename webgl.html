@@ -815,9 +815,12 @@ void main(){
   vec4 src = sceneAt(px);
   col = col * (1.0 - src.a) + src.rgb;
 
-  /* A hairline where the wall meets the bar */
-  col = mix(col, mix(vec3(0.30, 0.33, 0.37), vec3(0.80, 0.83, 0.86), uDark),
-            smoothstep(1.4, 0.0, abs(px.y - horizonY)) * 0.12);
+  /* No hairline where the wall meets the bar. In the canvas version that line
+     is the lit far edge of a bar top a good deal paler than the wall behind
+     it, so it reads as the edge of a step. Here the floor near the horizon
+     comes out all but the same tone as the wall, and a line drawn between two
+     equal darks is the edge of nothing: it floated across the back of the
+     scene as a bright rule with no surface either side of it. */
 
   frag = vec4(col, 1.0);
 }`;
