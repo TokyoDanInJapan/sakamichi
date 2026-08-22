@@ -748,15 +748,15 @@ function headClip(ctx, domeH){
      Taken from whichever is higher — the rim, or the head's own top — the one
      allowance closes the head over the lip while it is sitting in the glass and
      leaves it its crown once it is standing above it. */
-  const band = headBand();
-  let capY = G.inTop;
-  if (N && hArr) for (let i = 0; i < N; i++) capY = Math.min(capY, backY(colX(i)) - band);
+  /* and the clip follows the same cap, lifted by the allowance, so the ragged
+     blobs have room to stand above the head's own top without any of them
+     standing above the rim at the walls — where the cap comes back to the lip
+     and takes the allowance with it. */
   const crown = Math.max(1, domeH);
-  const cSteps = 16;
+  const cSteps = 20;
   for (let i = 0; i <= cSteps; i++){
     const t = 1 - 2 * i / cSteps;                    /* +1 at the right wall */
-    const drop = Math.sqrt(Math.max(0, 1 - Math.pow(Math.abs(t), 6)));
-    ctx.lineTo(G.cx + t * ihwTop, capY - crown * drop);
+    ctx.lineTo(G.cx + t * ihwTop, headCapY(t, crown));
   }
   ctx.closePath();
 }
@@ -765,18 +765,14 @@ function interiorPath(){
   const ctx = new Path2D();
   const steps = 20;
   const ihw = innerHalfAt(G.inBottom);
-  /* Squared off at the inner top, which is a rim's height above the point where
-     the glass opens at its two sides. Cut instead on the far arc of the lip —
-     as far down into the glass as there is to see — it took the beer with it:
-     the arc falls all the way to the rim's own side at each wall, and a pour
-     swirled up a wall is standing above that. The head is not held to the same
-     line, so it went on standing where the beer had been cut from under it, and
-     a notch of empty glass opened between the two.
-     The beer belongs against the head, so the ceiling is flat again. What the
-     arc was really cutting away was not the beer but the pale plane laid over
-     it, which above the rim has nothing to be the top of and reads as a
-     reflection floating free of the glass — so that is cut on the arc instead,
-     and the body is left to fill up to the head. */
+  /* Bounded above by the far arc of the lip, which is as far down into the
+     glass as there is to see. It was flattened to a rule across the top for a
+     while, because the arc was cutting the beer short of the head at the walls
+     — but that was the fill line's fault and not the arc's: brim full stood a
+     rim above the brim, so the beer was over-topping the glass and the arc was
+     doing its job. With the brim where the lip is, a full glass reaches the arc
+     and no further, and anything still above it is beer on its way over. */
+  const rimRy = G.topHalf * G.ryTop;
   for (let i = 0; i <= steps; i++){
     const y = lerp(G.inTop, G.inBottom, i / steps);
     const x = G.cx - innerHalfAt(y);
@@ -787,6 +783,7 @@ function interiorPath(){
     const y = lerp(G.inTop, G.inBottom, i / steps);
     ctx.lineTo(G.cx + innerHalfAt(y), y);
   }
+  ctx.ellipse(G.cx, G.inTop, innerHalfAt(G.inTop), rimRy * 0.94, 0, 0, Math.PI, true);
   ctx.closePath();
   return ctx;
 }
@@ -1249,9 +1246,9 @@ function drawFoam(){
      wherever the beer does rather than stopping a little short of it. */
   const over = Math.max(12, G.topHalf - w / 2 + 12);
   ctxF.beginPath();
-  ctxF.moveTo(l - over, backY(l) - band);
-  for (let i = 1; i < N; i++){ const x = colX(i); ctxF.lineTo(x, backY(x) - band); }
-  ctxF.lineTo(l + w + over, backY(l + w) - band);
+  ctxF.moveTo(l - over, headTopAt(l));
+  for (let i = 1; i < N; i++){ const x = colX(i); ctxF.lineTo(x, headTopAt(x)); }
+  ctxF.lineTo(l + w + over, headTopAt(l + w));
   ctxF.lineTo(l + w + over, frontY(l + w) + 1);
   for (let i = N - 1; i >= 0; i--){ const x = colX(i); ctxF.lineTo(x, frontY(x) + 1); }
   ctxF.lineTo(l - over, frontY(l) + 1);
@@ -1266,8 +1263,15 @@ function drawFoam(){
 
   /* The head is soaked through where it stands in the beer, and takes its
      colour there. Painted onto the head itself, so it can only tint foam that
-     is actually there: anchored to the beer line instead, it ruled a stripe
-     across the head, whose blobs hang well below that line. */
+     is actually there.
+     But it has to follow the beer line and not hang from a single height. The
+     line the head stands in is an ellipse, and a level band across it tinted
+     the middle of the head at full strength and the two ends of it not at all —
+     so what it drew was a grey ellipse lying across the foam, which is the
+     shape of the band and not the shape of anything in the glass. It shows
+     whenever the weep is not there to cover it.
+     Column by column, then, each hung from its own share of the beer line, the
+     way the light under the surface already is. */
   const wy = restSurfaceY() + ellipseDy(G.cx);
   const wet = ctxF.createLinearGradient(0, wy + 26 * G.scale, 0, wy - 20 * G.scale);
   wet.addColorStop(0, pal.foamWet);
@@ -1610,22 +1614,6 @@ function drawDetail(){
     ctxD.restore();
   }
 
-  /* Beer running down the outside of the glass */
-  for (const d of drips){
-    const [x, y, c] = dewPos(d);            /* it runs on the outside, as beads do */
-    const rw = Math.max(0.6, d.r * Math.max(0.3, Math.abs(c)));
-    ctxD.globalAlpha = clamp(d.life, 0, 1) * 0.9 * (0.6 + 0.4 * (0.5 + 0.5 * c));
-    ctxD.beginPath();
-    if (ctxD.roundRect) ctxD.roundRect(x - rw * 0.5, y - d.len, rw, d.len + d.r, rw);
-    else ctxD.rect(x - rw * 0.5, y - d.len, rw, d.len + d.r);
-    ctxD.fillStyle = pal.foam;
-    ctxD.fill();
-    ctxD.beginPath();                       /* the bead at the leading edge */
-    ctxD.ellipse(x, y + d.r * 0.4, rw * 0.75, d.r * 0.75, 0, 0, TAU);
-    ctxD.fill();
-  }
-  ctxD.globalAlpha = 1;
-
   drawGlass(ctxD);
 
   /* Condensation beads on the outside of the glass */
@@ -1647,6 +1635,178 @@ function drawDetail(){
       ctxD.fillStyle = "rgba(255,255,255,.9)";
       ctxD.fill();
     }
+    ctxD.globalAlpha = 1;
+  }
+
+  /* Foam over the lip, running down the outside — so it goes on after the
+     glass, the way the condensation does, and after the condensation too: a run
+     of foam lies on the wall and takes the beads under it with it, so it can
+     hardly have them showing through.
+     Drawn as one outline apiece: the tail and the bead it hangs from are the
+     same body of foam, and two overlapping fills at this alpha would seam
+     where they crossed. */
+  for (const d of drips){
+    const c = Math.cos(d.th), s = Math.sin(d.th);
+    const a = clamp(d.life, 0, 1) * 0.94 * (0.6 + 0.4 * (0.5 + 0.5 * c));
+    if (a <= 0.01) continue;
+    /* edge-on where the glass turns away, as the beads are */
+    const fs = Math.max(0.3, Math.abs(c));
+    const steps = 18;
+    const px = [], py = [], pw = [];
+    for (let i = 0; i <= steps; i++){
+      const t = i / steps;
+      const h = lerp(d.top, d.h, t);
+      const hw = halfAt(h);
+      /* it wanders as it goes, the way a trail down a wet wall does, and is
+         pinned where it leaves the collar so the wander does not shift its root */
+      const sway = Math.sin(t * 4.1 + d.wob) * d.wobA * t;
+      px.push(G.cx + hw * s + sway * fs);
+      py.push(h + ryAt(h) * hw * c);
+      pw.push(Math.max(0.35, ribbonHalf(d, t) * fs));
+    }
+    ctxD.globalAlpha = a;
+    ctxD.fillStyle = pal.foam;
+    ctxD.beginPath();
+    for (let i = 0; i <= steps; i++){
+      if (i) ctxD.lineTo(px[i] - pw[i], py[i]); else ctxD.moveTo(px[i] - pw[i], py[i]);
+    }
+    /* round off under the bead, then back up the other edge */
+    ctxD.ellipse(px[steps], py[steps], pw[steps], Math.max(0.35, d.r), 0, Math.PI, 0, true);
+    for (let i = steps; i >= 0; i--) ctxD.lineTo(px[i] + pw[i], py[i]);
+    /* and across the top on the lip's own curve rather than straight. The
+       ribbon is only its own width across, but the rim is an ellipse and near
+       the two sides of the glass that is where it turns hardest — over ten
+       pixels of ribbon the lip drops four, so a level cut there reads as a tab
+       stuck on the glass rather than foam coming over the edge of it. */
+    /* on the rim's own ellipse, to its own radii, so the two meet exactly
+       rather than on a curve of nearly the same shape */
+    const rRy = G.topHalf * G.ryTop, rCy = G.top + rRy, rRx = Math.max(1, halfAt(rCy));
+    const aSteps = 6;
+    for (let i = 0; i <= aSteps; i++){
+      const x = px[0] + pw[0] - 2 * pw[0] * i / aSteps;
+      const u = clamp((x - G.cx) / rRx, -1, 1);
+      ctxD.lineTo(x, rCy - 0.5 * G.scale + rRy * Math.sqrt(1 - u * u));
+    }
+    ctxD.closePath();
+    ctxD.fill();
+
+    /* The light runs down the standing edge of it — but only once there is a
+       standing edge to catch it. On a ribbon drawn down to a thread the
+       highlight was the whole of it, and it read as a scratch on the glass. */
+    if (pw[0] > 2.2){
+      ctxD.globalAlpha = a * 0.32;
+      ctxD.strokeStyle = "rgba(255,255,255,.55)";
+      ctxD.lineWidth = Math.max(0.6, pw[0] * 0.34);
+      ctxD.beginPath();
+      for (let i = 0; i <= steps; i++){
+        if (pw[i] < 1.1) break;
+        const hx = px[i] - pw[i] * 0.42;
+        if (i) ctxD.lineTo(hx, py[i]); else ctxD.moveTo(hx, py[i]);
+      }
+      ctxD.stroke();
+    }
+
+    /* and what got all the way down runs off the glass and lies on the bar.
+       Only the half of it that has cleared the foot: the glass stands on the
+       other half, and foam does not gather under a glass that is already there.
+       So the puddle is cut to everything the silhouette is not — a rectangle
+       with the glass taken out of it — and it spreads from the foot outwards. */
+    if (d.pool > 0){
+      const outside = new Path2D();
+      outside.rect(0, 0, W, H);
+      outside.addPath(PATHS.sil);
+      ctxD.save();
+      ctxD.clip(outside, "evenodd");
+      ctxD.globalAlpha = a * 0.8;
+      ctxD.fillStyle = pal.foam;
+      ctxD.beginPath();
+      ctxD.ellipse(px[steps], py[steps] + d.r * 0.35, d.pool,
+                   Math.max(0.8, d.pool * baseBulge() / Math.max(1, G.botHalf)), 0, 0, TAU);
+      ctxD.fill();
+      ctxD.restore();
+    }
+  }
+  ctxD.globalAlpha = 1;
+
+  /* The collar: the head hanging over the outside of the lip, which is where
+     the ribbons are drawn from. Its lower edge is lobed rather than level —
+     foam hangs in tongues.
+     It goes on last of the three, over the ribbons rather than under them. It
+     is the nearest foam to the eye — it lies on the lip itself, while a ribbon
+     has already run down the wall behind it — and a ribbon is drawn out of the
+     collar, so the collar is what its root should disappear into. */
+  if (collar > 0.012 && creep > 0.004){
+    const cRy = G.topHalf * G.ryTop;
+    const cCy = G.top + cRy;
+    const cRx = halfAt(cCy);
+    /* The weep does not appear, it runs. Its whole reach — down past the beer
+       line and on into the tongues — is scaled by how far it has got, so the
+       hem starts on the lip and creeps down the glass from there. Held at its
+       full reach and faded up instead, foam arrived everywhere at once and
+       merely got more opaque, which is a dissolve and not a drip.
+       Its far end is the beer line and then some. The head's underside is that
+       line, and stopped at the lip the hem came out above it — so what you saw
+       along the bottom of the foam was the head's own straight edge with the
+       tongues lost behind it. Carried past the beer, every lobe falls below the
+       edge it is part of, and at the two walls, where the drape runs out, the
+       two meet exactly.
+       And the reach is measured against what the head wanted to be, not what
+       the glass let it keep: scaled by the band, the weep ran shallowest at the
+       brim, which is the one place it should be deepest, since it is exactly
+       the foam the band has just had to give up. */
+    const deep = headWant() * 0.95;
+    const hemAt = th => cCy + weepReach + creep * collar * deep * collarDrape(th);
+    const steps = 48;
+    ctxD.globalAlpha = 0.94;
+    ctxD.fillStyle = pal.foam;
+    /* Its upper edge is the far arc of the rim. Foam that has come over covers
+       the whole of the lip it came over — in a photograph you cannot see the rim
+       at all where the head is draped across it — so the collar's top is the
+       back of that ring, not the front of it.
+       Lifting the front arc towards the back by a share of the rim's own depth
+       does cover the lip, but a lift that has to vanish at the two sides is a
+       lift proportional to the same cosine the arc is made of, so it flattens
+       the arc as it raises it: at nine tenths what came out was a rule drawn
+       straight across an elliptical rim. The far arc is the whole ellipse
+       again, and it meets the near one at the sides on its own. */
+    ctxD.beginPath();
+    for (let i = 0; i <= steps; i++){
+      const th = -Math.PI / 2 + Math.PI * i / steps;
+      const x = G.cx + cRx * Math.sin(th);
+      const y = cCy - cRy * Math.cos(th);
+      if (i) ctxD.lineTo(x, y); else ctxD.moveTo(x, y);
+    }
+    /* The hem is read at the height it has reached, so it comes in with the
+       wall as the glass tapers instead of hanging straight off the rim */
+    for (let i = steps; i >= 0; i--){
+      const th = -Math.PI / 2 + Math.PI * i / steps;
+      const h = hemAt(th);
+      const hw = halfAt(h);
+      ctxD.lineTo(G.cx + hw * Math.sin(th), h + ryAt(h) * hw * Math.cos(th));
+    }
+    ctxD.closePath();
+    /* The mouth is not covered. Foam over the lip lies on the ring of glass the
+       lip is, and hangs down the outside from it — it is not a lid. Filled from
+       the far arc straight down, the collar was painted over the head and the
+       beer it is supposed to be sitting on the edge of, so the inside of the rim
+       is cut back out of it and the contents show through the ring. */
+    ctxD.moveTo(G.cx + Math.max(2, cRx - G.wall), cCy);
+    ctxD.ellipse(G.cx, cCy, Math.max(2, cRx - G.wall), cRy * 0.94, 0, 0, TAU);
+    ctxD.fill("evenodd");
+    /* Its own shade along the hem, so it hangs on the glass instead of being
+       painted flat onto it */
+    ctxD.globalAlpha = 0.28;
+    ctxD.strokeStyle = "rgba(90,72,44,.5)";
+    ctxD.lineWidth = Math.max(1, G.wall * 0.35);
+    ctxD.beginPath();
+    for (let i = 0; i <= steps; i++){
+      const th = -Math.PI / 2 + Math.PI * i / steps;
+      const h = hemAt(th);
+      const hw = halfAt(h);
+      const x = G.cx + hw * Math.sin(th), y = h + ryAt(h) * hw * Math.cos(th);
+      if (i) ctxD.lineTo(x, y); else ctxD.moveTo(x, y);
+    }
+    ctxD.stroke();
     ctxD.globalAlpha = 1;
   }
 

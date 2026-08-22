@@ -1521,11 +1521,74 @@ function drawSprites(){
     push(dx, dy, Math.max(0.8, d.r * Math.max(0.3, Math.abs(c))), Math.max(0.8, d.r), 4,
          clamp(d.r / (1.4 * G.scale * dewScale()), 0, 1) * 0.9);
   }
+  /* A ribbon is two capsules, not a chain of them. These sprites are blended,
+     not welded — laid end to end down the glass their rounded ends showed as a
+     staircase, and every overlap darkened where it doubled. Two shapes have one
+     overlap between them, and it sits inside the bead where nothing reads. */
   for (const d of drips){
-    const [x, y, c] = dewPos(d);            /* it runs on the outside, as beads do */
-    const ry = Math.max(d.r, d.len * 0.5 + d.r);
-    push(x, y - d.len * 0.5 + d.r * 0.4, Math.max(1, d.r * Math.max(0.3, Math.abs(c))), ry, 3,
-         clamp(d.life, 0, 1) * (0.6 + 0.4 * (0.5 + 0.5 * c)));
+    const c = Math.cos(d.th), s = Math.sin(d.th);
+    const fs = Math.max(0.3, Math.abs(c));
+    const a = clamp(d.life, 0, 1) * (0.6 + 0.4 * (0.5 + 0.5 * c));
+    const at = t => {
+      const h = lerp(d.top, d.h, t), hw = halfAt(h);
+      return [G.cx + hw * s + Math.sin(t * 4.1 + d.wob) * d.wobA * t * fs,
+              h + ryAt(h) * hw * c];
+    };
+    const [x0, y0] = at(0), [x1, y1] = at(1);
+    const tw = Math.max(0.8, ribbonHalf(d, 0.5) * fs);
+    push((x0 + x1) * 0.5, (y0 + y1) * 0.5, tw,
+         Math.max(tw, Math.hypot(x1 - x0, y1 - y0) * 0.5 + tw), 3, a);
+    push(x1, y1, Math.max(0.8, d.r * fs), Math.max(0.8, d.r), 3, a);
+    /* What got all the way down lies on the bar past the foot. There is no
+       clipping a sprite, so it is set low enough that what shows of it is the
+       half that has cleared the glass. */
+    if (d.pool > 0){
+      const ry = Math.max(1, d.pool * baseBulge() / Math.max(1, G.botHalf));
+      push(x1, y1 + ry * 0.85, d.pool, ry, 3, a * 0.85);
+    }
+  }
+  /* The collar over the lip, as a chain of blobs. It goes on after the
+     ribbons: it is the nearest foam to the eye, and it is what a ribbon is
+     drawn out of, so it is what the ribbon's root should disappear into. */
+  if (collar > 0.012 && creep > 0.004){
+    const cRy = G.topHalf * G.ryTop;
+    const cCy = G.top + cRy;
+    const cRx = halfAt(cCy);
+    /* hung from the beer line, so every lobe falls below the head's own edge */
+    /* It runs rather than appears: the whole reach is scaled by how far it has
+       got, so the hem starts on the lip and creeps down from there, past the
+       beer line and on into the tongues. */
+    /* Measured against what the head wanted to be, not what the glass let it
+       keep. Scaled by the band, the weep ran shallowest at the brim — which is
+       the one place it should be deepest, since it is exactly the foam the band
+       has just had to give up. It came out shallow enough that the lobes could
+       not clear the curve of the rim under them, and the hem read as a rule
+       ruled across the glass rather than a line falling out of the ellipse. */
+    const deep = headWant() * 0.95;
+    const a = 1;
+    /* Each blob has to be a good deal wider than the step between them: laid
+       just touching, their soft edges scalloped the band into a row of ribs
+       instead of welding into one hem. */
+    const steps = 20;
+    const pitch = Math.PI * cRx / steps;
+    for (let i = 0; i <= steps; i++){
+      const th = -Math.PI / 2 + Math.PI * i / steps;
+      /* Each blob spans from the inside of the near lip — the collar lies on
+         the ring of glass the lip is and hangs down the outside from it, so it
+         must not be carried across the mouth and over the contents — down to
+         the hem at its own height */
+      const topY = cCy + cRy * 0.94 * Math.cos(th);
+      const h = cCy + weepReach + creep * collar * deep * collarDrape(th);
+      const hw = halfAt(h);
+      const x = G.cx + hw * Math.sin(th);
+      const hemY = h + ryAt(h) * hw * Math.cos(th);
+      /* and none of it may reach past the wall it is hanging on: a blob of
+         constant width at the two sides, where the glass has turned away, hung
+         off the silhouette as a pair of square slabs */
+      const room = Math.max(0.6, hw - Math.abs(x - G.cx));
+      push(x, (topY + hemY) * 0.5, Math.min(pitch * 1.6, room),
+           Math.max(1, (hemY - topY) * 0.5), 3, a);
+    }
   }
   if (!n) return;
 

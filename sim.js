@@ -61,11 +61,17 @@ function layoutGlass(){
   G.top = G.bottom - gh;
   G.wall = Math.max(2.5, topHalf * 0.045);
   G.baseH = gh * 0.06;
-  G.inTop = G.top + G.wall * 0.5;
-  G.inBottom = G.bottom - G.baseH;
-  G.inH = G.inBottom - G.inTop;
   /* The rim ellipse, resolved at the height its own tangent sits at */
   G.ryTop = ryAt(G.top + G.topHalf * ryAt(G.top));
+  /* The lip is a circle, and it lies at the height the rim ellipse is centred
+     on — not at the top of that ellipse, which is only the back of the same
+     circle drawn nearer the eye's level. Measured from the top, brim full put
+     the beer the better part of a rim above the brim: at a hundred per cent its
+     far edge stood clear of the glass altogether, and the head, which floats on
+     it, stood a seventh of the glass's height above the top of it. */
+  G.inTop = G.top + G.topHalf * G.ryTop;
+  G.inBottom = G.bottom - G.baseH;
+  G.inH = G.inBottom - G.inTop;
   G.scale = (topHalf * 2) / 300;          /* everything else sizes off this */
 }
 
@@ -86,7 +92,14 @@ let N = 0, hArr, uArr, fArr, maxAmp = 60;   /* surface, face velocities, face fl
 let bubbles = [], foam = [], drops = [], mist = [], drips = [], sites = [], dew = [], lace = [];
 let capBubbles = 300, capFoam = 260, capDew = 90;
 
-const targetLevel = () => cfg.fill / 100;
+/* The fill line is the beer line — but a hundred per cent of it is a shade
+   under the lip rather than level with it. Taken to the rim plane exactly, the
+   beer leaves the head nothing to stand in: the band collapses to the little it
+   is allowed above the rim, and the glass reads as one poured past the point
+   anybody would stop at. The last few per cent of a glass is where the head
+   lives, so the line stops short of it. */
+const BRIM = 0.94;
+const targetLevel = () => (cfg.fill / 100) * BRIM;
 const restSurfaceY = () => G.inBottom - level * G.inH;
 
 /* ------------------------------------------------------------------ *
@@ -202,7 +215,45 @@ function ellipseDy(x){
 }
 const frontY = x => surfaceAt(x) + ellipseDy(x);
 const backY  = x => surfaceAt(x) - ellipseDy(x);
-const headBand = () => (G.topHalf * 2) * (0.05 + 0.14 * cfg.headDepth / 100);
+/* The highest the head may stand at a fraction of the way across the glass.
+   Below the lip the glass holds it; above the lip there is nothing but its own
+   body, so it has to come back to the rim at the two walls — standing its full
+   depth proud right across is a cylinder of foam on a glass that ended below it.
+   But it is not a dome either. The top of a head is a surface, and a surface
+   lying across a glass is flat: what curves in a photograph of one is the
+   perspective, and that is the same ellipse the rim is drawn with and no
+   deeper. Given an ellipse of its own, two and a quarter rims tall, it came out
+   as an arch — a bubble blown over the glass rather than foam sitting in it.
+   So it is the rim's own ellipse for the plane, and over it a low mound that
+   holds nearly its height right across and turns down only at the walls, which
+   is the little a head stands proud by and how it lets go of the glass. */
+const HEAD_LIFT = 0.55;                 /* of a rim's depth, over the middle */
+function headCapY(u, extra){
+  const rimRy = G.topHalf * G.ryTop;
+  const disc = Math.sqrt(Math.max(0, 1 - u * u));                       /* the plane, foreshortened */
+  const mound = Math.sqrt(Math.max(0, 1 - Math.pow(Math.abs(u), 6)));   /* and what stands above it */
+  return (G.top + rimRy) - rimRy * HEAD_LIFT * mound
+                         - (rimRy + (extra || 0)) * disc;
+}
+
+/* and the head's own top, which is the beer's far edge lifted by the head's
+   depth, held under that cap */
+function headTopAt(x){
+  const u = clamp((x - G.cx) / Math.max(1, innerHalfAt(G.inTop)), -1, 1);
+  return Math.max(backY(x) - headBand(), headCapY(u, 0));
+}
+
+/* How deep the head is. It cannot be all of what it would like to be on a
+   glass filled to the lip: a head needs a glass to stand in, and one poured to
+   the brim has none left to offer. What will not fit does not pile up in the
+   air above the rim — it goes over the side, which is the weep. So the band is
+   whatever fits below the lip, plus the little a head stands proud of one, and
+   at the brim that is a collar of foam on a full glass rather than a tower of
+   it on a glass that is somehow deeper than itself. */
+/* what the head would like to be, before the glass has its say */
+const headWant = () => (G.topHalf * 2) * (0.05 + 0.14 * cfg.headDepth / 100);
+const headBand = () => Math.min(headWant(),
+  Math.max(0, restSurfaceY() - G.inTop) + G.topHalf * G.ryTop * 1.2);
 
 /* ================================================================== *
  * Surface physics — shallow water across the glass
@@ -385,12 +436,19 @@ function stepWaves(step){
   /* the tightest gap in the mesh is the one that sets the pace */
   let dxMin = 1e9;
   for (let k = 0; k < N - 1; k++) if (dxArr[k] < dxMin) dxMin = dxArr[k];
+  /* Beer that is already moving carries the disturbance along with it, so what
+     the step has to keep up with is the wave's speed and the flow's together.
+     Sized on the wave alone, a hard enough flick — two hundred per cent
+     agitation and a finger at the wall — set the pour running faster than the
+     frame was being cut for, and the momentum term, which is the flow times its
+     own slope, doubled every substep until it left the numbers and took the
+     whole surface to NaN with it. Nothing drew after that, because every frame
+     since was reading the same ruined array. */
   const sub = clamp(Math.ceil(step * cmax / (dxMin * 0.35)), 1, 12);
-  /* The ceiling is a backstop for settings that would ask for more pieces
-     than a frame can pay for. Past it the step runs long and it is the drag
-     and the clamps below that hold the solver together rather than the
-     timestep — which they do, but only because the pour is never asked to
-     run much faster than this. */
+  /* The ceiling is a backstop for settings that would ask for more pieces than
+     a frame can pay for. Past it the step runs long, and it is the drag and the
+     clamps below that hold the solver together rather than the timestep. */
+
   const dt = step / sub;
   const maxDepress = H - 2;
 
@@ -492,6 +550,125 @@ function breakCrests(){
    beer runs over its crest, so the pour rides up over the edge, pours while it
    is over, and drops back — which is the sloshing in and out of the glass that
    a hard ceiling at the rim could never show. */
+/* ------------------------------------------------------------------ *
+ * Foam over the lip
+ * ------------------------------------------------------------------ *
+ * A head that spills does not shed drops. It comes over the lip as a sheet,
+ * gathers into a bead, and the bead draws a ribbon of foam down the outside
+ * behind it — still joined to the rim the whole way, because foam is stiff
+ * enough to hang from what it left. What it looked like before was rain: short
+ * streaks that let go of the glass, fell at the speed of a stone, and were
+ * gone inside three seconds.
+ *
+ * So a ribbon is a thing with two ends. It is anchored where it came over, it
+ * is pulled by the bead at its foot, and it is held by every inch of wall it
+ * has already been drawn across — which is what stops most of them partway
+ * down and lets only the fattest reach the bar.
+ */
+const RIBBON_MAX = 6;
+
+/* Before any of it runs, the head comes over the lip as a sheet and hangs there
+   — the collar you see on a glass poured proud, which the ribbons are drawn out
+   of. It is not a tally of what has spilled but a state of the pour: however
+   much of the head is standing above the lip is how much has draped over it,
+   and it follows the beer up and down rather than draining away between one
+   spill and the next. Lobed rather than level, because foam hangs in tongues
+   and not in a hem. */
+let collar = 0;
+/* How far down the glass it has got, nought at the lip and one at its full
+   reach. Kept apart from the strength above, because the two are different
+   things: how much foam came over the lip settles how far the weep will run,
+   and this settles how far along it is. Folded into one, a weep that only ever
+   drapes a third of its reach crept only a third of the way down. */
+let creep = 0;
+/* and how far below the lip its hem has got, in pixels. Eased for the same
+   reason: the beer it is hanging past drops when the glass spills and climbs
+   again as the glass tops itself up, and a weep that took that reading live
+   ran up and down the outside of the glass with it. What is on the outside
+   stays where it was put and the rest of it catches up slowly. */
+let weepReach = 0;
+function collarWant(){
+  const band = headBand();
+  if (band < 1) return 0;
+  /* The weep is what the head sheds once the glass is filled to the lip: there
+     is no room left for it to stand in, so it goes over the side. So it is the
+     beer coming up to the brim that brings it on, and nothing else — a rim and
+     a half short of the lip there is none of it, and at the lip there is all.
+     Measured against the level the beer rests at and not the surface it happens
+     to be showing: read live, every wave that crossed the glass lengthened and
+     shortened the weep under it, and foam already hanging on the outside of a
+     glass does not run back up it because the beer sloshed. */
+  const under = restSurfaceY() - G.inTop;
+  return clamp(1 - under / (G.topHalf * G.ryTop * 1.8), 0, 1);
+}
+/* Four or five broad tongues across the face of the glass, not a dozen little
+   scallops — foam hangs in lobes the width of a finger */
+const COLLAR_LOBES = [1.4, 2.6, 4.3];
+function collarDrape(th){
+  let v = 0.58;
+  for (let i = 0; i < COLLAR_LOBES.length; i++){
+    v += 0.40 / (i + 1) * Math.sin(th * COLLAR_LOBES[i] + i * 2.1);
+  }
+  /* Closed off at the two sides. There the glass has turned away and the
+     collar is edge on, so it has no depth to show — left open it hung off the
+     silhouette as a pair of square tabs. */
+  const edge = Math.cos(th);
+  return clamp(v, 0.06, 1) * Math.min(1, Math.abs(edge) * 3.4);
+}
+
+/* Where the ribbon lies across the glass at a fraction of the way down it, and
+   how wide it is there. Widest as it comes over the lip, drawn thin down the
+   middle, and swelling into the bead that is doing the pulling. */
+function ribbonHalf(d, t){
+  /* the shoulder it comes over the lip on, drawn thin as it is pulled out */
+  const tail = d.w * (0.45 + 0.75 * Math.pow(1 - t, 1.5));
+  const bead = d.r * clamp((t - 0.70) / 0.30, 0, 1);
+  return Math.max(tail, bead);
+}
+
+/* Foam arriving beside a ribbon that is already running feeds it instead of
+   starting another, which is why a glass sheds a few thick ribbons rather than
+   a fringe of identical ones. */
+function spillFoam(x, r){
+  const rimY = G.inTop;
+  const hwRim = Math.max(1, innerHalfAt(rimY));
+  const th = Math.asin(clamp((x - G.cx) / hwRim, -1, 1));
+  /* A ribbon is hung from a height, and the height is turned into a point on
+     the glass by leaning it round the cone — so it lands on whatever circle it
+     was hung from. Hung from the inner top it landed on a circle a rim's depth
+     above the rim itself, and every ribbon on the glass sat some fifteen pixels
+     high of the lip and cut across it. The lip is the plane of the rim ellipse,
+     which is a good way below the point where the inside of the glass begins. */
+  const lip = G.top + G.topHalf * G.ryTop;
+  for (const d of drips){
+    if (d.pool <= 0 && Math.abs(d.th - th) < 0.40){
+      d.w = Math.min(d.w + r * 0.13, 10 * G.scale);
+      d.r = Math.min(d.r + r * 0.20, 9 * G.scale);
+      d.life = Math.max(d.life, rand(10, 17));
+      return;
+    }
+  }
+  if (drips.length >= RIBBON_MAX) return;
+  drips.push({
+    th,
+    /* Started well above the lip they stood out over the rim as little tabs,
+       so they were dropped below it — but a shade below it is a hairline of
+       bare glass between the ribbon and the rim wherever the collar is not
+       there to cover the join. Now that the top is cut on the lip's own curve
+       rather than straight across, it can sit on the lip itself: half a pixel
+       over, which closes the join and is too little to read as a tab. */
+    top: lip - 0.5 * G.scale,
+    h: lip + rand(8, 18),
+    w: clamp(3 * G.scale + r * 0.25, 3.4 * G.scale, 10 * G.scale),
+    r: clamp(r * 0.7, 2.4 * G.scale, 8 * G.scale),
+    /* No two run alike: some foam is stiffer than the rest of it, and none of
+       it runs dead straight — a trail wanders across whatever it is running on */
+    slow: rand(0.55, 1.5),
+    wob: Math.random() * TAU, wobA: rand(0.8, 2.4) * G.scale,
+    vy: 0, pool: 0, life: rand(11, 22)
+  });
+}
+
 const WEIR = 0.55;
 function spillOverRim(dt){
   if (!N || !hArr) return;
@@ -542,24 +719,27 @@ function spillOverRim(dt){
 
   /* The head goes over the lip before the beer does, and runs down the glass */
   let foamLost = 0;
+  const hwRim = Math.max(1, innerHalfAt(rimY));
   for (let i = foam.length - 1; i >= 0; i--){
     const f = foam[i];
     const fy = surfaceAt(f.x) - ellipseDy(f.x) * 0.4 + f.oy;
-    if (fy < rimY - f.r * 0.4 && Math.random() < 0.5){
+    /* Standing over the lip is not enough to go over it — the middle of a proud
+       head has nowhere to fall to. It has to be out at the wall as well, which
+       is the difference between a glass wearing its head and a glass weeping
+       down its side. Filled to the brim the whole head is above the rim, and
+       without this every fleck of it left at once: a torrent that stripped the
+       head as fast as it formed and hung the glass with identical ribbons.
+       At a rate a second, too, rather than a chance a frame — the old test
+       spilled faster on a faster machine. */
+    if (fy < rimY - f.r * 0.4 && Math.abs(f.x - G.cx) > hwRim * 0.62
+        && Math.random() < dt * 2.4){
       foamLost += f.r * f.r * Math.PI;
-      const hwRim = Math.max(1, innerHalfAt(rimY));
-      drips.push({
-        th: Math.asin(clamp((f.x - G.cx) / hwRim, -1, 1)),
-        h: rimY + rand(2, 10), vy: rand(5, 16) * G.scale,
-        r: Math.min(f.r * 0.42, 5 * G.scale),
-        len: f.r * rand(0.5, 1.1), life: rand(1.2, 2.8)
-      });
+      spillFoam(f.x, f.r);
       /* Foam that touched the wall dries on as lacing at the high-water mark */
       const specks = 1 + (Math.random() * 3 | 0);
       for (let s = 0; s < specks && lace.length < 90; s++){
         const life = rand(12, 24);
-        const hw0 = Math.max(1, innerHalfAt(rimY));
-        const base = Math.asin(clamp((f.x + rand(-f.r, f.r) - G.cx) / hw0, -1, 1));
+        const base = Math.asin(clamp((f.x + rand(-f.r, f.r) - G.cx) / hwRim, -1, 1));
         lace.push({
           th: Math.random() < 0.6 ? base : Math.PI - base,   /* near wall or far */
           h: rimY + rand(2, headBand() * 0.9),
@@ -916,13 +1096,44 @@ function updateDrops(dt){
     m.y += m.vy * dt;
     if (m.life <= 0) mist.splice(i, 1);
   }
+  /* The strength follows the pour at once — it is a fact about how full the
+     glass is — and the creep takes its time, four seconds or so from the lip
+     to wherever the strength says it is going. */
+  collar = collarWant();
+  const k = Math.min(1, dt * 0.25);
+  creep += ((collar > 0.01 ? 1 : 0) - creep) * k;
+  const reachWant = collar > 0.01
+    ? Math.max(0, restSurfaceY() - (G.top + G.topHalf * G.ryTop)) : 0;
+  weepReach += (reachWant - weepReach) * k;
+  /* It runs until it is off the glass and onto the bar: the foot is the height
+     the glass stands at, which is where the wall runs out from under it. */
+  const foot = G.bottom;
   for (let i = drips.length - 1; i >= 0; i--){
     const d = drips[i];
-    d.life -= dt;
-    d.vy += 34 * G.scale * dt;
+    if (d.pool > 0){
+      /* Landed. It spreads on the bar and then soaks in. */
+      d.pool = Math.min(d.pool + 22 * G.scale * dt, d.r * 3.2);
+      d.life -= dt * 0.5;
+      if (d.life <= 0) drips.splice(i, 1);
+      continue;
+    }
+    /* Foam has no terminal velocity worth the name. It has whatever speed the
+       bead's own weight can drag past the wall that is holding it, so a fat
+       bead runs and a thin one barely moves — and the further it has come the
+       more wall there is behind it to hold it, which is what leaves a glass
+       with ribbons stopped at every height rather than all of them on the bar. */
+    const pull = 21 * G.scale * (d.r / (5 * G.scale)) / d.slow;
+    const held = 1 + (d.h - d.top) / (G.inH * 0.22);
+    d.vy += (pull / held - d.vy) * Math.min(1, dt * 1.2);
     d.h += d.vy * dt;
-    d.len = Math.min(d.len + d.vy * dt * 0.3, 26 * G.scale);
-    if (d.life <= 0 || d.h > G.bottom - G.baseH * 0.3) drips.splice(i, 1);
+    /* The bead is spending itself on the trail it leaves behind */
+    d.r = Math.max(0.5 * G.scale, d.r - d.vy * dt * 0.015);
+    d.w = Math.max(0.5 * G.scale, d.w - dt * 0.03 * G.scale);
+    d.life -= dt;
+    if (d.h >= foot){
+      d.h = foot; d.vy = 0; d.pool = 0.01;
+      d.life = Math.max(d.life, 8);
+    } else if (d.life <= 0) drips.splice(i, 1);
   }
 }
 
@@ -1044,6 +1255,7 @@ function logoRect(){
   const p = lw * LOGO_PAD;
   return [G.cx - lw / 2 - p + parX, hY - gap - lh - p + parY, lw + 2 * p, lh + 2 * p];
 }
+
 
 function updateParallax(dt){
   const ptx = ptr.x === -999 ? W / 2 : ptr.x;
