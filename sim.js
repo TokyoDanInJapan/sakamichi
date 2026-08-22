@@ -1002,7 +1002,11 @@ function updateBubbles(dt){
     s.acc += dt * s.rate * fizz * pouring;
     while (s.acc >= 1){
       s.acc -= 1;
-      addBubble(G.cx + s.u + rand(-3, 3), G.inBottom - rand(1, 8), rand(0.7, 3.2) * s.scale);
+      /* and it leaves the floor at the depth its site lies at, which the eye
+         reads as the far side of the glass being further away */
+      const back = (s.v || 0) * ryAt(G.inBottom) * innerHalfAt(G.inBottom);
+      addBubble(G.cx + s.u + rand(-3, 3), G.inBottom + back - rand(1, 8),
+                rand(0.7, 3.2) * s.scale);
     }
   }
   if (Math.random() < dt * 20 * fizz){

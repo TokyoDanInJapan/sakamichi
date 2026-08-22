@@ -515,13 +515,20 @@ function resize(){
   capFoam    = clamp(Math.round(G.topHalf / 1.6), 40, 240);
   capDew     = clamp(Math.round(G.topHalf * G.inH / 900), 30, 140);
 
-  /* Nucleation sites sit on the floor of the glass */
+  /* Nucleation sites sit on the floor of the glass — over it, not along the
+     front edge of it. The floor is a disc, so a site has a place across the
+     glass and a place into it, and it was only ever given the first: every
+     bubble in the pour rose off the same line ruled across the bottom.
+     Scattered by the square root of a random radius, which is what keeps them
+     from crowding into the middle of a disc. */
   sites = [];
   const n = clamp(Math.round(G.topHalf / 26), 3, 12);
   const floorHalf = innerHalfAt(G.inBottom - 4);
   for (let i = 0; i < n; i++){
+    const rr = Math.sqrt(Math.random()) * 0.86, th = Math.random() * TAU;
     sites.push({
-      u: rand(-0.82, 0.82) * floorHalf,
+      u: Math.cos(th) * rr * floorHalf,
+      v: Math.sin(th) * rr,                /* -1 at the back of the floor, +1 at the front */
       acc: Math.random(), rate: rand(1.4, 3.2), scale: rand(0.6, 1.5)
     });
   }
