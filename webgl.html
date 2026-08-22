@@ -1533,9 +1533,21 @@ void main(){
     float band = smoothstep(yTop - 0.7, yTop + 0.7, px.y)
                * smoothstep(hp.y + 0.7, hp.y - 0.7, px.y);
     /* The mouth is not covered. Foam over the lip lies on the ring of glass the
-       lip is and hangs down the outside from it — it is not a lid. */
-    float mrx = max(2.0, halfAt(rimCy()) - GWALL);
-    vec2 m = vec2((px.x - GCX) / mrx, (px.y - rimCy()) / max(1.0, rimRy() * 0.94));
+       lip is and hangs down the outside from it — it is not a lid.
+
+       Cut a hair inside the bore rather than on it, so the collar laps over
+       the head instead of meeting it exactly. Where the two are supposed to
+       meet is at the wall just under the lip, and that is the one place
+       neither quite reaches: the head's crown comes down to the rim's plane
+       there, and the mouth is cut out of the collar right up to the same
+       line. Between them stood two or three pixels of bare glass at either
+       side of the rim — the dark comma. The canvas closes it by accident,
+       its blobs being blurred out past the head's own top; here it is closed
+       on purpose. */
+    float inset = 6.0 * uScale;
+    float mrx = max(2.0, halfAt(rimCy()) - GWALL - inset);
+    vec2 m = vec2((px.x - GCX) / mrx,
+                  (px.y - rimCy()) / max(1.0, rimRy() * 0.94 - inset));
     band *= smoothstep(1.0 - 1.2 / mrx, 1.0, length(m));
     over(acc, uFoam, band * 0.94);
   }
