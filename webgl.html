@@ -1016,6 +1016,7 @@ void main(){
   float headTop = max(back - uBandPx, cap);
   /* and above the lip the bore stops widening: there is no more glass to hold it */
   float lim = innerHalfAt(max(px.y, lipCy));
+  float up  = max(0.0, lipCy - px.y);
   if (abs(px.x - GCX) > lim || px.y > GINBOT) discard;
 
   /* A head is a body of foam, not a heap of blobs. The canvas fills its own
@@ -1039,6 +1040,18 @@ void main(){
   /* Granular outline: a whisper of bubble-scale roughness on the edge */
   float grain = vnoise(px * 0.9 + vec2(uTime * 0.04, 0.0));
   float mask = smoothstep(0.13, 0.30, f + (grain - 0.5) * 0.05);
+
+  /* Below the lip the wall cuts the head off square, because a wall does. Above
+     it there is no wall, and cutting there gave a swilled head a dead straight
+     edge standing a hundred pixels over the rim — a slab sawn off rather than
+     a crest. What stands up there sits on the ring of the mouth, and the ring
+     runs away from us at the two sides: seen edge-on there is hardly any of it
+     to see, and less the higher it goes. So the edge is softened by height
+     rather than moved by it, and the foam thins into the rim instead of
+     ending on a line. Nothing is taken from the crest itself, which is why the
+     softening is a feather and not a dome — a dome centred on the glass cuts
+     away the very crest it is meant to round, since a crest rides one wall. */
+  mask *= smoothstep(lim, lim - (1.0 + up * 0.35), abs(px.x - GCX));
 
   /* The head floats on the beer: cut the mask off cleanly at the front edge
      of the surface so blobs cannot scallop down into the pour */
