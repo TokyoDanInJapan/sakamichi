@@ -1258,8 +1258,10 @@ function ambient(dt){
 }
 
 /* Large behind the glass, standing just above the bar so it reflects in it.
-   A slow counter-parallax against the pointer sets it a step further back. */
-let parX = 0, parY = 0;
+   It used to counter-parallax against the pointer, a step further back. But the
+   pointer is also how the beer is stirred, so every swirl slid the mark about
+   behind the glass — and a mark painted on the wall behind a bar does not move
+   because somebody put a finger in a pint. It stays where it is put. */
 /* The page's own gutter — the same clamp(20px, 3.6vmin, 48px) the CSS uses */
 const pageMargin = () => clamp(Math.min(W, H) * 0.036, 20, 48);
 
@@ -1273,17 +1275,9 @@ function logoRect(){
   const lh = Math.min(H * 0.8, (W * 0.92) / LOGO_ASPECT, hY - gap - 8);
   const lw = lh * LOGO_ASPECT;
   const p = lw * LOGO_PAD;
-  return [G.cx - lw / 2 - p + parX, hY - gap - lh - p + parY, lw + 2 * p, lh + 2 * p];
+  return [G.cx - lw / 2 - p, hY - gap - lh - p, lw + 2 * p, lh + 2 * p];
 }
 
-
-function updateParallax(dt){
-  const ptx = ptr.x === -999 ? W / 2 : ptr.x;
-  const pty = ptr.y === -999 ? H / 2 : ptr.y;
-  const k = Math.min(1, dt * 3);
-  parX += ((W / 2 - ptx) * 0.022 - parX) * k;
-  parY += ((H / 2 - pty) * 0.010 - parY) * k;
-}
 
 /* ================================================================== *
  * Palette

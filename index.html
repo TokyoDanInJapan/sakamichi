@@ -1903,7 +1903,6 @@ function frame(now){
   if (acc > FIXED) acc = 0;
 
   tiltNow += (tiltWant - tiltNow) * Math.min(1, dt * 6);
-  updateParallax(dt);
   pointerForces(dt);
   ambient(dt);
   spillOverRim(dt);
