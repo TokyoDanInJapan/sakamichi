@@ -926,22 +926,41 @@ function updateDrops(dt){
   }
 }
 
+/* How big a bead is, over and above the glass's own scale. Everything a bead
+   is measured in goes through here — the size it forms at, how fast it swells,
+   the size at which it lets go — so the slider changes how big the beading is
+   and not how quickly the glass sheds it. */
+const dewScale = () => clamp((cfg.dewSize == null ? 100 : cfg.dewSize) / 100, 0.2, 2.2);
+
 /* Condensation beads on the cold outside of the glass, below the beer line */
 function addDew(r){
+  const k = G.scale * dewScale();
   /* Even in angle round the face we can see, which is what crowds the beads
      towards the sides where the glass turns away — spread evenly across the
      width instead, they read as beads on a pane standing behind the glass. */
   dew.push({
     th: rand(-1, 1) * Math.PI * 0.5,
     h: rand(restSurfaceY() + 8, G.bottom - G.baseH * 1.5),
-    r: r * G.scale, rt: r * G.scale, grow: rand(0.03, 0.12) * G.scale,
-    slip: rand(3.4, 4.6) * G.scale, vy: 0
+    r: r * k, rt: r * k, grow: rand(0.03, 0.12) * k,
+    slip: rand(3.4, 4.6) * k, vy: 0
   });
 }
 
+/* A bead carries the size it formed at, the way a bubble does. But dew is not
+   a bubble: it sits on the glass for as long as it takes to grow heavy, so a
+   pour left alone would hold its old beading for a good while after the slider
+   moved, and the slider would look dead. What is already on the glass is
+   therefore taken up to the new size with it. */
+let dewK = 1;
 function updateDew(dt){
   const amount = clamp(cfg.condensation / 100, 0, 2);
   if (!amount){ dew.length = 0; return; }
+  const k = dewScale();
+  if (k !== dewK){
+    const f = k / dewK;
+    for (const d of dew){ d.r *= f; d.rt *= f; d.grow *= f; d.slip *= f; }
+    dewK = k;
+  }
   const want = Math.min(Math.round(capDew * amount), 180);
   if (poured && dew.length < want && Math.random() < dt * 30 * amount) addDew(rand(0.7, 1.6));
 
@@ -950,11 +969,14 @@ function updateDew(dt){
     d.rt += d.grow * dt;
     d.r += (d.rt - d.r) * Math.min(1, dt * 9);     /* eases towards its target */
     if (d.r > d.slip || d.vy > 0){
-      /* Grown too heavy: the bead lets go and runs. A big bead runs faster. */
-      const top = (55 + 45 * Math.min(2, d.r / (2.5 * G.scale))) * G.scale;
+      /* Grown too heavy: the bead lets go and runs. A big bead runs faster —
+         big for its own beading, that is, so a glass beaded coarsely does not
+         simply sheet off. */
+      const px = G.scale * k;
+      const top = (55 + 45 * Math.min(2, d.r / (2.5 * px))) * G.scale;
       d.vy = Math.min(d.vy + 70 * G.scale * dt, top);
       d.h += d.vy * dt;
-      d.rt = Math.max(d.rt - dt * 0.8 * G.scale, 1.4 * G.scale);
+      d.rt = Math.max(d.rt - dt * 0.8 * G.scale, 1.4 * px);
       if (d.h > G.bottom - G.baseH * 0.8) dew.splice(i, 1);
     }
   }
