@@ -1660,6 +1660,45 @@ function drawDetail(){
     ctxD.globalAlpha = 1;
   }
 
+  /* The collar's geometry, wanted at two different depths in the stack: the
+     shade under its hem falls on whatever is behind, so it goes on before the
+     ribbons, while the collar's own body goes on after them. Hit-testing the
+     ribbons and lifting the pen across each one came to the same thing in the
+     middle of a ribbon but not at its edges, where the test's margin opened a
+     gap of neither shade nor foam. Painter's order has no edges to get wrong. */
+  const colRy = G.topHalf * G.ryTop;
+  const colCy = G.top + colRy;
+  const colRx = halfAt(colCy);
+  const colDeep = headWant() * 0.95;
+  const colSteps = 48;
+  const hemAt = th => colCy + weepReach + creep * collar * colDeep * collarDrape(th);
+  const showCollar = collar > 0.012 && creep > 0.004;
+  const hemWalk = ctx => {
+    ctx.beginPath();
+    for (let i = 0; i <= colSteps; i++){
+      const th = -Math.PI / 2 + Math.PI * i / colSteps;
+      const h = hemAt(th);
+      const hw = halfAt(h);
+      const x = G.cx + hw * Math.sin(th), y = h + ryAt(h) * hw * Math.cos(th);
+      if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    }
+  };
+
+  /* Its own shade along the hem, so the collar hangs on the glass instead of
+     being painted flat onto it. Laid down first, so the collar's body covers
+     the inner half of it and what is left is a shadow cast on what is below —
+     and so a ribbon passing the hem goes over the top of it, as it should,
+     being nearer the eye than the thing casting it. */
+  if (showCollar){
+    ctxD.save();
+    ctxD.globalAlpha = 0.28;
+    ctxD.strokeStyle = "rgba(90,72,44,.5)";
+    ctxD.lineWidth = Math.max(1, G.wall * 0.35);
+    hemWalk(ctxD);
+    ctxD.stroke();
+    ctxD.restore();
+  }
+
   /* Foam over the lip, running down the outside — so it goes on after the
      glass, the way the condensation does, and after the condensation too: a run
      of foam lies on the wall and takes the beads under it with it, so it can
@@ -1757,10 +1796,8 @@ function drawDetail(){
      is the nearest foam to the eye — it lies on the lip itself, while a ribbon
      has already run down the wall behind it — and a ribbon is drawn out of the
      collar, so the collar is what its root should disappear into. */
-  if (collar > 0.012 && creep > 0.004){
-    const cRy = G.topHalf * G.ryTop;
-    const cCy = G.top + cRy;
-    const cRx = halfAt(cCy);
+  if (showCollar){
+    const cRy = colRy, cCy = colCy, cRx = colRx, steps = colSteps;
     /* The weep does not appear, it runs. Its whole reach — down past the beer
        line and on into the tongues — is scaled by how far it has got, so the
        hem starts on the lip and creeps down the glass from there. Held at its
@@ -1776,9 +1813,6 @@ function drawDetail(){
        the glass let it keep: scaled by the band, the weep ran shallowest at the
        brim, which is the one place it should be deepest, since it is exactly
        the foam the band has just had to give up. */
-    const deep = headWant() * 0.95;
-    const hemAt = th => cCy + weepReach + creep * collar * deep * collarDrape(th);
-    const steps = 48;
     ctxD.globalAlpha = 0.94;
     ctxD.fillStyle = pal.foam;
     /* Its upper edge is the far arc of the rim. Foam that has come over covers
@@ -1815,20 +1849,6 @@ function drawDetail(){
     ctxD.moveTo(G.cx + Math.max(2, cRx - G.wall), cCy);
     ctxD.ellipse(G.cx, cCy, Math.max(2, cRx - G.wall), cRy * 0.94, 0, 0, TAU);
     ctxD.fill("evenodd");
-    /* Its own shade along the hem, so it hangs on the glass instead of being
-       painted flat onto it */
-    ctxD.globalAlpha = 0.28;
-    ctxD.strokeStyle = "rgba(90,72,44,.5)";
-    ctxD.lineWidth = Math.max(1, G.wall * 0.35);
-    ctxD.beginPath();
-    for (let i = 0; i <= steps; i++){
-      const th = -Math.PI / 2 + Math.PI * i / steps;
-      const h = hemAt(th);
-      const hw = halfAt(h);
-      const x = G.cx + hw * Math.sin(th), y = h + ryAt(h) * hw * Math.cos(th);
-      if (i) ctxD.lineTo(x, y); else ctxD.moveTo(x, y);
-    }
-    ctxD.stroke();
     ctxD.globalAlpha = 1;
   }
 
