@@ -1551,7 +1551,7 @@ function drawSprites(){
        half that has cleared the glass. */
     if (d.pool > 0){
       const ry = Math.max(1, d.pool * baseBulge() / Math.max(1, G.botHalf));
-      push(x1, y1 + ry * 0.85, d.pool, ry, 3, a * 0.85);
+      push(x1, y1 + d.r + ry * 0.5, d.pool, ry, 3, a * 0.85);
     }
   }
   /* The collar over the lip, as a chain of blobs. It goes on after the

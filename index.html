@@ -1731,8 +1731,25 @@ function drawDetail(){
     for (let i = 0; i <= steps; i++){
       if (i) ctxD.lineTo(px[i] - pw[i], py[i]); else ctxD.moveTo(px[i] - pw[i], py[i]);
     }
-    /* round off under the bead, then back up the other edge */
-    ctxD.ellipse(px[steps], py[steps], pw[steps], Math.max(0.35, d.r), 0, Math.PI, 0, true);
+    /* Round off under the bead, then back up the other edge — unless it has
+       arrived, in which case there is no bead left to round. A run of foam that
+       has reached the bottom of the glass is standing on it, its whole width
+       against the edge, and the edge is the base's own arc: a rounded end there
+       is a drop still hanging in the air a moment before it lands. */
+    if (d.pool > 0){
+      const bry = baseBulge(), bhw = Math.max(1, G.botHalf);
+      const arcY = x => {
+        const u = clamp((x - G.cx) / bhw, -1, 1);
+        return G.bottom + bry * Math.sqrt(1 - u * u);
+      };
+      const bSteps = 5;
+      for (let i = 0; i <= bSteps; i++){
+        const x = px[steps] - pw[steps] + 2 * pw[steps] * i / bSteps;
+        ctxD.lineTo(x, arcY(x));
+      }
+    } else {
+      ctxD.ellipse(px[steps], py[steps], pw[steps], Math.max(0.35, d.r), 0, Math.PI, 0, true);
+    }
     for (let i = steps; i >= 0; i--) ctxD.lineTo(px[i] + pw[i], py[i]);
     /* and across the top on the lip's own curve rather than straight. The
        ribbon is only its own width across, but the rim is an ellipse and near
@@ -1781,7 +1798,9 @@ function drawDetail(){
       ctxD.globalAlpha = a * 0.8;
       ctxD.fillStyle = pal.foam;
       ctxD.beginPath();
-      ctxD.ellipse(px[steps], py[steps] + d.r * 0.35, d.pool,
+      /* centred where the bead meets the bar, which is its underside now that
+         it stops on the edge rather than over it */
+      ctxD.ellipse(px[steps], py[steps] + d.r, d.pool,
                    Math.max(0.8, d.pool * baseBulge() / Math.max(1, G.botHalf)), 0, 0, TAU);
       ctxD.fill();
       ctxD.restore();

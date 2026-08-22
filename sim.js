@@ -1127,7 +1127,6 @@ function updateDrops(dt){
   weepReach += (reachWant - weepReach) * k;
   /* It runs until it is off the glass and onto the bar: the foot is the height
      the glass stands at, which is where the wall runs out from under it. */
-  const foot = G.bottom;
   for (let i = drips.length - 1; i >= 0; i--){
     const d = drips[i];
     if (d.pool > 0){
@@ -1150,6 +1149,11 @@ function updateDrops(dt){
     d.r = Math.max(0.5 * G.scale, d.r - d.vy * dt * 0.015);
     d.w = Math.max(0.5 * G.scale, d.w - dt * 0.03 * G.scale);
     d.life -= dt;
+    /* and it stops with the bead standing on the bottom edge rather than
+       hanging over it: the height the glass stands at is where the bead's
+       underside belongs, not its middle, so the taller the bead the sooner it
+       has arrived. */
+    const foot = G.bottom - d.r;
     if (d.h >= foot){
       d.h = foot; d.vy = 0; d.pool = 0.01;
       d.life = Math.max(d.life, 8);
