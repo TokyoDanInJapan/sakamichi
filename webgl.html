@@ -1346,7 +1346,10 @@ function resize(){
   const span = innerHalfAt(G.inTop) * 2;
   N = clamp(Math.round(span / 5), 32, Math.min(220, HEIGHT_TEX_W));
   hArr = new Float32Array(N);
-  vArr = new Float32Array(N);
+  /* Velocity and flux live on the faces between the columns, not on the
+     columns, so there is one fewer of each */
+  uArr = new Float32Array(Math.max(1, N - 1));
+  fArr = new Float32Array(Math.max(1, N - 1));
   maxAmp = Math.min(G.inH * 0.30, G.topHalf * 1.1);
 
   capBubbles = clamp(Math.round(G.topHalf * G.inH / 260), 60, isCoarse ? 220 : 380);
@@ -1365,7 +1368,6 @@ function resize(){
   }
   bubbles.length = 0; foam.length = 0; drops.length = 0; mist.length = 0; drips.length = 0;
   dew.length = 0; lace.length = 0;
-  spanKey = NaN;
 }
 
 const hexToRgb = hex => {
@@ -1679,7 +1681,7 @@ function frame(now){
 
   acc += dt;
   let steps = 0;
-  while (acc >= FIXED && steps < 4){ stepWaves(); acc -= FIXED; steps++; }
+  while (acc >= FIXED && steps < 4){ stepWaves(FIXED); acc -= FIXED; steps++; }
   if (acc > FIXED) acc = 0;
 
   tiltNow += (tiltWant - tiltNow) * Math.min(1, dt * 6);
