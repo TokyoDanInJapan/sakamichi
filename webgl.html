@@ -988,7 +988,7 @@ precision highp float;
 ${GLSL_GLASS}
 ${GLSL_NOISE}
 uniform sampler2D uField;
-uniform float uTime, uRelief, uGloss, uBandPx, uCoarse;
+uniform float uTime, uRelief, uGloss, uBandPx, uCoarse, uScale;
 uniform vec2  uLightDir;
 uniform vec3  uFoam, uFoamShade, uFoamWet, uBeerTint;
 out vec4 frag;
@@ -1036,10 +1036,23 @@ void main(){
      glass ran into the crown and stopped on a straight line, which is a lid
      rather than a wave. The blobs are what a crest is made of and they are
      free to carry it as high as the beer throws them. */
-  float f = max(fieldAt(px), smoothstep(headTop, headTop + 2.0, px.y));
+  /* Welded, the way the canvas welds them. It draws its blobs through a goo
+     filter — a wide blur and then a hard threshold — which is what turns a
+     heap of circles into one body with a rounded, continuous hem. Thresholding
+     the field where it stands gave every blob its own lump in the outline and
+     a gritty edge between them; blurring it first and cutting hard afterwards
+     rounds the hem, welds the seams, and pulls the silhouette in a little, all
+     of which is what the canvas's head looks like. */
+  float fs = fieldAt(px);
+  float r1 = 5.0 * uScale, r2 = 3.5 * uScale;
+  float fb = (fieldAt(px + vec2( r1, 0.0)) + fieldAt(px + vec2(-r1, 0.0))
+            + fieldAt(px + vec2(0.0,  r1)) + fieldAt(px + vec2(0.0, -r1))
+            + fieldAt(px + vec2( r2,  r2)) + fieldAt(px + vec2(-r2, -r2))
+            + fieldAt(px + vec2( r2, -r2)) + fieldAt(px + vec2(-r2,  r2))) * 0.125;
+  float f = max(mix(fs, fb, 0.8), smoothstep(headTop, headTop + 2.0, px.y));
   /* Granular outline: a whisper of bubble-scale roughness on the edge */
   float grain = vnoise(px * 0.9 + vec2(uTime * 0.04, 0.0));
-  float mask = smoothstep(0.13, 0.30, f + (grain - 0.5) * 0.05);
+  float mask = smoothstep(0.185, 0.245, f + (grain - 0.5) * 0.035);
 
   /* Below the lip the wall cuts the head off square, because a wall does. Above
      it there is no wall, and cutting there gave a swilled head a dead straight
@@ -2014,6 +2027,7 @@ function render(){
     gl.uniform1f(progFoam.u.uRelief, cfg.relief / 100);
     gl.uniform1f(progFoam.u.uGloss, cfg.gloss / 100);
     gl.uniform1f(progFoam.u.uBandPx, headBand());
+    gl.uniform1f(progFoam.u.uScale, G.scale);
     gl.uniform2f(progFoam.u.uLightDir, Math.cos(a), -Math.sin(a));
     gl.uniform1f(progFoam.u.uCoarse, pal.foamCoarse);
     gl.uniform3fv(progFoam.u.uFoam, pal.foam);
