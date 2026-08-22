@@ -1272,14 +1272,29 @@ function drawFoam(){
      whenever the weep is not there to cover it.
      Column by column, then, each hung from its own share of the beer line, the
      way the light under the surface already is. */
-  const wy = restSurfaceY() + ellipseDy(G.cx);
-  const wet = ctxF.createLinearGradient(0, wy + 26 * G.scale, 0, wy - 20 * G.scale);
+  const soak = 18 * G.scale;
+  const wet = ctxF.createLinearGradient(0, 0, 0, -soak);
   wet.addColorStop(0, pal.foamWet);
   wet.addColorStop(1, "transparent");
   ctxF.globalCompositeOperation = "source-atop";
-  ctxF.globalAlpha = 0.5;
+  ctxF.globalAlpha = 0.42;
   ctxF.fillStyle = wet;
-  ctxF.fillRect(G.cx - G.topHalf, wy - 20 * G.scale, G.topHalf * 2, 46 * G.scale + 2);
+  /* snapped to whole device pixels of this canvas so neighbours abut exactly
+     rather than compositing twice over the seam between them */
+  const fpx = dpr * FOAM_SCALE;
+  const snap = v => Math.round(v * fpx) / fpx;
+  for (let i = 0; i < N; i++){
+    const x = colX(i);
+    const xPrev = i > 0 ? colX(i - 1) : x - (colX(1) - x);
+    const xNext = i < N - 1 ? colX(i + 1) : x + (x - colX(N - 2));
+    const x0 = i === 0 ? l - over : snap((xPrev + x) * 0.5);
+    const x1 = i === N - 1 ? l + w + over : snap((x + xNext) * 0.5);
+    if (x1 <= x0) continue;
+    ctxF.save();
+    ctxF.translate(0, frontY(x) + 1);
+    ctxF.fillRect(x0, -soak, x1 - x0, soak);
+    ctxF.restore();
+  }
   ctxF.globalCompositeOperation = "source-over";
   ctxF.globalAlpha = 1;
   ctxF.restore();
