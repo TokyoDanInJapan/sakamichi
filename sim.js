@@ -592,6 +592,11 @@ function breakCrests(){
  */
 const RIBBON_MAX = 6;
 
+/* How much bigger a bead is drawn for having come towards you, or smaller for
+   having gone away. Nearly nothing at the far lip and better than twice over by
+   the time it is about to pass the eye. */
+const dropScale = d => 1 + 0.45 * clamp(d.near || 0, -0.8, 2.6);
+
 /* How much weeping there is, and how deep it hangs. Measured against the glass
    and not against the head: the two were the same number, so a deeper head grew
    a deeper weep — but how far foam runs down the outside of a glass is a fact
@@ -740,12 +745,33 @@ function spillOverRim(dt){
          above it. Thrown out at random instead, beer came off the lip the
          pour was never running towards. */
       const uHere = ((i > 0 ? uArr[i - 1] : 0) + (i < N - 1 ? uArr[i] : 0)) * 0.5;
-      const outward = Math.sign(x - G.cx) || 1;
+      /* Where round the rim it leaves by. The wave knows only how far across
+         the glass a column stands, not where round it — but the rim is a
+         circle, and a column that far across meets it at two places, one on
+         the near lip and one on the far. Thrown outward in x alone, the whole
+         spill left along a single flat plane: every bead of it going sideways
+         and none of it at the eye.
+         Picked with a wide spread besides, and not only at the two points the
+         column strictly answers to. A crest arrives at a wall and runs along
+         it, and in this model a wall is the extreme left or right of the
+         screen, where the near lip and the far one meet and there is no depth
+         left to leave by — so a spill that only ever left at its own column
+         came off the two sides of the glass and nowhere else. */
+      const uCol = clamp(colU(i), -1, 1);
+      const base = Math.asin(uCol);
+      const th = (Math.random() < 0.5 ? base : Math.PI - base) + rand(-0.9, 0.9);
+      const deep = Math.cos(th), across = Math.sin(th);
+      const hwR = Math.max(1, innerHalfAt(rimY));
+      const ry = ryAt(rimY) * hwR;
+      const outward = rand(4, 26);
       drops.push({
-        x, y: rimY - rand(0, 6),
-        vx: uHere * 0.55 + outward * rand(4, 26),
-        vy: -Math.sqrt(2 * g * excess) * rand(0.45, 0.85),
-        r: rand(1.4, 4.2) * G.scale, foamy: Math.random() < 0.6, out: true
+        x: G.cx + hwR * across, y: rimY + ry * deep - rand(0, 6),
+        vx: uHere * 0.55 + across * outward,
+        vy: -Math.sqrt(2 * g * excess) * rand(0.45, 0.85) + deep * ry * outward * 0.10,
+        r: rand(1.4, 4.2) * G.scale,
+        /* where it is in depth, and how fast it is closing on the eye */
+        near: deep, dz: deep * rand(0.9, 2.6),
+        foamy: Math.random() < 0.6, out: true
       });
     }
   }
@@ -778,17 +804,27 @@ function spillOverRim(dt){
         && Math.random() < dt * 2.4){
       foamLost += f.r * f.r * Math.PI;
       spillFoam(f.x, f.r);
-      /* Foam that touched the wall dries on as lacing at the high-water mark */
-      const specks = 1 + (Math.random() * 3 | 0);
-      for (let s = 0; s < specks && lace.length < 90; s++){
-        const life = rand(12, 24);
-        const base = Math.asin(clamp((f.x + rand(-f.r, f.r) - G.cx) / hwRim, -1, 1));
-        lace.push({
-          th: Math.random() < 0.6 ? base : Math.PI - base,   /* near wall or far */
-          h: rimY + rand(2, headBand() * 0.9),
-          r: rand(1.2, 2.6) * G.scale + f.r * 0.12, life, max: life
+      /* Some of it does not hang on at all. A head coming over a lip sheds
+         beads as well as ribbons, and they leave by the same two sides. */
+      if (Math.random() < 0.4){
+        const base = Math.asin(clamp((f.x - G.cx) / hwRim, -1, 1));
+        const th = (Math.random() < 0.5 ? base : Math.PI - base) + rand(-0.9, 0.9);
+        const deep = Math.cos(th), across = Math.sin(th);
+        const ry = ryAt(rimY) * hwRim;
+        const outward = rand(3, 16);
+        drops.push({
+          x: G.cx + hwRim * across, y: rimY + ry * deep - rand(0, 5),
+          vx: across * outward,
+          vy: -rand(6, 34) * G.scale + deep * ry * outward * 0.10,
+          r: clamp(f.r * 0.3, 1.1, 4) * G.scale,
+          near: deep, dz: deep * rand(0.9, 2.6),
+          foamy: true, out: true
         });
       }
+      /* Lacing is laid where the head stands against the wall, not here — see
+         layLacing. Marking it at the moment foam went over the lip meant only
+         a glass filled to the brim was ever marked at all, and always in the
+         same band under the rim. */
       foam.splice(i, 1);
     }
   }
@@ -1121,15 +1157,33 @@ function updateDrops(dt){
     d.vy += 1150 * G.scale * dt;
     d.x += d.vx * dt;
     d.y += d.vy * dt;
+    /* It travels in depth too. Held at the depth it left by, a bead thrown at
+       the eye only ever sidled across the frame — the throw reads as being
+       towards you because the thing gets bigger and drops down the frame as it
+       closes, and neither happens if it never comes any nearer. */
+    if (d.dz){
+      d.near += d.dz * dt;
+      d.y += d.dz * ryAt(d.y) * Math.max(1, innerHalfAt(d.y)) * dt * 1.5;
+      if (d.near > 3.2){ drops.splice(i, 1); continue; }   /* past the eye */
+    }
 
     const outsideGlass = Math.abs(d.x - G.cx) > innerHalfAt(d.y);
     if (!d.out && !outsideGlass && d.vy > 0 && d.y > frontY(d.x)){
       splash(d.x, 0.5 + d.r * 0.16 / G.scale, 18 + d.r * 4);
       if (d.foamy) addFoam(d.x, d.r * 2);
       drops.splice(i, 1);
-    } else if (d.y > G.bottom + baseBulge() - 2){
-      /* Landed on the bar */
-      mist.push({x:d.x, y:G.bottom + baseBulge() - 2, vx:rand(-30,30)*G.scale, vy:-rand(20,70)*G.scale, r:d.r*0.5, life:rand(.2,.5)});
+      continue;
+    }
+    /* The bar is a plane, so a drop lands lower down the picture the nearer to
+       the eye it comes down. Brought to rest at one height for all of them, the
+       whole spray settled along a line ruled across the frame however far in
+       front of the glass or behind it each bead had gone. One base bulge is the
+       near lip's own distance out, so a bead that left there lands where it
+       always did and the rest of them fall into place around it. */
+    const bar = G.bottom - 2 + baseBulge() * clamp(d.near == null ? 1 : d.near, -1, 3.4);
+    if (d.y > bar){
+      mist.push({x:d.x, y:bar, vx:rand(-30,30)*G.scale, vy:-rand(20,70)*G.scale,
+                 r:d.r * dropScale(d) * 0.5, near:d.near, life:rand(.2,.5)});
       drops.splice(i, 1);
     } else if (d.x < -40 || d.x > W + 40){
       drops.splice(i, 1);
@@ -1269,12 +1323,94 @@ function updateDew(dt){
   if (merged) dew = dew.filter((_, k) => !merged.has(k));
 }
 
-/* Lacing fades slowly in the air, quickly once the refill submerges it */
+/* Lacing is not thrown at the glass, it is left behind. The head is against
+   the wall the whole time it is there, and where the wall dries out from under
+   it what was touching it stays. So specks are laid at the head's own contact
+   with the wall, right round it, and they are only ever seen once the beer has
+   gone down past them — which is why a glass drunk halfway wears a ring for
+   every level it stood at, and why a slosh marks the wall as high as it threw
+   the head.
+
+   Laid at the head, never at a height picked somewhere between the rim and the
+   beer. Pinned to the rim they sat in a band under the lip and stayed there
+   whatever the pour did; and being laid only when foam went over the lip, a
+   half-full glass sloshed hard was never marked at all.
+
+   A falling line writes, because the wall it leaves behind is the wall that
+   shows. So does a slosh, which is the same wall passing the same head faster.
+   A glass standing still writes too, but only under its own head, where none
+   of it can be seen until the beer goes down. */
+const LACE_MAX = 320;
+let laceAcc = 0, laceLast = null;
+function layLacing(dt){
+  if (level <= 0.03 || !foam.length || !N || !hArr){ laceLast = null; return; }
+  const rest = restSurfaceY();
+  const drain = laceLast == null ? 0
+              : clamp((rest - laceLast) / Math.max(dt, 1e-4), 0, 400);
+  laceLast = rest;
+  const swing = (Math.abs(hArr[0]) + Math.abs(hArr[N - 1])) * 0.5;
+  /* A glass standing still writes slowly. It has to write something — that is
+     the ring waiting under the head for the beer to go down past it — but at
+     the old rate the whole allowance sat there hidden and a slosh had nowhere
+     left to put its own marks. */
+  laceAcc = Math.min(10, laceAcc + dt * (1.8 + drain * 0.6 + swing * 4));
+
+  const band = Math.max(2, headBand());
+  /* The lip, as an ellipse. Nothing sticks to the inside of a glass above it. */
+  const rimRy = G.topHalf * G.ryTop;
+  const rimCy = G.top + rimRy;
+  const rimInRx = Math.max(2, innerHalfAt(rimCy));
+  const rimInRy = rimRy * 0.94;
+
+  while (laceAcc >= 1 && lace.length < LACE_MAX){
+    laceAcc -= 1;
+    /* every x meets the wall at two places and foam clings to both, so where a
+       speck sits round the glass is its own to choose — a blob's x cannot say */
+    const th = rand(-Math.PI, Math.PI);
+    const x = G.cx + innerHalfAt(rest) * Math.sin(th);
+    /* Weighted to the top of the head rather than spread evenly down its
+       flank. The mark a head leaves is its own high-water line: foam lower
+       down is still against wall the beer will hold for a while yet, while the
+       rim of it is the part that is about to be left in the air. Spread evenly,
+       a slosh put most of what it laid back inside the head it came from and
+       the wall above the beer stayed almost bare. */
+    const r = Math.max(1, rand(1.2, 2.8) * G.scale);
+    let h = surfaceAt(x) - band * Math.pow(Math.random(), 0.4);
+
+    /* Brought back under the lip. A head standing proud of the rim is not
+       against any wall up there, so a speck laid at its top belongs to nothing
+       — and the far wall carries what is stuck to it a whole rim's depth up
+       the screen besides, so specks that looked well inside the glass were
+       drawn clear over the back of it.
+
+       Measured on the projection, not on the height. The same height front and
+       back is drawn two rim depths apart, so a ceiling ruled across heights
+       cuts one side of the glass and lets the other through. The ceiling here
+       is the lip's own ellipse, read at the angle the speck sits at, with the
+       speck's width kept under it. */
+    const c = Math.cos(th);
+    const lx = G.cx + innerHalfAt(h) * Math.sin(th);
+    const u = clamp((lx - G.cx) / rimInRx, -1, 1);
+    const lid = rimCy - rimInRy * Math.sqrt(1 - u * u) + r;
+    const ly = h + ryAt(h) * innerHalfAt(h) * c;
+    if (ly < lid) h += lid - ly;
+
+    const life = rand(26, 64);
+    lace.push({ th, h, r, life, max: life });
+  }
+}
+
+/* and fades slowly in the air, quickly once the beer comes back over it.
+   Which of the two is settled by the height it is stuck at against the beer
+   standing at that wall — both plane measures. Read off the speck's projected
+   y instead, everything on the near wall was a bulge lower than the height it
+   was stuck at and washed off as though it were under. */
 function updateLace(dt){
+  layLacing(dt);
   for (let i = lace.length - 1; i >= 0; i--){
     const l = lace[i];
-    const [lx, ly] = lacePos(l);
-    l.life -= dt * (ly > surfaceAt(lx) ? 6 : 1);
+    const [lx] = lacePos(l);
+    l.life -= dt * (l.h > surfaceAt(lx) + 1 ? 6 : 1);
     if (l.life <= 0) lace.splice(i, 1);
   }
 }

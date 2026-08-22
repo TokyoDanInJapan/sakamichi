@@ -1059,9 +1059,12 @@ void main(){
 const FS_GLASS = `#version 300 es
 precision highp float;
 ${GLSL_GLASS}
+uniform sampler2D uField;
 uniform vec3 uEdge, uLight, uBeerGlow;
-uniform float uDark, uLightX, uLevel;
+uniform float uDark, uLightX, uLevel, uBandPx;
 out vec4 frag;
+
+float fieldAt(vec2 p){ return texture(uField, vec2(p.x / uRes.x, 1.0 - p.y / uRes.y)).r; }
 
 void main(){
   vec2 px = fragPx();
@@ -1516,7 +1519,10 @@ function drawSprites(){
     n++;
   };
   for (const b of bubbles) push(b.x, b.y, Math.max(1.2, b.r), Math.max(1.2, b.r), 0, 1);
-  for (const d of drops)   push(d.x, d.y, Math.max(1.4, d.r), Math.max(1.4, d.r), 1, 1);
+  for (const d of drops){
+    const dr = d.r * dropScale(d);           /* nearer is bigger */
+    push(d.x, d.y, Math.max(1.4, dr), Math.max(1.4, dr), 1, 1);
+  }
   for (const m of mist)    push(m.x, m.y, Math.max(1, m.r * 1.6), Math.max(1, m.r * 1.6), 2, clamp(m.life, 0, 1));
   for (const l of lace){
     const [lx, ly, c] = lacePos(l);

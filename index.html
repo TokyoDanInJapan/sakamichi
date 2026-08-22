@@ -1616,13 +1616,15 @@ function drawDetail(){
   /* Lacing: dried foam stuck to the wall above the beer line */
   if (lace.length){
     ctxD.save();
-    wallPath(ctxD, true, G.inTop, G.inBottom);
+    /* Started at the top of the rim rather than at its plane. A fleck on the
+       far wall is drawn a bulge higher than the height it is stuck at, so the
+       wall we can see runs up to the rim's far arc — and a path flat-topped at
+       the plane cut every one of those in half along a level line ruled across
+       the glass. The arc itself does the bounding, just below. */
+    wallPath(ctxD, true, G.top, G.inBottom);
     ctxD.clip();
-    /* The wall path is flat-topped at the inner top, which is a rim's height
-       above the point where the glass opens at its two sides — and a fleck on
-       the far wall is drawn a bulge higher than the height it is stuck at, so
-       the ones near the top came out standing above the rim in the dark. The
-       rim is stroked after this, so the cut lands under its own line. */
+    /* and nothing above the lip, which is an ellipse. The rim is stroked after
+       this, so the cut lands under its own line. */
     clipUnderRim(ctxD);
     ctxD.fillStyle = pal.foam;
     for (const l of lace){
@@ -1636,6 +1638,38 @@ function drawDetail(){
     ctxD.globalAlpha = 1;
     ctxD.restore();
   }
+
+  /* Beads in the air. Which side of the rim one left by settles whether it is
+     in front of the glass or behind it, so they are painted in two passes with
+     the glass between them — otherwise the whole spill flies over the front of
+     a glass it may well have gone out the back of. */
+  const paintDrops = pick => {
+    for (const d of drops){
+      if (!pick(d)) continue;
+      const dr = d.r * dropScale(d);
+      ctxD.beginPath();
+      ctxD.ellipse(d.x, d.y, dr, dr * (1 + clamp(Math.abs(d.vy) / (900 * G.scale), 0, 0.6)), 0, 0, TAU);
+      ctxD.fillStyle = d.foamy ? pal.foam : pal.beerMid;
+      ctxD.fill();
+      ctxD.beginPath();
+      ctxD.arc(d.x - dr * 0.3, d.y - dr * 0.4, dr * 0.3, 0, TAU);
+      ctxD.fillStyle = "rgba(255,255,255,.6)";
+      ctxD.fill();
+    }
+  };
+  const paintMist = pick => {
+    for (const m of mist){
+      if (!pick(m)) continue;
+      ctxD.globalAlpha = clamp(m.life, 0, 1) * 0.5;
+      ctxD.beginPath();
+      ctxD.arc(m.x, m.y, m.r, 0, TAU);
+      ctxD.fillStyle = pal.foam;
+      ctxD.fill();
+    }
+    ctxD.globalAlpha = 1;
+  };
+  paintDrops(d => (d.near || 0) < 0);
+  paintMist(m => (m.near || 0) < 0);
 
   drawGlass(ctxD);
 
@@ -1872,24 +1906,10 @@ function drawDetail(){
     ctxD.globalAlpha = 1;
   }
 
-  /* Anything in the air goes over the glass */
-  for (const d of drops){
-    ctxD.beginPath();
-    ctxD.ellipse(d.x, d.y, d.r, d.r * (1 + clamp(Math.abs(d.vy) / (900 * G.scale), 0, 0.6)), 0, 0, TAU);
-    ctxD.fillStyle = d.foamy ? pal.foam : pal.beerMid;
-    ctxD.fill();
-    ctxD.beginPath();
-    ctxD.arc(d.x - d.r * 0.3, d.y - d.r * 0.4, d.r * 0.3, 0, TAU);
-    ctxD.fillStyle = "rgba(255,255,255,.6)";
-    ctxD.fill();
-  }
-  for (const m of mist){
-    ctxD.globalAlpha = clamp(m.life, 0, 1) * 0.5;
-    ctxD.beginPath();
-    ctxD.arc(m.x, m.y, m.r, 0, TAU);
-    ctxD.fillStyle = pal.foam;
-    ctxD.fill();
-  }
+  /* What came off the near lip goes over the glass. What came off the far lip
+     went over it too, and was painted there before this — see paintDrops. */
+  paintDrops(d => (d.near || 0) >= 0);
+  paintMist(m => (m.near || 0) >= 0);
   ctxD.globalAlpha = 1;
 }
 
