@@ -382,11 +382,12 @@ function splash(x, force, radius){
      each face carries away everything the columns behind it are shedding, so
      the flux is the running total of the push and the speed is that flux over
      the bore it passes through. */
+  const uCap = Math.sqrt(gravity() * H) * 2.5;
   let carried = 0;
   for (let k = 0; k < N - 1; k++){
     carried += rate * (profArr[k] - mean) * A[k];
     const bore = boreArr[k] * H;
-    if (bore > 1e-6) uArr[k] += carried / bore;
+    if (bore > 1e-6) uArr[k] = clamp(uArr[k] + carried / bore, -uCap, uCap);
   }
 }
 
@@ -444,11 +445,16 @@ function stepWaves(step){
      own slope, doubled every substep until it left the numbers and took the
      whole surface to NaN with it. Nothing drew after that, because every frame
      since was reading the same ruined array. */
-  const sub = clamp(Math.ceil(step * cmax / (dxMin * 0.35)), 1, 12);
+  let uMax = 0;
+  for (let k = 0; k < N - 1; k++){ const a = Math.abs(uArr[k]); if (a > uMax) uMax = a; }
+  const sub = clamp(Math.ceil(step * (cmax + uMax) / (dxMin * 0.35)), 1, 32);
   /* The ceiling is a backstop for settings that would ask for more pieces than
      a frame can pay for. Past it the step runs long, and it is the drag and the
      clamps below that hold the solver together rather than the timestep. */
-
+  /* Nor may the flow itself run away. Past a few times the speed a wave crosses
+     the glass at there is nothing left to represent — beer in a pint does not
+     go that fast however it is hit — and what is left is the arithmetic. */
+  const uCap = cmax * 2.5;
   const dt = step / sub;
   const maxDepress = H - 2;
 
@@ -467,7 +473,8 @@ function stepWaves(step){
       const uL = k > 0 ? uArr[k - 1] : -u;          /* no slip through the wall */
       const uR = k < N - 2 ? uArr[k + 1] : -u;
       const shear = nu * (uL - 2 * u + uR) / (dx * dx);
-      uArr[k] = (u + dt * (g * slope - adv + ax + shear)) / (1 + fric * dt);
+      uArr[k] = clamp((u + dt * (g * slope - adv + ax + shear)) / (1 + fric * dt),
+                      -uCap, uCap);
     }
     /* Continuity: what each face carries is the depth it has to move times the
        width of glass at that face, taken from whichever side the flow is
@@ -495,6 +502,15 @@ function stepWaves(step){
        somewhere new — the mesh is re-measured before the next pass rather than
        the whole substep being run against where they used to be. */
     A = grid();
+  }
+  /* None of the above should be able to leave the numbers now. But a surface
+     of NaN draws as nothing at all and poisons every frame after it, so it is
+     worth one pass to find out and start the pour over rather than hand the
+     renderer a glass it cannot paint. */
+  for (let i = 0; i < N; i++){
+    if (Number.isFinite(hArr[i])) continue;
+    hArr.fill(0); uArr.fill(0); fArr.fill(0);
+    return;
   }
   levelWave();                    /* the clamps are not allowed to cost a drop */
 }
