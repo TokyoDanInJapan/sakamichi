@@ -911,9 +911,80 @@ function drawBarTop(ctx){
     bodyR.addColorStop(0.34, pal.beerMid);
     bodyR.addColorStop(0.86, pal.beerBot);
     bodyR.addColorStop(1,    pal.beerDeep);
+    /* Painted into its own sheet first, so it can be laid down the bar in
+       strips afterwards and made to wander as it goes. The bar is frosted, not
+       polished: a mirror in it comes apart the further across it you look, and
+       drawn straight it was a flat trapezoid of light with two ruled edges —
+       a spotlight on the counter rather than the glass in it. */
+    const rc = barMirror();
+    rc.save();
+    /* Mirrored about the footprint centre, which is where the glass touches */
+    rc.translate(0, 2 * G.bottom);
+    rc.scale(1, -1);
+    rc.filter = "blur(6px)";
+    /* The glass reflects as well as the beer it holds. Without its silhouette
+       the reflection is only as wide as the pour, so it leaves the foot as a
+       flat slab set in from the glass's edges instead of flowing out of them. */
+    rc.globalAlpha = pal.dark ? 0.22 : 0.16;
+    rc.fillStyle = pal.glassLight;
+    rc.fill(PATHS.sil);
+    rc.globalAlpha = pal.dark ? 0.42 : 0.30;
+    rc.lineWidth = Math.max(1.5, G.wall * 0.7);
+    rc.strokeStyle = pal.glassLight;
+    /* the silhouette by name. Stroked bare it took whatever path was last
+       built, which is the clip this is drawn inside, so the glass's outline
+       came out as a line ruled across the whole bar. */
+    rc.stroke(PATHS.sil);
+    rc.globalAlpha = 0.34;
+    /* The beer's own reflection, kept inside the glass that is holding it.
+       The surface outline runs out past the walls on purpose — the fill has to
+       cover the corners of the interior it is normally clipped to — and down
+       here there was no such clip, so the overhang came out on the bar as a
+       slab wider than the glass. Tilt the beer and the slab tilts with it,
+       which is what turned the reflection into a streak leaning off to one
+       side whenever the pour was swilled. Worst with little in the glass,
+       where the overhang is widest and the tilt steepest. */
+    rc.save();
+    rc.clip(PATHS.interior);
+    liquidPath(rc);
+    rc.fillStyle = bodyR;
+    rc.fill();
+    /* and the head with it. It was left out, and a pint is mostly head to look
+       at: the bar carried an amber body with nothing on top of it. Its own
+       blobs go on too, so the reflected crown is as ragged as the real one —
+       through six pixels of blur, which is what the bar's finish comes to, a
+       plain outline reads as a bar of soap. */
+    rc.fillStyle = pal.foam;
+    headPath(rc);
+    rc.fill();
+    for (const f of foam){
+      rc.beginPath();
+      rc.arc(f.x, surfaceAt(f.x) - ellipseDy(f.x) * 0.4 + f.oy, f.r, 0, TAU);
+      rc.fill();
+    }
+    rc.restore();
+    /* The beer stands a base-thickness above the floor, so its mirror image
+       starts that far below the foot. The thick base between them is lit
+       through by the pour, so it carries the beer's own deep colour and the
+       reflection runs unbroken out of the glass. */
+    rc.beginPath();
+    rc.moveTo(G.cx - halfAt(G.inBottom), G.inBottom);
+    rc.lineTo(G.cx + halfAt(G.inBottom), G.inBottom);
+    rc.lineTo(G.cx + halfAt(G.bottom), G.bottom);
+    rc.lineTo(G.cx - halfAt(G.bottom), G.bottom);
+    rc.closePath();
+    rc.fillStyle = pal.beerDeep;
+    rc.fill();
+    rc.restore();
+
+    /* Laid down the bar in strips, each carried sideways a little further than
+       the last. The frost scatters what it returns, and the further across the
+       surface the eye travels the more of it there is between: near the foot
+       the image is almost true, and it comes apart into slow waves as it runs
+       away. Two rates rather than one, so the edges wander rather than ripple
+       on a note. Clipped to the front arc of the footprint, which does not
+       wander: that is where the glass stands, and it stands still. */
     ctx.save();
-    /* Clipped to below the footprint's front arc — the glass meets the floor
-       along that whole curve, so the reflection begins on it, not on a line */
     ctx.beginPath();
     ctx.moveTo(W, H);
     ctx.lineTo(W, G.bottom);
@@ -923,68 +994,19 @@ function drawBarTop(ctx){
     ctx.lineTo(0, H);
     ctx.closePath();
     ctx.clip();
-    /* Mirrored about the footprint centre, which is where the glass touches */
-    ctx.translate(0, 2 * G.bottom);
-    ctx.scale(1, -1);
-    ctx.filter = "blur(6px)";
-    /* The glass reflects as well as the beer it holds. Without its silhouette
-       the reflection is only as wide as the pour, so it leaves the foot as a
-       flat slab set in from the glass's edges instead of flowing out of them. */
-    ctx.globalAlpha = pal.dark ? 0.16 : 0.12;
-    ctx.fillStyle = pal.glassLight;
-    ctx.fill(PATHS.sil);
-    ctx.globalAlpha = pal.dark ? 0.30 : 0.22;
-    ctx.lineWidth = Math.max(1.5, G.wall * 0.7);
-    ctx.strokeStyle = pal.glassLight;
-    /* the silhouette by name. Stroked bare it took whatever path was last
-       built, which is the clip this is drawn inside, so the glass's outline
-       came out as a line ruled across the whole bar. */
-    ctx.stroke(PATHS.sil);
-    ctx.globalAlpha = 0.22;
-    /* The beer's own reflection, kept inside the glass that is holding it.
-       The surface outline runs out past the walls on purpose — the fill has to
-       cover the corners of the interior it is normally clipped to — and down
-       here there was no such clip, so the overhang came out on the bar as a
-       slab wider than the glass. Tilt the beer and the slab tilts with it,
-       which is what turned the reflection into a streak leaning off to one
-       side whenever the pour was swilled. Worst with little in the glass,
-       where the overhang is widest and the tilt steepest. */
-    ctx.save();
-    ctx.clip(PATHS.interior);
-    liquidPath(ctx);
-    ctx.fillStyle = bodyR;
-    ctx.fill();
-    /* and the head with it. It was left out, and a pint is mostly head to look
-       at: the bar carried an amber body with nothing on top of it. Its own
-       blobs go on too, so the reflected crown is as ragged as the real one —
-       through six pixels of blur, which is what the bar's finish comes to, a
-       plain outline reads as a bar of soap. */
-    ctx.fillStyle = pal.foam;
-    headPath(ctx);
-    ctx.fill();
-    for (const f of foam){
-      ctx.beginPath();
-      ctx.arc(f.x, surfaceAt(f.x) - ellipseDy(f.x) * 0.4 + f.oy, f.r, 0, TAU);
-      ctx.fill();
+    const band = 4;
+    for (let y = G.bottom; y < H; y += band){
+      const t = y - G.bottom;
+      const amp = Math.min(15 * G.scale, t * 0.10);
+      const dx = (Math.sin(t * 0.055) * 0.7 + Math.sin(t * 0.021 + 1.9) * 0.55) * amp;
+      ctx.drawImage(REFL.mirror, 0, Math.round(y * dpr), REFL.mirror.width,
+                    Math.ceil(band * dpr), dx, y, W, band);
     }
-    ctx.restore();
-    /* The beer stands a base-thickness above the floor, so its mirror image
-       starts that far below the foot. The thick base between them is lit
-       through by the pour, so it carries the beer's own deep colour and the
-       reflection runs unbroken out of the glass. */
-    ctx.beginPath();
-    ctx.moveTo(G.cx - halfAt(G.inBottom), G.inBottom);
-    ctx.lineTo(G.cx + halfAt(G.inBottom), G.inBottom);
-    ctx.lineTo(G.cx + halfAt(G.bottom), G.bottom);
-    ctx.lineTo(G.cx - halfAt(G.bottom), G.bottom);
-    ctx.closePath();
-    ctx.fillStyle = pal.beerDeep;
-    ctx.fill();
     ctx.restore();
 
     /* ...and the whole reflection sinks into the bar as it runs away from
        the foot, which is what reads as distance across the surface */
-    const rFade = ctx.createLinearGradient(0, G.bottom, 0, G.bottom + Math.max(130, G.h * 0.5));
+    const rFade = ctx.createLinearGradient(0, G.bottom, 0, G.bottom + Math.max(175, G.h * 0.62));
     rFade.addColorStop(0, hexA(pal.ground, 0));
     rFade.addColorStop(0.5, hexA(pal.ground, 0.62));
     rFade.addColorStop(1, hexA(pal.ground, 1));
@@ -1371,6 +1393,25 @@ function drawFoam(){
    partway down. The mask runs down the page rather than down each band, so all
    four fade together at the same height, as light in a room does. */
 const REFL = {cv:null, x:0, y:0, w:0, h:0, ver:-1};
+
+/* The sheet the bar's mirror is painted on before it is laid down in strips */
+REFL.mirror = null;
+function barMirror(){
+  const w = Math.round(W * dpr), h = Math.round(H * dpr);
+  if (!REFL.mirror){
+    REFL.mirror = document.createElement("canvas");
+    REFL.mirrorCtx = REFL.mirror.getContext("2d");
+  }
+  if (REFL.mirror.width !== w || REFL.mirror.height !== h){
+    REFL.mirror.width = w; REFL.mirror.height = h;
+  }
+  const c = REFL.mirrorCtx;
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.filter = "none";
+  c.globalAlpha = 1;
+  c.clearRect(0, 0, W, H);
+  return c;
+}
 function buildReflections(){
   const reflTop = G.top, reflBot = G.bottom - G.baseH * 0.4;
   const pad = 6;
