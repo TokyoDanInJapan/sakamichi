@@ -852,6 +852,24 @@ function liquidPath(ctx){
   ctx.closePath();
 }
 
+/* Crown: from the far edge of the head down to the front of the beer. Carried
+   as far past the ends as the beer under it is, so the head reaches the glass
+   wherever the beer does rather than stopping a little short of it. Its own
+   function because the bar has to draw it too — what stands in the glass is
+   what the bar reflects, and a head is most of what stands in a full one. */
+function headPath(ctx){
+  const [l, , w] = surfaceSpan();
+  const over = Math.max(12, G.topHalf - w / 2 + 12);
+  ctx.beginPath();
+  ctx.moveTo(l - over, headTopAt(l));
+  for (let i = 1; i < N; i++){ const x = colX(i); ctx.lineTo(x, headTopAt(x)); }
+  ctx.lineTo(l + w + over, headTopAt(l + w));
+  ctx.lineTo(l + w + over, frontY(l + w) + 1);
+  for (let i = N - 1; i >= 0; i--){ const x = colX(i); ctx.lineTo(x, frontY(x) + 1); }
+  ctx.lineTo(l - over, frontY(l) + 1);
+  ctx.closePath();
+}
+
 /* ================================================================== *
  * Rendering
  * ================================================================== */
@@ -936,6 +954,19 @@ function drawBarTop(ctx){
     liquidPath(ctx);
     ctx.fillStyle = bodyR;
     ctx.fill();
+    /* and the head with it. It was left out, and a pint is mostly head to look
+       at: the bar carried an amber body with nothing on top of it. Its own
+       blobs go on too, so the reflected crown is as ragged as the real one —
+       through six pixels of blur, which is what the bar's finish comes to, a
+       plain outline reads as a bar of soap. */
+    ctx.fillStyle = pal.foam;
+    headPath(ctx);
+    ctx.fill();
+    for (const f of foam){
+      ctx.beginPath();
+      ctx.arc(f.x, surfaceAt(f.x) - ellipseDy(f.x) * 0.4 + f.oy, f.r, 0, TAU);
+      ctx.fill();
+    }
     ctx.restore();
     /* The beer stands a base-thickness above the floor, so its mirror image
        starts that far below the foot. The thick base between them is lit
@@ -1273,21 +1304,12 @@ function drawFoam(){
   ctxF.clip();
 
   ctxF.fillStyle = pal.foam;
-  const [l, , w] = surfaceSpan();
-
-  /* Crown: from the far edge of the head down to the front of the beer. Carried
-     as far past the ends as the beer under it is, so the head reaches the glass
-     wherever the beer does rather than stopping a little short of it. */
-  const over = Math.max(12, G.topHalf - w / 2 + 12);
-  ctxF.beginPath();
-  ctxF.moveTo(l - over, headTopAt(l));
-  for (let i = 1; i < N; i++){ const x = colX(i); ctxF.lineTo(x, headTopAt(x)); }
-  ctxF.lineTo(l + w + over, headTopAt(l + w));
-  ctxF.lineTo(l + w + over, frontY(l + w) + 1);
-  for (let i = N - 1; i >= 0; i--){ const x = colX(i); ctxF.lineTo(x, frontY(x) + 1); }
-  ctxF.lineTo(l - over, frontY(l) + 1);
-  ctxF.closePath();
+  headPath(ctxF);
   ctxF.fill();
+
+  /* the same span the crown was carried across, wanted again below */
+  const [l, , w] = surfaceSpan();
+  const over = Math.max(12, G.topHalf - w / 2 + 12);
 
   for (const f of foam){
     ctxF.beginPath();
