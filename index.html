@@ -738,12 +738,25 @@ function headClip(ctx, domeH){
      nor the glass. The crown holds nearly its full height right across and
      turns down only at the very edges, which closes the head over the lip the
      way the dome was meant to without taking the side off it. */
+  /* And it is measured from the head, not from the rim. Pinned to the inner
+     top it was a fixed line while the head rose with the beer — so a glass
+     filled to the brim, where the head stands clear of the rim altogether, had
+     its dome cut off along that line and came out as a flat slab with rounded
+     corners. Its own top is already a dome, following the far edge of the beer
+     it floats on; there was never a shape wanting to be supplied here, only a
+     limit, and the limit was in the wrong place.
+     Taken from whichever is higher — the rim, or the head's own top — the one
+     allowance closes the head over the lip while it is sitting in the glass and
+     leaves it its crown once it is standing above it. */
+  const band = headBand();
+  let capY = G.inTop;
+  if (N && hArr) for (let i = 0; i < N; i++) capY = Math.min(capY, backY(colX(i)) - band);
   const crown = Math.max(1, domeH);
   const cSteps = 16;
   for (let i = 0; i <= cSteps; i++){
     const t = 1 - 2 * i / cSteps;                    /* +1 at the right wall */
     const drop = Math.sqrt(Math.max(0, 1 - Math.pow(Math.abs(t), 6)));
-    ctx.lineTo(G.cx + t * ihwTop, G.inTop - crown * drop);
+    ctx.lineTo(G.cx + t * ihwTop, capY - crown * drop);
   }
   ctx.closePath();
 }
