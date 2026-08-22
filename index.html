@@ -1123,7 +1123,31 @@ function drawLiquid(){
      glass above the edge you can see, which is glass that is not in front of
      anything. The film is on the near wall, so it starts at the near lip at the
      latest, however high the beer behind it goes. */
-  const nearLip = G.top + G.topHalf * G.ryTop;
+  const rimRy = G.topHalf * G.ryTop;
+  const nearLip = G.top + rimRy;
+
+  /* Started flat at that height it still overshot. The lip is an ellipse, so
+     its near arc is only level with the glass's side at the very edge and
+     falls away from there — and the film does not stand at the very edge: it
+     is a stroke of its own width, laid a little inside the wall, where the arc
+     has already dropped the better part of its own depth. So the flat top cut
+     across the lip rather than along it, and left the film's first few pixels
+     standing above the rim on both sides — the nick of bright wall the head
+     otherwise hides, which a swirl uncovers by carrying the head off one side.
+     Cutting it on the arc itself lets each side of the stroke begin where the
+     glass in front of it actually begins. */
+  ctxL.save();
+  const lipInRx = innerHalfAt(nearLip);
+  ctxL.beginPath();
+  ctxL.moveTo(W, H);
+  ctxL.lineTo(W, G.top);
+  ctxL.lineTo(G.cx + lipInRx, nearLip);
+  ctxL.ellipse(G.cx, nearLip, lipInRx, rimRy * 0.94, 0, 0, Math.PI);
+  ctxL.lineTo(0, G.top);
+  ctxL.lineTo(0, H);
+  ctxL.closePath();
+  ctxL.clip();
+
   for (const s of [-1, 1]){
     const menTop = Math.max(surfaceAt(s < 0 ? l : l + w), nearLip);
     const menG = ctxL.createLinearGradient(0, menTop, 0, menTop + G.inH * 0.45);
@@ -1139,6 +1163,7 @@ function drawLiquid(){
     }
     ctxL.stroke();
   }
+  ctxL.restore();
 
   for (const b of bubbles){
     const r = b.r;
