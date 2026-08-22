@@ -751,28 +751,47 @@ function interiorPath(){
   const ctx = new Path2D();
   const steps = 20;
   const ihw = innerHalfAt(G.inBottom);
-  /* The glass opens as an ellipse, so the inside of it does not begin on a
-     straight line. Squared off at G.inTop the interior reached its full width a
-     rim's height above the point where the glass actually opens, and beer
-     standing near the brim was painted over the lip at the two sides — a pale
-     sliver above the rim wearing the surface's own lighter colour, which reads
-     as a reflection floating free of the glass. The top now follows the far arc
-     of the lip, which is as far down into the glass as there is to see. */
-  const rimRy = G.topHalf * G.ryTop;
-  const rimCy = G.top + rimRy;
+  /* Squared off at the inner top, which is a rim's height above the point where
+     the glass opens at its two sides. Cut instead on the far arc of the lip —
+     as far down into the glass as there is to see — it took the beer with it:
+     the arc falls all the way to the rim's own side at each wall, and a pour
+     swirled up a wall is standing above that. The head is not held to the same
+     line, so it went on standing where the beer had been cut from under it, and
+     a notch of empty glass opened between the two.
+     The beer belongs against the head, so the ceiling is flat again. What the
+     arc was really cutting away was not the beer but the pale plane laid over
+     it, which above the rim has nothing to be the top of and reads as a
+     reflection floating free of the glass — so that is cut on the arc instead,
+     and the body is left to fill up to the head. */
   for (let i = 0; i <= steps; i++){
-    const y = lerp(rimCy, G.inBottom, i / steps);
+    const y = lerp(G.inTop, G.inBottom, i / steps);
     const x = G.cx - innerHalfAt(y);
     if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
   }
   ctx.ellipse(G.cx, G.inBottom, ihw, ihw * ryAt(G.inBottom), 0, Math.PI, 0, true);
   for (let i = steps; i >= 0; i--){
-    const y = lerp(rimCy, G.inBottom, i / steps);
+    const y = lerp(G.inTop, G.inBottom, i / steps);
     ctx.lineTo(G.cx + innerHalfAt(y), y);
   }
-  ctx.ellipse(G.cx, rimCy, innerHalfAt(rimCy), rimRy * 0.94, 0, 0, Math.PI, true);
   ctx.closePath();
   return ctx;
+}
+
+/* The far arc of the lip is the deepest the eye reaches into the glass, so
+   nothing seen inside it may be painted above that line. At the two walls the
+   arc comes right down to the rim's own side, and anything held to a flat top
+   instead stands proud of the glass there, against the dark outside it. */
+function clipUnderRim(ctx){
+  const ry = G.topHalf * G.ryTop;
+  const cy = G.top + ry;
+  const rx = innerHalfAt(cy);
+  ctx.beginPath();
+  ctx.moveTo(G.cx - rx, H);
+  ctx.lineTo(G.cx - rx, cy);
+  ctx.ellipse(G.cx, cy, rx, ry * 0.94, 0, Math.PI, 0);
+  ctx.lineTo(G.cx + rx, H);
+  ctx.closePath();
+  ctx.clip();
 }
 
 /* The beer: bounded above by the far edge of its surface, below by the glass */
@@ -1037,6 +1056,15 @@ function drawLiquid(){
      reached the glass. The overhang is trimmed by the interior. */
   const [l, , w] = surfaceSpan();
   const sOver = Math.max(12, G.topHalf - w / 2 + 12);
+
+  /* Everything from here to the meniscus is the surface and the light on it,
+     and none of it may stand above the rim: the plane is the top of the beer
+     seen from above, so where the glass has run out there is no top to see —
+     a swirled pour would otherwise carry it up over the lip as a pale sliver.
+     The body underneath is not cut here: it goes on up to meet the head. */
+  ctxL.save();
+  clipUnderRim(ctxL);
+
   ctxL.beginPath();
   ctxL.moveTo(l - sOver, backY(l));
   for (let i = 0; i < N; i++){ const x = colX(i); ctxL.lineTo(x, backY(x)); }
@@ -1163,6 +1191,7 @@ function drawLiquid(){
     }
     ctxL.stroke();
   }
+  ctxL.restore();
   ctxL.restore();
 
   for (const b of bubbles){
@@ -1548,6 +1577,12 @@ function drawDetail(){
     ctxD.save();
     wallPath(ctxD, true, G.inTop, G.inBottom);
     ctxD.clip();
+    /* The wall path is flat-topped at the inner top, which is a rim's height
+       above the point where the glass opens at its two sides — and a fleck on
+       the far wall is drawn a bulge higher than the height it is stuck at, so
+       the ones near the top came out standing above the rim in the dark. The
+       rim is stroked after this, so the cut lands under its own line. */
+    clipUnderRim(ctxD);
     ctxD.fillStyle = pal.foam;
     for (const l of lace){
       const [lx, ly, c] = lacePos(l);
