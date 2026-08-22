@@ -92,14 +92,21 @@ let N = 0, hArr, uArr, fArr, maxAmp = 60;   /* surface, face velocities, face fl
 let bubbles = [], foam = [], drops = [], mist = [], drips = [], sites = [], dew = [], lace = [];
 let capBubbles = 300, capFoam = 260, capDew = 90;
 
-/* The fill line is the beer line — but a hundred per cent of it is a shade
-   under the lip rather than level with it. Taken to the rim plane exactly, the
-   beer leaves the head nothing to stand in: the band collapses to the little it
-   is allowed above the rim, and the glass reads as one poured past the point
-   anybody would stop at. The last few per cent of a glass is where the head
-   lives, so the line stops short of it. */
-const BRIM = 0.94;
-const targetLevel = () => (cfg.fill / 100) * BRIM;
+/* The fill line is the height the contents reach, and the contents are the
+   beer and the head together. So the beer stops a head's depth short of it —
+   which at a hundred per cent puts the head's own edges on the lip, whatever
+   depth the head has been given, and sends a deeper head down into the glass
+   rather than up out of it.
+   Read as the beer line instead, the head stood on top of whatever was asked
+   for and the glass had to be stopped short of the brim to leave it somewhere
+   to go. Now the brim is the brim. */
+/* and a shade proud of the lip's plane, because that plane is the middle of an
+   annulus with real thickness to it: a head's edge set exactly on it sits level
+   with the middle of the rim, which reads as just under the rim rather than on
+   it. A hundredth of the glass is enough to put it on top. */
+const BRIM_LIFT = 0.01;
+const targetLevel = () =>
+  clamp((cfg.fill / 100) * (1 + BRIM_LIFT) - headBand() / Math.max(1, G.inH), 0.04, 1);
 const restSurfaceY = () => G.inBottom - level * G.inH;
 
 /* ------------------------------------------------------------------ *
@@ -250,10 +257,12 @@ function headTopAt(x){
    whatever fits below the lip, plus the little a head stands proud of one, and
    at the brim that is a collar of foam on a full glass rather than a tower of
    it on a glass that is somehow deeper than itself. */
-/* what the head would like to be, before the glass has its say */
-const headWant = () => (G.topHalf * 2) * (0.05 + 0.14 * cfg.headDepth / 100);
-const headBand = () => Math.min(headWant(),
-  Math.max(0, restSurfaceY() - G.inTop) + G.topHalf * G.ryTop * 1.2);
+/* How deep the head is. It used to be capped by the room left under the lip,
+   to stop it towering when the beer was taken to the brim — but the beer is set
+   from it now rather than the other way about, so it can never stand higher
+   than the lip and there is nothing left to cap. It is simply as deep as it is
+   asked to be, and the glass makes room by holding less beer. */
+const headBand = () => (G.topHalf * 2) * (0.05 + 0.14 * cfg.headDepth / 100);
 
 /* ================================================================== *
  * Surface physics — shallow water across the glass
@@ -610,12 +619,22 @@ function collarWant(){
      is no room left for it to stand in, so it goes over the side. So it is the
      beer coming up to the brim that brings it on, and nothing else — a rim and
      a half short of the lip there is none of it, and at the lip there is all.
-     Measured against the level the beer rests at and not the surface it happens
+     It is the head's own top that is measured, not the beer's: the head is what
+     goes over, and the beer now sits a head's depth below whatever the fill
+     line says, so the beer's distance from the lip is only ever the head's own
+     depth and says nothing about how full the glass is.
+     And it runs once the head is over the lip, not on its way to it. Ramped in
+     over a rim and a half of approach it had the glass weeping from about nine
+     tenths full, which is a glass with its head still well inside it and
+     nothing to shed. There is none of it until the head's edge is level with
+     the lip, and all of it once the head stands as proud as a full glass leaves
+     it — which is the same hundredth of the glass the brim is lifted by.
+     Measured at the level the beer rests at rather than the surface it happens
      to be showing: read live, every wave that crossed the glass lengthened and
      shortened the weep under it, and foam already hanging on the outside of a
      glass does not run back up it because the beer sloshed. */
-  const under = restSurfaceY() - G.inTop;
-  return clamp(1 - under / (G.topHalf * G.ryTop * 1.8), 0, 1);
+  const over = G.inTop - (restSurfaceY() - band);
+  return clamp(over / Math.max(1, G.inH * BRIM_LIFT), 0, 1);
 }
 /* Four or five broad tongues across the face of the glass, not a dozen little
    scallops — foam hangs in lobes the width of a finger */
@@ -1325,7 +1344,7 @@ function buildSliders(){
       if (s.key === "glassSize"){ resizeHook(); }
       /* Moving the fill line is a deliberate adjustment, so the glass follows
          at once. The slow top-up is reserved for beer that was sloshed out. */
-      if (s.key === "fill"){ level = cfg.fill / 100; poured = true; }
+      if (s.key === "fill"){ level = targetLevel(); poured = true; }
       /* These are how you are looking at the beer, not what is in the glass, so
          moving them does not take the pour off its recipe */
       if (cfg.preset && s.key !== "fill" && s.key !== "agitation" && s.key !== "glassSize"

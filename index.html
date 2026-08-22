@@ -1669,7 +1669,7 @@ function drawDetail(){
   const colRy = G.topHalf * G.ryTop;
   const colCy = G.top + colRy;
   const colRx = halfAt(colCy);
-  const colDeep = headWant() * 0.95;
+  const colDeep = headBand() * 0.95;
   const colSteps = 48;
   const hemAt = th => colCy + weepReach + creep * collar * colDeep * collarDrape(th);
   const showCollar = collar > 0.012 && creep > 0.004;
