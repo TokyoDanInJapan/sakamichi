@@ -82,33 +82,66 @@ const innerHalfAt = y => Math.max(1, halfAt(y) - G.wall);
  * ------------------------------------------------------------------ */
 let level = 0;              /* 0 empty, 1 brim full */
 let poured = false;         /* true once it has first reached the fill line */
-let N = 0, hArr, vArr, maxAmp = 60;
+let N = 0, hArr, uArr, fArr, maxAmp = 60;   /* surface, face velocities, face fluxes */
 let bubbles = [], foam = [], drops = [], mist = [], drips = [], sites = [], dew = [], lace = [];
 let capBubbles = 300, capFoam = 260, capDew = 90;
 
 const targetLevel = () => cfg.fill / 100;
 const restSurfaceY = () => G.inBottom - level * G.inH;
 
-/* Wave columns span the interior at the current surface height */
+/* ------------------------------------------------------------------ *
+ * Where the columns stand
+ * ------------------------------------------------------------------ *
+ * Across the bore, not across the screen. Column i keeps the same fraction of
+ * the way over whatever height its own beer has reached, and the glass hands it
+ * the width there. A cone is wider higher up, so a crest really does cover more
+ * glass than the trough opposite it: measured once at the rest line instead,
+ * the columns fell short of the wall wherever the beer stood above that line —
+ * nine pixels of it under a swirl, which is the strip where the surface ran out
+ * before the glass did — and reached past the wall wherever it had dropped
+ * below. Now the end columns sit on the wall by construction, at whatever
+ * height they have risen to.
+ *
+ * The mesh stays in order because the crest limiter keeps it there: a column
+ * can only outrun its neighbour if the bore closes faster than the spacing
+ * opens, and at the limiting slope the bore closes at a ninth of that rate. */
+const colU = i => -1 + 2 * i / (N - 1);        /* -1 at the left wall, +1 at the right */
+const colY = i => restSurfaceY() + hArr[i];
+const colR = i => innerHalfAt(colY(i));
+const colX = i => G.cx + colU(i) * colR(i);
+
+/* The ends, which is all most callers want of the span */
 const spanCache = [0, 0, 0];
-let spanKey = NaN;
 function surfaceSpan(){
-  const y = restSurfaceY();
-  if (y !== spanKey){
-    spanKey = y;
-    const hw = innerHalfAt(y);
-    spanCache[0] = G.cx - hw; spanCache[1] = G.cx + hw; spanCache[2] = hw * 2;
-  }
+  if (!N || !hArr) return spanCache;
+  spanCache[0] = colX(0);
+  spanCache[1] = colX(N - 1);
+  spanCache[2] = spanCache[1] - spanCache[0];
   return spanCache;
 }
 
-function surfaceAt(x){
-  const [l, , w] = surfaceSpan();
-  const u = clamp((x - l) / w, 0, 1) * (N - 1);
-  const i = Math.floor(u);
+/* The surface at a fraction of the way across, between the two columns there */
+function sampleU(u){
+  const t = (clamp(u, -1, 1) + 1) * 0.5 * (N - 1);
+  const i = clamp(Math.floor(t), 0, N - 1);
   const j = Math.min(N - 1, i + 1);
-  const t = u - i;
-  return restSurfaceY() + hArr[i] * (1 - t) + hArr[j] * t;
+  return restSurfaceY() + hArr[i] * (1 - (t - i)) + hArr[j] * (t - i);
+}
+
+/* And the other way about: which fraction stands at this x. The bore depends on
+   the height and the height on the fraction, so it is walked in rather than
+   solved — the bore shifts slowly enough that two passes land inside a pixel. */
+function colAtX(x){
+  let u = clamp((x - G.cx) / Math.max(1, innerHalfAt(restSurfaceY())), -1, 1);
+  for (let pass = 0; pass < 2; pass++){
+    u = clamp((x - G.cx) / Math.max(1, innerHalfAt(sampleU(u))), -1, 1);
+  }
+  return u;
+}
+
+function surfaceAt(x){
+  if (!N || !hArr) return restSurfaceY();
+  return sampleU(colAtX(x));
 }
 
 /* The camera. One eye level for the whole scene, fixed well above the frame:
@@ -156,83 +189,355 @@ function lacePos(l){
   return [G.cx + hw * Math.sin(l.th), l.h + ryAt(l.h) * hw * c, c];
 }
 
-/* How far the surface ellipse bulges at this x, front and back */
+/* How far the surface ellipse bulges at this x, front and back. The bore is
+   read at the height the beer has actually reached here, so the bulge follows
+   the surface up and down the cone with it. */
 function ellipseDy(x){
-  const [, , w] = surfaceSpan();
-  const hw = w / 2;
-  const t = (x - G.cx) / hw;
-  if (Math.abs(t) >= 1) return 0;
-  return ryAt(restSurfaceY()) * hw * Math.sqrt(1 - t * t);
+  if (!N || !hArr) return 0;
+  const u = colAtX(x);
+  if (Math.abs(u) >= 1) return 0;
+  const y = sampleU(u);
+  const hw = innerHalfAt(y);
+  return ryAt(y) * hw * Math.sqrt(1 - u * u);
 }
 const frontY = x => surfaceAt(x) + ellipseDy(x);
 const backY  = x => surfaceAt(x) - ellipseDy(x);
 const headBand = () => (G.topHalf * 2) * (0.05 + 0.14 * cfg.headDepth / 100);
 
 /* ================================================================== *
- * Surface physics
- * ================================================================== */
+ * Surface physics — shallow water across the glass
+ * ================================================================== *
+ * hArr holds the surface as a depression below the rest line, positive
+ * downwards to match the screen; uArr holds the depth-averaged sideways
+ * velocity of the beer, on the faces between the columns rather than on the
+ * columns themselves. Staggering the two is what keeps a shallow-water solver
+ * from ringing: pressure is read across a face, and the flux it drives is
+ * carried through that same face, so neighbouring columns cannot drift into
+ * the sawtooth that a collocated grid allows.
+ *
+ * The old model was a plucked string — one wave speed everywhere, a restoring
+ * force pulling every column back to the same line, and no notion of how much
+ * beer any of it stood for. It could not conserve a drop, its waves ran at the
+ * same speed through a full glass as through the dregs, and it treated the
+ * glass as a rectangular tank.
+ */
+
+/* A vertical slice of the pour is only as wide as the chord of the glass
+   there — the full bore at the middle, nothing at all against the wall — so
+   the same rise carries far more beer at the centre than at the side. Reading
+   the chord as the width of each column is what makes the round glass behave
+   round: the surface tips about its middle, and the ends run up and down the
+   way beer climbs a wall, rather than heaving as a rectangular tank would.
+   Each column takes the average chord across its own width — that slice of
+   the circle's area divided by its width — so the widths sum to exactly the
+   area of the circle, and the columns against the wall are left a small
+   breadth to divide by instead of none. */
+/* ∫2√(1−u²)du out from the middle of a unit circle: the plan area of the slice
+   from the centre to u, needing only the bore squared to become a real one */
+const sliceArea = u => {
+  const t = clamp(u, -1, 1);
+  return t * Math.sqrt(Math.max(0, 1 - t * t)) + Math.asin(t);
+};
+/* What each column is worth, and how far apart they stand.
+   areaArr[i] is the plan area the column covers — its own slice of its own
+   bore, so a column riding high in the cone carries more beer for the same
+   rise than the one opposite it riding low. That is the taper doing its work
+   within a single wave rather than only between one fill and another.
+   dxArr[k] is the gap between column k and the next, measured where they have
+   actually ended up; boreArr[k] is the chord across the glass at that face. */
+let areaArr = null, dxArr = null, boreArr = null, gridN = 0;
+function grid(){
+  if (!areaArr || gridN !== N){
+    areaArr = new Float32Array(N);
+    dxArr = new Float32Array(Math.max(1, N - 1));
+    boreArr = new Float32Array(Math.max(1, N - 1));
+    gridN = N;
+  }
+  const du = 2 / (N - 1);
+  for (let i = 0; i < N; i++){
+    const R = Math.max(1, colR(i));
+    const u = colU(i);
+    const lo = Math.max(-1, u - du * 0.5), hi = Math.min(1, u + du * 0.5);
+    areaArr[i] = R * R * (sliceArea(hi) - sliceArea(lo));
+  }
+  for (let k = 0; k < N - 1; k++){
+    dxArr[k] = Math.max(0.05, colX(k + 1) - colX(k));
+    const uF = colU(k) + du * 0.5;
+    const RF = Math.max(1, (colR(k) + colR(k + 1)) * 0.5);
+    boreArr[k] = 2 * RF * Math.sqrt(Math.max(0, 1 - uF * uF));
+  }
+  return areaArr;
+}
+
+/* The wave carries no beer of its own: level says how much is in the glass and
+   hArr only says what shape it is in. So whatever mean the wave has picked up
+   is flattened out of it and handed back here, and the caller decides what it
+   was — beer pushed aside by a finger, which is nobody's loss, or beer that
+   went over the lip, which comes off the level. Returned in pixels of surface. */
+function levelWave(){
+  const A = grid();
+  let m = 0, tot = 0;
+  for (let i = 0; i < N; i++){
+    const a = A[i];
+    m += hArr[i] * a; tot += a;
+  }
+  if (tot <= 1e-6) return 0;
+  const shift = m / tot;
+  if (Math.abs(shift) < 1e-7) return 0;
+  for (let i = 0; i < N; i++) hArr[i] -= shift;
+  return shift;
+}
+
+/* Something has pushed the surface down here — a finger, a rising bubble, the
+   pour landing. The dimple displaces beer rather than losing it, so its mean
+   is flattened straight back out: what goes down here comes up everywhere
+   else, and the wave leaves as it should from a surface that still holds the
+   same pint. */
+/* How hard a push of unit force sets the surface moving, in pixels a second */
+const SPLASH = 400;
+let profArr = null;
 function splash(x, force, radius){
-  const [l, , w] = surfaceSpan();
-  const c = clamp((x - l) / w, 0, 1) * (N - 1);
-  const colW = w / (N - 1);
-  const span = Math.max(1, radius / colW);
-  const i0 = Math.max(0, Math.round(c - span * 2));
-  const i1 = Math.min(N - 1, Math.round(c + span * 2));
-  for (let i = i0; i <= i1; i++){
+  if (!N || !hArr || !uArr) return;
+  const A = grid();
+  const H = Math.max(3, level * G.inH);
+  /* placed by the fraction of the way across it lands at, so a push keeps its
+     width in glass rather than in screen pixels */
+  const c = (colAtX(x) + 1) * 0.5 * (N - 1);
+  const meanDx = Math.max(0.05, (colX(N - 1) - colX(0)) / (N - 1));
+  const span = Math.max(1, radius / meanDx);
+  if (!profArr || profArr.length !== N) profArr = new Float32Array(N);
+
+  /* The shape of the push, taken off its own mean so that it moves beer about
+     rather than adding or removing any. */
+  let m = 0, tot = 0;
+  for (let i = 0; i < N; i++){
     const d = (i - c) / span;
-    vArr[i] += force * Math.exp(-d * d * 1.6);
+    profArr[i] = Math.exp(-d * d * 1.6);
+    const a = A[i];
+    m += profArr[i] * a; tot += a;
+  }
+  if (tot <= 1e-6) return;
+  const mean = m / tot;
+  const rate = force * SPLASH * G.scale;         /* px a second, downwards */
+
+  /* Set the beer moving rather than moving it. Pressed straight into the
+     surface, every one of the two dozen bubbles that burst each second showed
+     up on it the same instant, and the pour carried a tremor at the rate they
+     were arriving — the glass answering the bubbles rather than the beer. A
+     push given to the flow instead has to travel before it shows, and the
+     surface adds the arrivals up as a liquid does, which is what the plucked
+     string was doing right by accident.
+     What the flow has to be is read straight off the surface it must produce:
+     each face carries away everything the columns behind it are shedding, so
+     the flux is the running total of the push and the speed is that flux over
+     the bore it passes through. */
+  let carried = 0;
+  for (let k = 0; k < N - 1; k++){
+    carried += rate * (profArr[k] - mean) * A[k];
+    const bore = boreArr[k] * H;
+    if (bore > 1e-6) uArr[k] += carried / bore;
   }
 }
 
-function stepWaves(){
-  const c2   = 0.18 + (cfg.waveSpeed / 100) * 0.30;
-  const rest = 0.0010 + (cfg.waveSpeed / 100) * 0.0040;
-  const damp = 0.9998 - (cfg.viscosity / 100) * 0.0200;
-  const tf = tiltForce();
-  for (let sub = 0; sub < 2; sub++){
-    for (let i = 0; i < N; i++){
-      const l = hArr[i > 0 ? i - 1 : 0];
-      const r = hArr[i < N - 1 ? i + 1 : N - 1];
-      vArr[i] += c2 * (l + r - 2 * hArr[i]) - rest * hArr[i]
-               + tf * ((i / (N - 1)) - 0.5) * 2;
-      vArr[i] *= damp;
+/* Dragging the beer sideways, and the phone's own gravity, both act on the
+   body of the pour rather than on its surface: an even push along the glass,
+   which piles the beer against the leading wall and lets the slosh mode build
+   itself. The old code raked the surface into a ramp instead, which is the
+   answer rather than the cause, and made the beer lean without ever moving. */
+function driveFlow(a){
+  if (!uArr) return;
+  for (let k = 0; k < N - 1; k++) uArr[k] += a;
+}
+
+/* Gravity in pixels. Real gravity at this scale runs the slosh at several
+   hertz, which is true of a pint and reads as a jitter, so the pour is given a
+   heavier, slower liquid to swing at the pace the eye expects of beer. Wave
+   speed leans on it rather than on a wave speed of its own, because in shallow
+   water there is no such thing: how fast a wave crosses the glass is settled
+   by gravity and by how deep the beer is, and nothing else. */
+const GRAV = 2600;
+const gravity = () => GRAV * G.scale * (0.35 + (cfg.waveSpeed / 100) * 1.10);
+
+function stepWaves(step){
+  if (!N || !hArr || !uArr || level <= 0.015) return;
+  let A = grid();
+  const H = Math.max(3, level * G.inH);            /* still-water depth */
+  const g = gravity();
+  const fric = 0.25 + (cfg.viscosity / 100) * 5.5;
+  const ax = g * tiltForce();
+  /* Drag alone holds every wavelength back by the same amount, which is not how
+     a liquid loses a ripple: a short wave shears itself far harder than a long
+     one and dies in a fraction of the time. Without that, gravity was left to
+     answer every bubble that burst at the surface, and it answered at the pitch
+     a disturbance that small deserves — the pour picked up a fast, fine tremor
+     it never settled out of. Viscosity proper — the flow smoothing sideways
+     into itself — falls on a wave by the square of its wavenumber, so a ripple
+     a few columns wide is gone within a shake while the slosh across the whole
+     glass is barely touched. */
+  const nu = 115 * G.scale * G.scale * (0.35 + (cfg.viscosity / 100) * 1.3);
+
+  /* A wave crosses the tightest gap in √(gH) seconds and the solver may not step
+     over that, so the frame is cut into as many pieces as the depth asks for.
+     A full glass carries its waves faster than a near-empty one — which is the
+     shallow-water result the plucked string could not give — so the count
+     answers to the level rather than being fixed at two. */
+  const cmax = Math.sqrt(g * H);
+  /* the tightest gap in the mesh is the one that sets the pace */
+  let dxMin = 1e9;
+  for (let k = 0; k < N - 1; k++) if (dxArr[k] < dxMin) dxMin = dxArr[k];
+  const sub = clamp(Math.ceil(step * cmax / (dxMin * 0.35)), 1, 12);
+  /* The ceiling is a backstop for settings that would ask for more pieces
+     than a frame can pay for. Past it the step runs long and it is the drag
+     and the clamps below that hold the solver together rather than the
+     timestep — which they do, but only because the pour is never asked to
+     run much faster than this. */
+  const dt = step / sub;
+  const maxDepress = H - 2;
+
+  for (let s = 0; s < sub; s++){
+    /* Momentum on the faces: the surface slope drives the flow, the flow
+       carries itself along, and drag holds it back. */
+    for (let k = 0; k < N - 1; k++){
+      const u = uArr[k];
+      const dx = dxArr[k];                          /* this face's own gap */
+      const slope = (hArr[k + 1] - hArr[k]) / dx;
+      /* Read the slope of the flow from whichever side the flow is arriving
+         from — downstream of itself it has no say in where it is going. */
+      const du = u > 0 ? u - (k > 0 ? uArr[k - 1] : 0)
+                       : (k < N - 2 ? uArr[k + 1] : 0) - u;
+      const adv = u * du / dx;
+      const uL = k > 0 ? uArr[k - 1] : -u;          /* no slip through the wall */
+      const uR = k < N - 2 ? uArr[k + 1] : -u;
+      const shear = nu * (uL - 2 * u + uR) / (dx * dx);
+      uArr[k] = (u + dt * (g * slope - adv + ax + shear)) / (1 + fric * dt);
     }
-    for (let i = 0; i < N; i++) hArr[i] = clamp(hArr[i] + vArr[i], -maxAmp, maxAmp);
+    /* Continuity: what each face carries is the depth it has to move times the
+       width of glass at that face, taken from whichever side the flow is
+       coming from — the upwind choice is what keeps a steep crest steep
+       instead of smearing it into a hump. */
+    for (let k = 0; k < N - 1; k++){
+      const u = uArr[k];
+      const depth = H - (u > 0 ? hArr[k] : hArr[k + 1]);
+      fArr[k] = u * Math.max(0, depth) * boreArr[k];
+    }
+    for (let i = 0; i < N; i++){
+      const cell = A[i];
+      if (cell <= 1e-6) continue;
+      const fR = i <= N - 2 ? fArr[i] : 0;
+      const fL = i >= 1 ? fArr[i - 1] : 0;
+      hArr[i] = clamp(hArr[i] + dt * (fR - fL) / cell, -maxAmp, Math.min(maxAmp, maxDepress));
+    }
+    /* Let the face down every substep rather than once a frame. Left to the
+       end of the frame the flow has already carried the front past vertical
+       and the limiter is pulling it back from somewhere it should never have
+       reached — which showed as a face still standing at 64 degrees against
+       a limit of 58. */
+    breakCrests();
+    /* The columns ride on the surface, so once it has moved they stand
+       somewhere new — the mesh is re-measured before the next pass rather than
+       the whole substep being run against where they used to be. */
+    A = grid();
+  }
+  levelWave();                    /* the clamps are not allowed to cost a drop */
+}
+
+/* The surface is one height per column, so it can lean at any angle up to
+   vertical and nothing past it. Beer driven hard at a wall does not stop there
+   — it climbs, curls and comes apart — but the height field has no way to say
+   so, and the steepening the flow does on its own carries the front over in a
+   single column instead. Measured under a swipe it reached 86 degrees across
+   five pixels, and the renderer joined those two columns with a straight line:
+   the hard edge standing off the glass with the beer apparently cut away
+   beside it.
+   So the front is held to a slope beer can actually stand in, and what will
+   not fit is passed down the face — the crest handing beer to the trough below
+   it, which is what breaking is. The exchange is weighed by each column's own
+   bore so it moves beer about without inventing or losing any, and the beer
+   that comes over the top is thrown as head, since a breaking crest is where
+   foam comes from in the first place. */
+/* About fifty degrees. A slosh across the whole glass runs at forty at its
+   steepest, so the limit only ever meets the front of a wave being driven
+   into a wall — held here it keeps 95% of its swing. */
+const MAX_FACE = 1.2;
+function breakCrests(){
+  if (!N || !hArr) return;
+  const A = grid();
+  /* A front steep over several columns has to be let down one column at a
+     time, so the sweep is repeated until it finds nothing left to do */
+  for (let pass = 0; pass < 8; pass++){
+    let quiet = true;
+    for (let i = 0; i < N - 1; i++){
+      const d = hArr[i + 1] - hArr[i];
+      const over = Math.abs(d) - MAX_FACE * dxArr[i];   /* this face's own gap */
+      if (over <= 0) continue;
+      quiet = false;
+      const aL = A[i], aR = A[i + 1];
+      if (aL <= 1e-6 || aR <= 1e-6) continue;
+      /* enough beer to bring the face back to the limit, and no more */
+      const move = over / (1 / aL + 1 / aR);
+      const crest = d > 0 ? i : i + 1;          /* the column standing higher */
+      const trough = d > 0 ? i + 1 : i;
+      hArr[crest] += move / (crest === i ? aL : aR);
+      hArr[trough] -= move / (trough === i ? aL : aR);
+      if (pass === 0 && move > 12 * G.scale && Math.random() < 0.5){
+        addFoam(colX(crest), rand(3, 9) * G.scale);
+      }
+    }
+    if (quiet) break;
   }
 }
 
-/* Beer that climbs past the rim leaves the glass */
+/* Beer that climbs past the rim leaves the glass. It is not cut off flat
+   there: the lip is a weir, and a weir drains at a rate set by how deep the
+   beer runs over its crest, so the pour rides up over the edge, pours while it
+   is over, and drops back — which is the sloshing in and out of the glass that
+   a hard ceiling at the rim could never show. */
+const WEIR = 0.55;
 function spillOverRim(dt){
+  if (!N || !hArr) return;
   const ry = restSurfaceY();
   const rimY = G.inTop;
-  const [l, , w] = surfaceSpan();
-  const colW = w / (N - 1);
-  let lost = 0;
+  const A = grid();
+  const g = gravity();
+  const rimD = rimY - ry;               /* the depression at which beer is level with the lip */
+  let over = false;
 
   for (let i = 0; i < N; i++){
-    const y = ry + hArr[i];
-    if (y >= rimY) continue;
-    const excess = rimY - y;
-    hArr[i] = rimY - ry;
-    if (vArr[i] < 0) vArr[i] *= -0.25;
-    lost += excess * colW;
+    const excess = rimD - hArr[i];
+    if (excess <= 0) continue;
+    over = true;
+    /* the crest it pours over is as long as the chord across the glass here,
+       and what that costs the column is set by the plan area it covers */
+    const bore = i < N - 1 ? boreArr[i] : boreArr[N - 2];
+    const drain = Math.min(excess,
+      WEIR * Math.sqrt(2 * g) * Math.pow(excess, 1.5) * bore * dt / Math.max(1e-6, A[i]));
+    hArr[i] += drain;
 
-    if (excess > 1.5 && Math.random() < clamp(excess * 0.06, 0.05, 0.75)){
-      const x = l + i * colW;
+    if (excess > 1.2 && Math.random() < clamp(excess * 0.07, 0.05, 0.8)){
+      const x = colX(i);
+      /* The drop leaves with the beer's own motion: the sideways speed it had
+         at the lip, and the upward speed it must have had to get that far
+         above it. Thrown out at random instead, beer came off the lip the
+         pour was never running towards. */
+      const uHere = ((i > 0 ? uArr[i - 1] : 0) + (i < N - 1 ? uArr[i] : 0)) * 0.5;
       const outward = Math.sign(x - G.cx) || 1;
       drops.push({
         x, y: rimY - rand(0, 6),
-        vx: outward * rand(20, 120) * (0.4 + excess * 0.02),
-        vy: -rand(30, 190),
+        vx: uHere * 0.55 + outward * rand(4, 26),
+        vy: -Math.sqrt(2 * g * excess) * rand(0.45, 0.85),
         r: rand(1.4, 4.2) * G.scale, foamy: Math.random() < 0.6, out: true
       });
     }
   }
 
-  if (lost > 0){
-    /* Convert the spilled area back into a drop in level */
-    const area = Math.max(1, innerHalfAt(ry) * 2 * G.inH);
-    level = clamp(level - (lost / area) * 1.3, 0.04, 1);
+  /* Draining only the columns that stand above the lip leaves a step beside
+     the ones that do not, so the face is let down again before it is seen */
+  if (over) breakCrests();
+
+  /* What went over the lip is beer the glass no longer holds */
+  if (over){
+    const shift = levelWave();
+    if (shift > 0) level = clamp(level - shift / G.inH, 0.04, 1);
   }
 
   /* The head goes over the lip before the beer does, and runs down the glass */
@@ -339,8 +644,12 @@ async function tiltEnable(){
 
 /* How hard the beer is pulled downhill. It is a standing force, not a nudge,
    so the surface settles at a lean and sloshes on the way there. */
+/* A tilted glass does not rake its surface into a ramp — gravity simply
+   gains a sideways share, and the ramp is what the beer settles into in
+   answer. Returned as that share, for stepWaves to weigh against its own
+   gravity. */
 function tiltForce(){
-  return cfg.tilt && tiltLive ? tiltNow * 0.22 * (cfg.agitation / 100) : 0;
+  return cfg.tilt && tiltLive ? tiltNow * 0.5 * (cfg.agitation / 100) : 0;
 }
 
 /* ================================================================== *
@@ -399,10 +708,9 @@ function pointerForces(dt){
     /* Clamp the pointer's speed, not its per-frame step, so the glass is just
        as easy to slosh at 30fps as at 144. */
     const vps = ptr.vx / Math.max(dt, 0.004);
-    const tilt = clamp(vps * 0.00167, -5.4, 5.4) * agit * (0.35 + nearTop * 0.65) * (dt * 60);
-    for (let i = 0; i < N; i++){
-      vArr[i] += tilt * ((i / (N - 1)) - 0.5) * 2;
-    }
+    const drag = clamp(vps, -2600, 2600) * 0.10 * agit * (0.35 + nearTop * 0.65)
+               * Math.min(1, dt * 12);
+    driveFlow(drag);
   }
 
   if (depth > -10 && depth < G.inH * 1.05){
@@ -522,7 +830,12 @@ function updateBubbles(dt){
     const sy = frontY(b.x);
     if (b.y - b.r * 0.6 <= sy || b.y < G.inTop - 30){
       if (b.y - b.r <= sy){
-        splash(b.x, -Math.min(0.5, b.r * 0.07), (14 + b.r * 3));
+        /* A bubble breaking is a ripple, not a heave. Two dozen of them reach
+           the surface every second, so whatever each one is worth is what the
+           pour will be doing the whole time it is carbonated — and the figure
+           here was set when a push moved the surface directly rather than
+           setting it going, which flattered it. */
+        splash(b.x, -Math.min(0.13, b.r * 0.018), (14 + b.r * 3));
         addFoam(b.x, clamp(b.r * 2.1 + 3, 3, 24 * G.scale));
         if (b.r > 3.4 * G.scale && Math.random() < 0.22){
           mist.push({x:b.x, y:sy, vx:rand(-24,24)*G.scale, vy:rand(-90,-25)*G.scale, r:rand(.6,1.4)*G.scale, life:rand(.3,.8)});
@@ -547,7 +860,7 @@ function updateFoam(dt){
     /* placed by its share of the width the glass has where the head is riding,
        so the crest reaches the wall and the trough is not overfilled */
     const u = rand(-0.98, 0.98);
-    const ride = innerHalfAt(surfaceAt(G.cx + u * hw));
+    const ride = innerHalfAt(sampleU(u));
     addFoam(G.cx + u * Math.max(4, ride), foamRadius(depth));
   }
 
@@ -761,7 +1074,10 @@ function buildSliders(){
       /* Moving the fill line is a deliberate adjustment, so the glass follows
          at once. The slow top-up is reserved for beer that was sloshed out. */
       if (s.key === "fill"){ level = cfg.fill / 100; poured = true; }
-      if (cfg.preset && s.key !== "fill" && s.key !== "agitation" && s.key !== "glassSize" && s.key !== "refill"){
+      /* These are how you are looking at the beer, not what is in the glass, so
+         moving them does not take the pour off its recipe */
+      if (cfg.preset && s.key !== "fill" && s.key !== "agitation" && s.key !== "glassSize"
+          && s.key !== "refill" && s.key !== "pace"){
         cfg.preset = null;
         chipsHook();
       }

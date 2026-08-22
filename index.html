@@ -408,7 +408,8 @@ body[data-chrome="off"] .panel-toggle{opacity:0;pointer-events:none}
 const SPECS = [
   {key:"fill",       label:"Fill line",   min:25,  max:100, step:1, unit:"%",  group:null},
   {key:"refill",     label:"Refill rate", min:0,   max:100, step:1, unit:"",   group:null},
-  {key:"agitation",  label:"Agitation",   min:0,   max:200, step:5, unit:"%",  group:"Motion"},
+  {key:"pace",       label:"Pace",        min:10,  max:200, step:5, unit:"%",  group:"Motion"},
+  {key:"agitation",  label:"Agitation",   min:0,   max:200, step:5, unit:"%",  group:null},
   {key:"waveSpeed",  label:"Wave speed",  min:0,   max:100, step:1, unit:"",   group:null},
   {key:"viscosity",  label:"Viscosity",   min:0,   max:100, step:1, unit:"",   group:null},
   {key:"carbonation",label:"Carbonation", min:0,   max:200, step:5, unit:"%",  group:"Carbonation"},
@@ -422,7 +423,7 @@ const SPECS = [
 ];
 
 const HOUSE = {
-  fill:78, refill:32, agitation:100, waveSpeed:46, viscosity:40,
+  fill:78, refill:32, pace:100, agitation:100, waveSpeed:46, viscosity:40,
   carbonation:100, bubbleSize:100, headDepth:100, foamChurn:100,
   glassSize:100, condensation:70, hue:40, richness:46
 };
@@ -477,13 +478,20 @@ const ctxL = cvL.getContext("2d");
 const ctxF = cvF.getContext("2d");
 const ctxD = cvD.getContext("2d");
 
+/* The head is drawn at less than full resolution: the goo filter blurs it
+   into one body anyway, so the detail would be thrown away. Its edge is
+   therefore soft over the better part of two of these coarser pixels once
+   the browser stretches it back up, which is a thing the clip below has to
+   know about. */
+const FOAM_SCALE = 0.7;
+
 function resize(){
   const r = stage.getBoundingClientRect();
   W = Math.max(1, r.width);
   H = Math.max(1, r.height);
   dpr = Math.min(window.devicePixelRatio || 1, 2) * quality;
 
-  for (const [cv, ctx, scale] of [[cvL,ctxL,1],[cvF,ctxF,0.7],[cvD,ctxD,1]]){
+  for (const [cv, ctx, scale] of [[cvL,ctxL,1],[cvF,ctxF,FOAM_SCALE],[cvD,ctxD,1]]){
     const s = dpr * scale;
     cv.width  = Math.round(W * s);
     cv.height = Math.round(H * s);
@@ -496,7 +504,10 @@ function resize(){
   const span = innerHalfAt(G.inTop) * 2;
   N = clamp(Math.round(span / 5), 32, 220);
   hArr = new Float32Array(N);
-  vArr = new Float32Array(N);
+  /* Velocity and flux live on the faces between the columns, not on the
+     columns, so there is one fewer of each */
+  uArr = new Float32Array(Math.max(1, N - 1));
+  fArr = new Float32Array(Math.max(1, N - 1));
   maxAmp = Math.min(G.inH * 0.30, G.topHalf * 1.1);
 
   capBubbles = clamp(Math.round(G.topHalf * G.inH / 260), 60, isCoarse ? 220 : 380);
@@ -515,7 +526,6 @@ function resize(){
   }
   bubbles.length = 0; foam.length = 0; drops.length = 0; mist.length = 0; drips.length = 0;
   dew.length = 0; lace.length = 0;
-  spanKey = NaN;
 }
 
 /* ================================================================== *
@@ -582,6 +592,16 @@ function buildPalette(){
     cell:    `rgba(120,84,26,${((dark ? 0.13 : 0.10) + r * 0.08).toFixed(3)})`,
     glassEdge: dark ? "rgba(238,241,243,.34)" : "rgba(14,19,25,.26)",
     glassLight: dark ? "rgba(255,255,255,.16)" : "rgba(255,255,255,.85)",
+    /* An arc lying in a horizontal surface has to sit back at the far side and
+       take the light at the near one. On a pale ground "sitting back" is a dark
+       line, so glassEdge and glassLight say it directly; on a dark ground there
+       is nothing darker than the ground to draw with, and those two swap over —
+       glassEdge is the brighter of the pair. So the floor gets its own pair,
+       where the far arc sits back by being the fainter, either way round.
+       Split into colour and alpha, since each is stroked as a gradient that
+       fades along its length rather than as a flat colour. */
+    floorFar:  dark ? {rgb:"238,241,243", a:0.12} : {rgb:"14,19,25", a:0.26},
+    floorNear: dark ? {rgb:"255,255,255", a:0.42} : {rgb:"255,255,255", a:0.85},
     /* the same two, without an alpha, for strokes that fade along their length */
     edgeRGB: dark ? "238,241,243" : "14,19,25",
     lightRGB: "255,255,255",
@@ -622,6 +642,49 @@ function buildPaths(){
   PATHS.sil = glassSilhouette();
   PATHS.base = glassSilhouette(G.bottom - G.baseH * 2.1);
   PATHS.interior = interiorPath();
+  clipFoamToGlass();
+  REFL.ver = -1;                   /* the wall moved, so its highlights are stale */
+}
+
+/* The head is drawn clipped to the inside of the glass, but the foam canvas is
+   gooed by a CSS filter — a blur wide enough to pull the bubbles into one body,
+   then an alpha ramp that hardens the result back into a silhouette. That runs
+   on the finished canvas, after the clip has been and gone, and it hands back a
+   shape a few pixels wider than the one it was given, with the shoulders
+   squared off where the blur outran the taper. So the head came out standing on
+   the wall rather than inside it, and no longer agreed with either the beer
+   below it or the glass around it.
+   The element's clip-path is applied after its filter, so it is the one cut the
+   goo cannot spill past. It follows the interior wall, and carries the wall's
+   width straight up above the lip, where the head is allowed to dome but not to
+   grow wider than the glass it came out of.
+
+   Cut on the wall itself it took the head's edge with it. The canvas is coarser
+   than the screen, so once stretched up its edge is not a step but a ramp a
+   couple of those coarse pixels wide, and the clip removes the outer half of
+   that ramp rather than landing on it — leaving the head standing back from the
+   glass by about as much, a hairline of bar top showing between the two where
+   the beer below sat flush. So the cut is carried out past the wall by the
+   width of that ramp, far enough that what it trims is the transparent tail
+   rather than the edge, and near enough that the goo still cannot climb the
+   glass. Measured against the wall: the head lands within half a pixel of where
+   the beer does, where before it stood two and a half back. */
+function clipFoamToGlass(){
+  const steps = 20;
+  const soft = 2 / FOAM_SCALE;
+  const ihTop = innerHalfAt(G.inTop) + soft;
+  const px = (x, y) => `${x.toFixed(1)}px ${y.toFixed(1)}px`;
+  const pts = [px(G.cx - ihTop, 0)];
+  for (let i = 0; i <= steps; i++){
+    const y = lerp(G.inTop, G.inBottom, i / steps);
+    pts.push(px(G.cx - innerHalfAt(y) - soft, y));
+  }
+  for (let i = steps; i >= 0; i--){
+    const y = lerp(G.inTop, G.inBottom, i / steps);
+    pts.push(px(G.cx + innerHalfAt(y) + soft, y));
+  }
+  pts.push(px(G.cx + ihTop, 0));
+  cvF.style.clipPath = `polygon(${pts.join(",")})`;
 }
 
 function glassSilhouette(fromY){
@@ -666,7 +729,21 @@ function headClip(ctx, domeH){
     const y = lerp(G.inTop, G.inBottom, i / steps);
     ctx.lineTo(G.cx + innerHalfAt(y), y);
   }
-  ctx.ellipse(G.cx, G.inTop, ihwTop, Math.max(1, domeH), 0, 0, Math.PI, true);
+  /* Over the lip the head is crowned rather than domed. A dome centred on the
+     glass has its full height only over the middle and none at all at the
+     walls — but a head shoved against one wall is exactly the head that rides
+     over the rim, and there the dome had no height left to give it, so it
+     sliced the raised shoulder off along a curve belonging to neither the head
+     nor the glass. The crown holds nearly its full height right across and
+     turns down only at the very edges, which closes the head over the lip the
+     way the dome was meant to without taking the side off it. */
+  const crown = Math.max(1, domeH);
+  const cSteps = 16;
+  for (let i = 0; i <= cSteps; i++){
+    const t = 1 - 2 * i / cSteps;                    /* +1 at the right wall */
+    const drop = Math.sqrt(Math.max(0, 1 - Math.pow(Math.abs(t), 6)));
+    ctx.lineTo(G.cx + t * ihwTop, G.inTop - crown * drop);
+  }
   ctx.closePath();
 }
 
@@ -674,16 +751,26 @@ function interiorPath(){
   const ctx = new Path2D();
   const steps = 20;
   const ihw = innerHalfAt(G.inBottom);
+  /* The glass opens as an ellipse, so the inside of it does not begin on a
+     straight line. Squared off at G.inTop the interior reached its full width a
+     rim's height above the point where the glass actually opens, and beer
+     standing near the brim was painted over the lip at the two sides — a pale
+     sliver above the rim wearing the surface's own lighter colour, which reads
+     as a reflection floating free of the glass. The top now follows the far arc
+     of the lip, which is as far down into the glass as there is to see. */
+  const rimRy = G.topHalf * G.ryTop;
+  const rimCy = G.top + rimRy;
   for (let i = 0; i <= steps; i++){
-    const y = lerp(G.inTop, G.inBottom, i / steps);
+    const y = lerp(rimCy, G.inBottom, i / steps);
     const x = G.cx - innerHalfAt(y);
     if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
   }
   ctx.ellipse(G.cx, G.inBottom, ihw, ihw * ryAt(G.inBottom), 0, Math.PI, 0, true);
   for (let i = steps; i >= 0; i--){
-    const y = lerp(G.inTop, G.inBottom, i / steps);
+    const y = lerp(rimCy, G.inBottom, i / steps);
     ctx.lineTo(G.cx + innerHalfAt(y), y);
   }
+  ctx.ellipse(G.cx, rimCy, innerHalfAt(rimCy), rimRy * 0.94, 0, 0, Math.PI, true);
   ctx.closePath();
   return ctx;
 }
@@ -691,13 +778,12 @@ function interiorPath(){
 /* The beer: bounded above by the far edge of its surface, below by the glass */
 function liquidPath(ctx){
   const [l, , w] = surfaceSpan();
-  const colW = w / (N - 1);
   const sy = restSurfaceY();
   const over = Math.max(12, G.topHalf - w / 2 + 12);
   ctx.beginPath();
   ctx.moveTo(l - over, backY(l));
   for (let i = 0; i < N; i++){
-    const x = l + i * colW;
+    const x = colX(i);
     ctx.lineTo(x, backY(x));
   }
   ctx.lineTo(l + w + over, backY(l + w));
@@ -943,13 +1029,21 @@ function drawLiquid(){
     ctxL.restore();
   }
 
-  /* The top plane of the beer, caught by the light */
+  /* The top plane of the beer, caught by the light. Carried past both ends of
+     the span, the way the body under it already is. The span is measured at the
+     rest line, so a pour standing higher than that has glass out beyond it —
+     nine pixels of it under a good swirl — and the plane stopped there while
+     the body ran on to the wall, so the beer changed colour a moment before it
+     reached the glass. The overhang is trimmed by the interior. */
   const [l, , w] = surfaceSpan();
-  const colW = w / (N - 1);
+  const sOver = Math.max(12, G.topHalf - w / 2 + 12);
   ctxL.beginPath();
-  ctxL.moveTo(l, backY(l));
-  for (let i = 1; i < N; i++){ const x = l + i * colW; ctxL.lineTo(x, backY(x)); }
-  for (let i = N - 1; i >= 0; i--){ const x = l + i * colW; ctxL.lineTo(x, frontY(x)); }
+  ctxL.moveTo(l - sOver, backY(l));
+  for (let i = 0; i < N; i++){ const x = colX(i); ctxL.lineTo(x, backY(x)); }
+  ctxL.lineTo(l + w + sOver, backY(l + w));
+  ctxL.lineTo(l + w + sOver, frontY(l + w));
+  for (let i = N - 1; i >= 0; i--){ const x = colX(i); ctxL.lineTo(x, frontY(x)); }
+  ctxL.lineTo(l - sOver, frontY(l));
   ctxL.closePath();
   ctxL.fillStyle = pal.surface;
   ctxL.globalAlpha = 0.55;
@@ -957,42 +1051,89 @@ function drawLiquid(){
   ctxL.globalAlpha = 1;
 
   /* Light gathers just under the head, and the head shades the beer directly
-     below it. Both belong to the surface, so each is clipped to a band that
-     follows the wave and lit along the surface's own tilt. Pinned to the rest
-     level instead, their straight edges rule themselves across a sloshing
-     pour — which is what leaves flat slabs above and below a swell. */
+     below it. Both belong to the surface, so each hangs from it as a band: the
+     clip carries the wave, and the fade is measured down from the water column
+     by column, so a crest and a trough are each shaded to the same depth below
+     their own surface.
+
+     One gradient ruled from the mean of the two ends could not do that. It
+     reached zero along a fixed line while the band it filled ended a fixed
+     depth under a moving surface, so wherever the wave rode above that mean the
+     fill was still opaque when the clip cut it — and the band finished on a
+     hard edge drawn along the crests, a ridge sitting in the top third of the
+     glass that agitating the beer only made plainer. Every column now fades out
+     exactly where its own share of the clip ends, so the bottom of the band has
+     no edge left to show. */
   const surfaceBand = (depth, stops) => {
     ctxL.save();
     ctxL.beginPath();
     ctxL.moveTo(l, backY(l));
-    for (let i = 1; i < N; i++){ const x = l + i * colW; ctxL.lineTo(x, backY(x)); }
-    for (let i = N - 1; i >= 0; i--){ const x = l + i * colW; ctxL.lineTo(x, backY(x) + depth); }
+    for (let i = 1; i < N; i++){ const x = colX(i); ctxL.lineTo(x, backY(x)); }
+    for (let i = N - 1; i >= 0; i--){ const x = colX(i); ctxL.lineTo(x, backY(x) + depth); }
     ctxL.closePath();
     ctxL.clip();
-    const yL = backY(l), yR = backY(l + w);
-    const ang = Math.atan2(yR - yL, w);            /* how the surface lies */
-    const my = (yL + yR) / 2;
-    const g = ctxL.createLinearGradient(G.cx, my, G.cx - Math.sin(ang) * depth, my + Math.cos(ang) * depth);
+    /* Built once at the origin and carried to each column by the transform —
+       a gradient is read in the user space it is painted in, so translating is
+       what re-hangs it, and the columns need no gradient of their own. */
+    const g = ctxL.createLinearGradient(0, 0, 0, depth);
     for (const [at, c] of stops) g.addColorStop(at, c);
     ctxL.fillStyle = g;
-    ctxL.fillRect(0, 0, W, H);
+    /* Column edges are snapped to whole device pixels so that neighbours abut
+       exactly. Left on fractional boundaries they each cover part of the pixel
+       between them and composite over one another there, which lays a faint
+       comb of vertical lines down the band at the column pitch. */
+    const snap = v => Math.round(v * dpr) / dpr;
+    for (let i = 0; i < N; i++){
+      const x = colX(i);
+      const y = backY(x);
+      /* Each column reaches halfway to the neighbours it actually has, which is
+         no longer the same gap on both sides: the mesh follows the beer up and
+         down the cone, so it is wider where the pour stands high. */
+      const xPrev = i > 0 ? colX(i - 1) : x - (colX(1) - x);
+      const xNext = i < N - 1 ? colX(i + 1) : x + (x - colX(N - 2));
+      const x0 = snap((xPrev + x) * 0.5), x1 = snap((x + xNext) * 0.5);
+      if (x1 <= x0) continue;
+      /* Reaching up to whichever neighbour stands highest: the clip's surface
+         line runs straight between columns while their tops step, so without it
+         a rising wave leaves slivers of that line unpainted. The gradient holds
+         its first stop above the origin, so the reach is filled at the band's
+         own top weight, and the clip trims whatever of it is above water. */
+      const up = y - Math.min(y, backY(xPrev), backY(xNext));
+      ctxL.save();
+      ctxL.translate(0, y);
+      ctxL.fillRect(x0, -up, x1 - x0, depth + up);
+      ctxL.restore();
+    }
     ctxL.restore();
   };
   surfaceBand(G.inH * 0.34, [[0, "rgba(255,255,255,.26)"], [1, "rgba(255,255,255,0)"]]);
   surfaceBand(46 * G.scale, [[0, pal.foamEdge], [1, "rgba(0,0,0,0)"]]);
 
-  /* Meniscus: the beer climbs the walls, and the thin film catches the light */
+  /* Meniscus: the beer climbs the walls, and the thin film catches the light.
+     It hangs from the beer line at its own wall, not from the rest line. Swirl
+     the glass and the two walls stand as much as a third of the glass apart —
+     so hung from the rest line the film left a bare stripe of wall between
+     itself and the head on the side the beer had climbed to, and on the side it
+     had drained from the film ran up above the beer and the clip cut it off
+     partway down. It belongs to the beer, so it goes where the beer is. */
   const menW = Math.max(2.5, G.wall * 1.2);
-  const menG = ctxL.createLinearGradient(0, sy, 0, sy + G.inH * 0.45);
-  menG.addColorStop(0, "rgba(255,255,255,.40)");
-  menG.addColorStop(1, "rgba(255,255,255,0)");
-  ctxL.strokeStyle = menG;
   ctxL.lineWidth = menW;
+  /* Beer piled against a wall stands as much as a rim's height above the near
+     lip, and the film would follow it up there — a bright streak climbing the
+     glass above the edge you can see, which is glass that is not in front of
+     anything. The film is on the near wall, so it starts at the near lip at the
+     latest, however high the beer behind it goes. */
+  const nearLip = G.top + G.topHalf * G.ryTop;
   for (const s of [-1, 1]){
+    const menTop = Math.max(surfaceAt(s < 0 ? l : l + w), nearLip);
+    const menG = ctxL.createLinearGradient(0, menTop, 0, menTop + G.inH * 0.45);
+    menG.addColorStop(0, "rgba(255,255,255,.40)");
+    menG.addColorStop(1, "rgba(255,255,255,0)");
+    ctxL.strokeStyle = menG;
     ctxL.beginPath();
     const steps = 10;
     for (let i = 0; i <= steps; i++){
-      const y = sy + (G.inH * 0.45) * i / steps;
+      const y = menTop + (G.inH * 0.45) * i / steps;
       const x = G.cx + s * (innerHalfAt(y) - menW * 0.25);
       if (i) ctxL.lineTo(x, y); else ctxL.moveTo(x, y);
     }
@@ -1034,16 +1175,17 @@ function drawFoam(){
 
   ctxF.fillStyle = pal.foam;
   const [l, , w] = surfaceSpan();
-  const colW = w / (N - 1);
 
-  /* Crown: from the far edge of the head down to the front of the beer */
-  const over = 9;
+  /* Crown: from the far edge of the head down to the front of the beer. Carried
+     as far past the ends as the beer under it is, so the head reaches the glass
+     wherever the beer does rather than stopping a little short of it. */
+  const over = Math.max(12, G.topHalf - w / 2 + 12);
   ctxF.beginPath();
   ctxF.moveTo(l - over, backY(l) - band);
-  for (let i = 1; i < N; i++){ const x = l + i * colW; ctxF.lineTo(x, backY(x) - band); }
+  for (let i = 1; i < N; i++){ const x = colX(i); ctxF.lineTo(x, backY(x) - band); }
   ctxF.lineTo(l + w + over, backY(l + w) - band);
   ctxF.lineTo(l + w + over, frontY(l + w) + 1);
-  for (let i = N - 1; i >= 0; i--){ const x = l + i * colW; ctxF.lineTo(x, frontY(x) + 1); }
+  for (let i = N - 1; i >= 0; i--){ const x = colX(i); ctxF.lineTo(x, frontY(x) + 1); }
   ctxF.lineTo(l - over, frontY(l) + 1);
   ctxF.closePath();
   ctxF.fill();
@@ -1069,6 +1211,63 @@ function drawFoam(){
   ctxF.globalCompositeOperation = "source-over";
   ctxF.globalAlpha = 1;
   ctxF.restore();
+}
+
+/* The bands down the wall depend on the layout and the palette and on nothing
+   else, so they are painted once into a strip the size of the glass and blitted
+   from there. The strip is also what makes the lengthwise fade possible: the
+   band's own gradient runs across its width, a second has to run down its
+   length, and one fill cannot carry both — the second is masked in with
+   destination-in, which needs a surface with nothing on it but the bands.
+
+   Along its length a band has to run out rather than end. At one weight top to
+   bottom it stopped dead on a horizontal line ruled just above the base and
+   read as a strip laid over the glass rather than light caught on it; and
+   having no shape of its own, it showed only where the beer behind it happened
+   to be dark, so from the top the reflection looked as though it gave out
+   partway down. The mask runs down the page rather than down each band, so all
+   four fade together at the same height, as light in a room does. */
+const REFL = {cv:null, x:0, y:0, w:0, h:0, ver:-1};
+function buildReflections(){
+  const reflTop = G.top, reflBot = G.bottom - G.baseH * 0.4;
+  const pad = 6;
+  const x0 = Math.floor(G.cx - G.topHalf - pad), y0 = Math.floor(reflTop - pad);
+  const w = Math.ceil(G.topHalf * 2 + pad * 2), h = Math.ceil(reflBot - reflTop + pad * 2);
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(w * dpr));
+  c.height = Math.max(1, Math.round(h * dpr));
+  const x = c.getContext("2d");
+  x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  x.translate(-x0, -y0);                     /* draw in page coordinates */
+
+  const hwTop = halfAt(reflTop), hwBot = halfAt(reflBot);
+  const hwMid = halfAt((reflTop + reflBot) / 2);
+  for (const [off, wRel, a] of [[-0.66, 0.10, 0.5], [-0.48, 0.05, 0.28], [0.58, 0.08, 0.35], [0.74, 0.04, 0.22]]){
+    const xT = G.cx + off * hwTop, xB = G.cx + off * hwBot;
+    const dx = xB - xT, dy = reflBot - reflTop;
+    const gw = Math.max(0.8, wRel * hwMid);
+    x.save();
+    x.translate(xT, reflTop);
+    x.rotate(Math.atan2(-dx, dy));           /* local +y now runs down the band */
+    const grad = x.createLinearGradient(-gw, 0, gw, 0);
+    grad.addColorStop(0, "rgba(255,255,255,0)");
+    grad.addColorStop(0.5, `rgba(255,255,255,${a * (pal.dark ? 0.5 : 1)})`);
+    grad.addColorStop(1, "rgba(255,255,255,0)");
+    x.fillStyle = grad;
+    x.fillRect(-gw, 0, gw * 2, Math.hypot(dx, dy));
+    x.restore();
+  }
+
+  x.globalCompositeOperation = "destination-in";
+  const fade = x.createLinearGradient(0, reflTop, 0, reflBot);
+  fade.addColorStop(0,    "rgba(0,0,0,0)");
+  fade.addColorStop(0.30, "rgba(0,0,0,1)");
+  fade.addColorStop(0.62, "rgba(0,0,0,1)");
+  fade.addColorStop(1,    "rgba(0,0,0,0)");
+  x.fillStyle = fade;
+  x.fillRect(x0, y0, w, h);
+
+  Object.assign(REFL, {cv:c, x:x0, y:y0, w, h, ver:palVersion});
 }
 
 function drawGlass(ctx){
@@ -1121,16 +1320,17 @@ function drawGlass(ctx){
   ctx.globalAlpha = 1;
   ctx.restore();
 
-  /* Reflections running down the glass. The wall tapers, so each band leans
-     in with it. The wall is a straight line, so a band is a straight strip:
-     one rotated gradient draws it smoothly, where a stack of slices would
-     step sideways at every boundary. */
+  /* Reflections running down the glass, painted once into their own strip and
+     blitted. Two gradients cross here — one across each band, one down the
+     whole set — and a canvas fill only carries one, so the second is masked in
+     afterwards, which needs a surface holding nothing but the bands. */
+  if (!REFL.cv || REFL.ver !== palVersion) buildReflections();
   ctx.save();
   ctx.clip(PATHS.sil);
-  /* Clipped again to below the near lip. The bands run down the wall we see
-     through, and that wall starts at the rim's front arc — so each band is
-     cut by the lip's own curve and emerges from it, rather than every band
-     starting together on a flat line ruled across the glass. */
+  /* Clipped to below the near lip. The bands run down the wall we see through,
+     and that wall starts at the rim's front arc — so each band is cut by the
+     lip's own curve and emerges from it, rather than every band starting
+     together on a flat line ruled across the glass. */
   const rimRxT = halfAt(G.top + rimRy);
   ctx.beginPath();
   ctx.moveTo(W, H);
@@ -1141,24 +1341,7 @@ function drawGlass(ctx){
   ctx.lineTo(0, H);
   ctx.closePath();
   ctx.clip();
-  const reflTop = G.top, reflBot = G.bottom - G.baseH * 0.4;
-  const hwTop = halfAt(reflTop), hwBot = halfAt(reflBot);
-  const hwMid = halfAt((reflTop + reflBot) / 2);
-  for (const [off, wRel, a] of [[-0.66, 0.10, 0.5], [-0.48, 0.05, 0.28], [0.58, 0.08, 0.35], [0.74, 0.04, 0.22]]){
-    const xT = G.cx + off * hwTop, xB = G.cx + off * hwBot;
-    const dx = xB - xT, dy = reflBot - reflTop;
-    const gw = Math.max(0.8, wRel * hwMid);
-    ctx.save();
-    ctx.translate(xT, reflTop);
-    ctx.rotate(Math.atan2(-dx, dy));         /* local +y now runs down the band */
-    const grad = ctx.createLinearGradient(-gw, 0, gw, 0);
-    grad.addColorStop(0, "rgba(255,255,255,0)");
-    grad.addColorStop(0.5, `rgba(255,255,255,${a * (pal.dark ? 0.5 : 1)})`);
-    grad.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = grad;
-    ctx.fillRect(-gw, 0, gw * 2, Math.hypot(dx, dy));
-    ctx.restore();
-  }
+  ctx.drawImage(REFL.cv, REFL.x, REFL.y, REFL.w, REFL.h);
   ctx.restore();
 
   /* Rim — the outer lip and the inner one a wall's thickness inside it. The
@@ -1253,25 +1436,56 @@ function drawGlass(ctx){
   /* The floor the beer stands on. Drawn faintly it left the pour, the base
      and the reflection running together as one amber mass with nothing to
      divide them, so it is given weight — and its near arc takes the light
-     while its far arc stays a dark line, which is what tells a surface from
-     a scratch. */
-  const fihw = innerHalfAt(G.inBottom), firy = fihw * ryAt(G.inBottom);
+     while its far arc sits back, which is what tells a surface from a scratch.
+
+     Each arc is stroked right round the ellipse and faded out towards the far
+     end of the other, so the two hand over gradually through the sides. As two
+     half ellipses they met at the widest points with a step in colour, where a
+     receding edge butted against a lit one, and a second step in width, the
+     near arc being the heavier of the two — the same seam the rim avoids by
+     carrying its weighting round on a vertical gradient. Fading a whole stroke
+     out rather than stopping it is also what hides the width change: the
+     heavier one has no width left where it would have shown. */
+  const floorFade = (c, back, front, cy, ry, to = cy + ry) => {
+    const g = ctx.createLinearGradient(0, cy - ry, 0, to);
+    g.addColorStop(0, `rgba(${c.rgb},${back})`);
+    g.addColorStop(1, `rgba(${c.rgb},${front})`);
+    return g;
+  };
+
+  const fihw = innerHalfAt(G.inBottom);
+  const firy = Math.max(2, fihw * ryAt(G.inBottom));
+  ctx.beginPath();
+  ctx.ellipse(G.cx, G.inBottom, fihw, firy, 0, 0, TAU);
   ctx.lineWidth = Math.max(1, G.wall * 0.3);
-  ctx.strokeStyle = pal.glassEdge;
-  ctx.beginPath();
-  ctx.ellipse(G.cx, G.inBottom, fihw, firy, 0, Math.PI, TAU);
+  ctx.strokeStyle = floorFade(pal.floorFar, pal.floorFar.a, 0, G.inBottom, firy);
   ctx.stroke();
-  ctx.beginPath();
-  ctx.ellipse(G.cx, G.inBottom, fihw, firy, 0, 0, Math.PI);
-  ctx.strokeStyle = pal.glassLight;
   ctx.lineWidth = Math.max(1.2, G.wall * 0.38);
+  ctx.strokeStyle = floorFade(pal.floorNear, 0, pal.floorNear.a, G.inBottom, firy);
   ctx.stroke();
 
-  /* Inner edge of the standing ring */
+  /* The foot is a ring the glass stands on, and a ring is a whole ellipse. Only
+     its near arc is part of the silhouette — the far arc lies behind the glass
+     rather than around it, so the outline never reaches it and the base ends on
+     a bare chord, a half disc. Drawn here, through the thickness of the glass
+     and so fainter than the near arc, it closes back into a foot. Its fade runs
+     out at the widest points rather than past them, because the near half of
+     this one is the silhouette's own stroke: the two meet there, and doubling
+     over it would thicken the outline through the sides. */
+  const bryF = Math.max(2, bry);
   ctx.beginPath();
-  ctx.ellipse(G.cx, G.bottom, G.botHalf * 0.86, bry * 0.86, 0, 0, Math.PI);
-  ctx.strokeStyle = pal.glassLight;
+  ctx.ellipse(G.cx, G.bottom, G.botHalf, bryF, 0, 0, TAU);
+  ctx.lineWidth = Math.max(1, G.wall * 0.26);
+  ctx.strokeStyle = floorFade(pal.floorFar, pal.floorFar.a, 0, G.bottom, bryF, G.bottom);
+  ctx.stroke();
+
+  /* Inner edge of the standing ring, whose two arcs are both ours to hand over */
+  ctx.beginPath();
+  ctx.ellipse(G.cx, G.bottom, G.botHalf * 0.86, bryF * 0.86, 0, 0, TAU);
+  ctx.strokeStyle = floorFade(pal.floorFar, pal.floorFar.a, 0, G.bottom, bryF * 0.86);
+  ctx.stroke();
   ctx.lineWidth = Math.max(1, G.wall * 0.4);
+  ctx.strokeStyle = floorFade(pal.floorNear, 0, pal.floorNear.a, G.bottom, bryF * 0.86);
   ctx.stroke();
 }
 
@@ -1398,9 +1612,17 @@ let acc = 0, last = performance.now(), clock = 0, emaFrame = 16.7, downgraded = 
 
 function frame(now){
   requestAnimationFrame(frame);
-  let dt = (now - last) / 1000;
+  let real = (now - last) / 1000;
   last = now;
-  if (dt > 0.25) dt = 0.25;
+  if (real > 0.25) real = 0.25;      /* a tab coming back does not owe the glass a minute */
+
+  /* Pace is a clock rather than a force. Everything below is handed the same
+     scaled second, so the waves, the pour, the bubbles rising and the beading
+     on the outside all slow together and the glass goes on behaving like
+     itself, only later — where slowing any one of them on its own would just
+     put the pour out of step with itself. The frame timer further down keeps
+     real seconds: it is watching the machine, not the beer. */
+  const dt = real * (cfg.pace / 100);
 
   if (!cfg.running){
     if (level < targetLevel() - 0.0005){
@@ -1410,7 +1632,7 @@ function frame(now){
     return;
   }
 
-  clock += dt;
+  clock += real;
 
   if (ptr.lx === -999){ ptr.lx = ptr.x; ptr.ly = ptr.y; }
   ptr.vx = ptr.x - ptr.lx;
@@ -1421,7 +1643,7 @@ function frame(now){
 
   acc += dt;
   let steps = 0;
-  while (acc >= FIXED && steps < 4){ stepWaves(); acc -= FIXED; steps++; }
+  while (acc >= FIXED && steps < 4){ stepWaves(FIXED); acc -= FIXED; steps++; }
   if (acc > FIXED) acc = 0;
 
   tiltNow += (tiltWant - tiltNow) * Math.min(1, dt * 6);
@@ -1436,7 +1658,7 @@ function frame(now){
   updateLace(dt);
   renderAll();
 
-  emaFrame += (dt * 1000 - emaFrame) * 0.05;
+  emaFrame += (real * 1000 - emaFrame) * 0.05;
   if (downgraded < 2 && emaFrame > 30 && clock > 3){
     downgraded++;
     quality = downgraded === 1 ? 0.8 : 0.62;
