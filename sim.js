@@ -598,6 +598,13 @@ const RIBBON_MAX = 6;
    and the vessel around it fades. */
 const glassLine = () => clamp((cfg.glassLine == null ? 100 : cfg.glassLine) / 100, 0, 1);
 
+/* How much of a breaking bubble reaches the head. Two dozen of them arrive at
+   the surface every second, each one shoving the water a little and leaving a
+   little foam behind, and the sum of that is a head that trembles the whole
+   time the beer is carbonated. Turned down it is a still head over a lively
+   pour, which is what most photographs of a pint look like. */
+const bubbleBreak = () => clamp((cfg.bubbleBreak == null ? 100 : cfg.bubbleBreak) / 100, 0, 2);
+
 /* How much bigger a bead is drawn for having come towards you, or smaller for
    having gone away. Nearly nothing at the far lip and better than twice over by
    the time it is about to pass the eye. */
@@ -1104,8 +1111,11 @@ function updateBubbles(dt){
            pour will be doing the whole time it is carbonated — and the figure
            here was set when a push moved the surface directly rather than
            setting it going, which flattered it. */
-        splash(b.x, -Math.min(0.13, b.r * 0.018), (14 + b.r * 3));
-        addFoam(b.x, clamp(b.r * 2.1 + 3, 3, 24 * G.scale));
+        const brk = bubbleBreak();
+        if (brk > 0.001){
+          splash(b.x, -Math.min(0.13, b.r * 0.018) * brk, (14 + b.r * 3));
+          addFoam(b.x, clamp(b.r * 2.1 + 3, 3, 24 * G.scale) * brk);
+        }
         if (b.r > 3.4 * G.scale && Math.random() < 0.22){
           mist.push({x:b.x, y:sy, vx:rand(-24,24)*G.scale, vy:rand(-90,-25)*G.scale, r:rand(.6,1.4)*G.scale, life:rand(.3,.8)});
         }

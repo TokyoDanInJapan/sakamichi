@@ -414,6 +414,7 @@ const SPECS = [
   {key:"viscosity",  label:"Viscosity",   min:0,   max:100, step:1, unit:"",   group:null},
   {key:"carbonation",label:"Carbonation", min:0,   max:200, step:5, unit:"%",  group:"Carbonation"},
   {key:"bubbleSize", label:"Bubble size", min:20,  max:220, step:5, unit:"%",  group:null},
+  {key:"bubbleBreak",label:"Bubble break",min:0,   max:200, step:5, unit:"%",  group:null},
   {key:"headDepth",  label:"Head depth",  min:0,   max:200, step:5, unit:"%",  group:"Head"},
   {key:"foamChurn",  label:"Foam churn",  min:0,   max:200, step:5, unit:"%",  group:null},
   {key:"weep",       label:"Weep",        min:0,   max:200, step:5, unit:"%",  group:null},
@@ -427,7 +428,8 @@ const SPECS = [
 
 const HOUSE = {
   fill:78, refill:32, pace:100, agitation:100, waveSpeed:46, viscosity:40,
-  carbonation:100, bubbleSize:100, headDepth:100, foamChurn:100, weep:100,
+  carbonation:100, bubbleSize:100, bubbleBreak:100, headDepth:100,
+  foamChurn:100, weep:100,
   glassSize:100, glassLine:100, condensation:70, dewSize:100, hue:40, richness:46
 };
 
