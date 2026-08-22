@@ -1364,11 +1364,29 @@ void main(){
   vec4 acc = vec4(0.0);
 
   bool showCollar = uWeep.x > 0.012 && uWeep.y > 0.004;
-  /* how far round the glass this pixel stands, read at its own height */
+
+  /* How far round the glass this pixel stands. The collar is not a band of one
+     radius: its top edge lies on the rim, whose ellipse is the bore at the
+     lip's own plane, while its hem lies further down a tapering wall and so
+     comes in with it. Reading the angle off the bore at the pixel's own height
+     put the top edge on a circle a shade wider than the rim it is drawn on, and
+     the collar showed a pixel or two of foam standing outside the glass all
+     along the top of the lip. So the height is found first, roughly, and the
+     radius then taken between the two edges the way the collar's own sides run
+     between them. */
+  float cRx = max(1.0, halfAt(rimCy()));
+  float dx = px.x - GCX;
   float hw = max(1.0, halfAt(px.y));
-  float sn = clamp((px.x - GCX) / hw, -1.0, 1.0);
-  float th = asin(sn);
-  bool onFace = abs(px.x - GCX) <= hw;
+  float th = asin(clamp(dx / hw, -1.0, 1.0));
+  for (int i = 0; i < 2; i++){
+    float yT = rimCy() - rimRy() * cos(th);
+    float hh = hemH(th);
+    float yH = hh + ryAt(hh) * halfAt(hh) * cos(th);
+    float t  = clamp((px.y - yT) / max(1.0, yH - yT), 0.0, 1.0);
+    hw = max(1.0, mix(cRx, halfAt(hh), t));
+    th = asin(clamp(dx / hw, -1.0, 1.0));
+  }
+  bool onFace = abs(dx) <= hw;
 
   /* The collar's own shade along its hem, so it hangs on the glass instead of
      being painted flat onto it. Laid down first, so the collar's body covers
