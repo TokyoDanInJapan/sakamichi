@@ -104,9 +104,15 @@ let capBubbles = 300, capFoam = 260, capDew = 90;
    annulus with real thickness to it: a head's edge set exactly on it sits level
    with the middle of the rim, which reads as just under the rim rather than on
    it. A hundredth of the glass is enough to put it on top. */
+/* The glass may be emptied. The fill line stopped a twenty-fifth of the way up
+   and the slider stopped at a quarter, so the least a glass could hold was a
+   finger of beer sitting on the bottom with the wave clamped to whatever depth
+   was left under it — swill that and it came up against the floor of its own
+   allowance rather than the floor of the glass. Nothing below divides by the
+   level; the passes that draw the pour already stand aside when there is none. */
 const BRIM_LIFT = 0.01;
 const targetLevel = () =>
-  clamp((cfg.fill / 100) * (1 + BRIM_LIFT) - headBand() / Math.max(1, G.inH), 0.04, 1);
+  clamp((cfg.fill / 100) * (1 + BRIM_LIFT) - headBand() / Math.max(1, G.inH), 0, 1);
 const restSurfaceY = () => G.inBottom - level * G.inH;
 
 /* ------------------------------------------------------------------ *
@@ -796,7 +802,7 @@ function spillOverRim(dt){
   /* What went over the lip is beer the glass no longer holds */
   if (over){
     const shift = levelWave();
-    if (shift > 0) level = clamp(level - shift / G.inH, 0.04, 1);
+    if (shift > 0) level = clamp(level - shift / G.inH, 0, 1);
   }
 
   /* The head goes over the lip before the beer does, and runs down the glass */
@@ -844,7 +850,7 @@ function spillOverRim(dt){
   /* Foam is beer too, so losing a headful costs some of the pour */
   if (foamLost > 0){
     const area = Math.max(1, innerHalfAt(ry) * 2 * G.inH);
-    level = clamp(level - (foamLost / area) * 0.95, 0.04, 1);
+    level = clamp(level - (foamLost / area) * 0.95, 0, 1);
   }
 }
 
