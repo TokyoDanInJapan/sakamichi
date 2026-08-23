@@ -702,6 +702,18 @@ function clipFoamToGlass(){
     const y = lerp(G.inTop, G.inBottom, i / steps);
     pts.push(px(G.cx - innerHalfAt(y) - soft, y));
   }
+  /* The floor is closed on the floor's own near arc, not on a chord ruled
+     across it. This clip cuts after the goo filter, so whatever shape it ends
+     on is the shape the head ends on: a chord here ruled a flat line across
+     the bottom of the head in a nearly-empty glass, under a floor that is
+     plainly an ellipse. The drawn head already comes down on this arc — see
+     headClip — and the two have to agree or the shorter one wins. */
+  const ihF = innerHalfAt(G.inBottom) + soft;
+  const iryF = innerHalfAt(G.inBottom) * ryAt(G.inBottom) + soft;
+  for (let i = 0; i <= steps; i++){
+    const u = -Math.cos(Math.PI * i / steps);
+    pts.push(px(G.cx + u * ihF, G.inBottom + iryF * Math.sqrt(Math.max(0, 1 - u * u))));
+  }
   for (let i = steps; i >= 0; i--){
     const y = lerp(G.inTop, G.inBottom, i / steps);
     pts.push(px(G.cx + innerHalfAt(y) + soft, y));
@@ -1095,6 +1107,7 @@ function drawLiquid(){
 
   const hY = horizonY();
   drawBarTop(ctxL);
+  contactShadow(ctxL);
 
   if (level <= 0.001) return;
 
@@ -1539,12 +1552,20 @@ function headDome(){
   return any ? p : null;
 }
 
-function drawGlass(ctx){
-  const rimRy = G.topHalf * G.ryTop;
+/* Contact shadow: ellipses lying IN the plane, concentric with the footprint
+   and sharing the plane's eccentricity, so the glass reads as standing in the
+   surface rather than hovering over it.
 
-  /* Contact shadow: ellipses lying IN the plane, concentric with the
-     footprint and sharing the plane's eccentricity, so the glass reads as
-     standing in the surface rather than hovering over it */
+   It goes on the bar, with the bar, and not with the glass. Drawn with the
+   glass it went on the topmost sheet, over the pour instead of behind it: the
+   half of it that lies behind the foot projects up the screen — a plane seen
+   from above puts what is further away higher — so it reached a third of the
+   way up the bore and washed the head in it. With a nearly empty glass, where
+   the head sits right down in the bottom, that was a dark band ruled across
+   the foam along the shadow's own contour. Beer and head are in front of the
+   bar, so they cover it now, and the glass's base still goes over it from the
+   sheet above. */
+function contactShadow(ctx){
   const bryS = Math.max(2, baseBulge());
   ctx.save();
   ctx.translate(G.cx, G.bottom);
@@ -1561,6 +1582,10 @@ function drawGlass(ctx){
   }
   ctx.globalAlpha = 1;
   ctx.restore();
+}
+
+function drawGlass(ctx){
+  const rimRy = G.topHalf * G.ryTop;
 
   /* Body of the glass, rim ellipse and walls as one silhouette. It fades with
      the lines: it is not one of them, but it is the same glass, and left at
