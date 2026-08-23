@@ -824,8 +824,17 @@ function spillOverRim(dt){
       foamLost += f.r * f.r * Math.PI;
       spillFoam(f.x, f.r);
       /* Some of it does not hang on at all. A head coming over a lip sheds
-         beads as well as ribbons, and they leave by the same two sides. */
-      if (Math.random() < 0.4){
+         beads as well as ribbons, and they leave by the same two sides.
+         But only when it is thrown, and what throws it is the beer itself
+         coming up to the lip — foam standing proud of a brimful glass creeps
+         down the outside, it does not fling itself at the bar. Shed on a flat
+         chance instead, a glass left alone put a drop on the counter every
+         half minute while its beer sat forty pixels down the bore, and the
+         only cure was to stop filling it. */
+      const beer = surfaceAt(f.x) - ellipseDy(f.x) * 0.4;
+      const lipReach = 30 * G.scale;
+      const surge = clamp((rimY - beer + lipReach) / lipReach, 0, 1);
+      if (surge > 0 && Math.random() < 0.55 * surge){
         const base = Math.asin(clamp((f.x - G.cx) / hwRim, -1, 1));
         const th = (Math.random() < 0.5 ? base : Math.PI - base) + rand(-0.9, 0.9);
         const deep = Math.cos(th), across = Math.sin(th);
