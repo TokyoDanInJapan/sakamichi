@@ -685,7 +685,18 @@ function clipFoamToGlass(){
   const steps = 20;
   const soft = 2 / FOAM_SCALE;
   const ihTop = innerHalfAt(G.inTop) + soft;
-  const px = (x, y) => `${x.toFixed(1)}px ${y.toFixed(1)}px`;
+  /* In shares of the box rather than in pixels of it. This is a CSS clip on the
+     element — it has to be, because it must cut after the goo filter rather
+     than before it, or the blur would carry the foam back out through the wall
+     it was just cut at. But the element's box and the canvas inside it can come
+     apart: the backing store is sized when the stage is measured, and if the
+     stage changes size afterwards without anything re-measuring it — a web font
+     arriving is enough — the browser stretches the old drawing to the new box.
+     The drawing stretches; a clip written in pixels does not, and it lands
+     wherever those pixels now fall. Its bottom is a chord across the floor of
+     the glass, so what that showed was a flat line ruled across the head with
+     everything below it cut away. Shares of the box stretch with the box. */
+  const px = (x, y) => `${(x / Math.max(1, W) * 100).toFixed(3)}% ${(y / Math.max(1, H) * 100).toFixed(3)}%`;
   const pts = [px(G.cx - ihTop, 0)];
   for (let i = 0; i <= steps; i++){
     const y = lerp(G.inTop, G.inBottom, i / steps);
@@ -2237,10 +2248,23 @@ setPanel(params.get("panel") === "1");
 syncChips();
 
 let resizeTimer = 0;
-window.addEventListener("resize", () => {
+/* The stage can change size without the window doing anything — a web font
+   arriving, the panel opening, a scrollbar coming and going. The canvases are
+   sized from the stage, so when that happens and nothing re-measures it, the
+   backing store keeps the old size and the browser stretches it to the new box.
+   Everything drawn then lands off its own coordinates, and anything laid over
+   the top in the element's own space — the clip that keeps the foam inside the
+   glass is a CSS clip path, because it has to cut after the goo filter rather
+   than before it — no longer lines up with what it is cutting. That showed as
+   a flat line ruled across the head where the clip's bottom chord had fallen
+   short of the glass's floor. Watching the box itself catches every case; the
+   window's own resize event catches only one of them. */
+const restage = () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => { resize(); if (!cfg.running) renderAll(); }, 120);
-});
+};
+if (typeof ResizeObserver === "function") new ResizeObserver(restage).observe(stage);
+window.addEventListener("resize", restage);
 resize();
 
 /* A still page still shows a poured pint */

@@ -2263,10 +2263,23 @@ setPanel(params.get("panel") === "1");
 syncChips();
 
 let resizeTimer = 0;
-window.addEventListener("resize", () => {
+/* The stage can change size without the window doing anything — a web font
+   arriving, the panel opening, a scrollbar coming and going. The canvases are
+   sized from the stage, so when that happens and nothing re-measures it, the
+   backing store keeps the old size and the browser stretches it to the new box.
+   Everything drawn then lands off its own coordinates, and anything laid over
+   the top in the element's own space — the clip that keeps the foam inside the
+   glass is a CSS clip path, because it has to cut after the goo filter rather
+   than before it — no longer lines up with what it is cutting. That showed as
+   a flat line ruled across the head where the clip's bottom chord had fallen
+   short of the glass's floor. Watching the box itself catches every case; the
+   window's own resize event catches only one of them. */
+const restage = () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => { resize(); if (!cfg.running) render(); }, 120);
-});
+};
+if (typeof ResizeObserver === "function") new ResizeObserver(restage).observe(stage);
+window.addEventListener("resize", restage);
 resize();
 
 /* A still page still shows a poured pint */
