@@ -1142,8 +1142,14 @@ void main(){
   col += vec3(1.0) * smoothstep(0.82, 0.99, pores2) * uGloss * 0.12;
   col += vec3(1.0) * pip * (0.04 + uGloss * 0.10);
 
-  /* The last few pixels above the beer are cream soaked through */
-  col = mix(col, col * uBeerTint, smoothstep(5.0, -8.0, front - px.y) * 0.45);
+  /* Soaked as deep as the head stands in the beer, which is the depth of the
+     surface's own lens at that column and not a fixed band. A fixed one stopped
+     partway across the lens on a glass with little in it and drew its own edge
+     there, following the far arc of the surface rather than the near one the
+     head actually ends on — so the head read as finishing at the back of the
+     beer with the front of the beer showing beyond it. */
+  float lens = max(6.0, ellipseDy(px.x) * 2.1);
+  col = mix(col, col * uBeerTint, smoothstep(-lens, 3.0, px.y - front) * 0.45);
 
   frag = vec4(col, mask);
 }`;
@@ -2292,7 +2298,8 @@ if (reduceMotion.matches){
     const y = rand(restSurfaceY() + 20, G.inBottom);
     addBubble(G.cx + rand(-1, 1) * innerHalfAt(y) * 0.9, y, rand(0.6, 3.4));
   }
-  const beads = Math.round(capDew * clamp(cfg.condensation / 100, 0, 2) * 0.7);
+  const beads = Math.round(capDew * clamp(cfg.condensation / 100, 0, 2) * 0.7
+                          * clamp(level / 0.8, 0, 1));
   for (let i = 0; i < beads; i++) addDew(rand(1.0, 3.2));
 }
 

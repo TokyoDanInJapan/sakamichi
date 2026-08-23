@@ -1299,7 +1299,13 @@ function updateDew(dt){
     for (const d of dew){ d.r *= f; d.rt *= f; d.grow *= f; d.slip *= f; }
     dewK = k;
   }
-  const want = Math.min(Math.round(capDew * amount), 180);
+  /* And there is as much of it as there is beer to chill the glass. A finger of
+     beer beads the glass round the finger of beer, not from end to end: the
+     beads already only take the wall below the pour, but the count they were
+     working towards took no notice of the level, so a nearly empty glass
+     crowded its whole allowance into the little wall it had. */
+  const wet = clamp(level / 0.8, 0, 1);
+  const want = Math.min(Math.round(capDew * amount * wet), 180);
   if (poured && dew.length < want && Math.random() < dt * 30 * amount) addDew(rand(0.7, 1.6));
 
   for (let i = dew.length - 1; i >= 0; i--){
