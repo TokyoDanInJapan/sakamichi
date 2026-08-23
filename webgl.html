@@ -1027,8 +1027,26 @@ void main(){
   float back  = surfaceAt(px.x) - ellipseDy(px.x);
   float headTop = max(back - uBandPx, cap);
   /* and above the lip the bore stops widening: there is no more glass to hold it */
-  float lim = innerHalfAt(max(px.y, lipCy));
-  float up  = max(0.0, lipCy - px.y);
+  /* The side of the head: the bore below the lip, and above it the cap of foam
+     standing on the mouth. Two bounds — the wall, which widens as the glass
+     rises, and the cap, which draws in as the foam rises past the lip. Taken
+     as one or the other by whichever side of the lip a pixel falls, they met
+     at the rim's widest point in a spike, the wall slanting out as it climbed
+     and the cap turning in. That spike is the notch that stood at each side of
+     a tall head, where the two lines would not join. Met with a filleted min
+     they turn into one another over a few pixels instead, which is what foam
+     hanging over a lip actually does.
+
+     And the cap draws in on a curve that is level at both ends. Squared and
+     then clamped, it was running in at its very steepest at the moment it
+     stopped, so the outline broke into a long straight ramp and then a wall
+     going straight up with a corner between them — the two facets and the flat
+     top that made a tall head read as a paper dome rather than foam. */
+  float ihLip = innerHalfAt(lipCy);
+  float up    = max(0.0, lipCy - px.y);
+  float lean  = ihLip * 0.44 * smoothstep(0.0, 80.0 * uScale, up);
+  float dWall = smin(innerHalfAt(px.y) - abs(px.x - GCX),
+                     (ihLip - lean) - abs(px.x - GCX), 10.0 * uScale);
   /* The bottom of a glass is a disc, and a head with almost no beer left under
      it comes to rest on that disc: what stops it down there is the near half of
      the floor's ellipse, the same curve the beer is stopped on. Stopped on the
@@ -1038,7 +1056,7 @@ void main(){
   float ihb  = max(innerHalfAt(GINBOT), 1.0);
   float fxn  = clamp((px.x - GCX) / ihb, -1.0, 1.0);
   float pan  = GINBOT + uRyKs.y * ihb * sqrt(max(0.0, 1.0 - fxn * fxn));
-  if (abs(px.x - GCX) > lim || px.y > pan) discard;
+  if (dWall < -2.0 || px.y > pan) discard;
 
   /* A head is a body of foam, not a heap of blobs. The canvas fills its own
      outline and lets the texture play inside it; here the blobs alone said
@@ -1083,10 +1101,8 @@ void main(){
      the hem turns that corner on an arc of its own. The top's distance is
      taken across its slope rather than straight down, or a boundary running
      that steeply would read as far away when it is a pixel off. */
-  float lean  = lim * 0.44 * pow(clamp(up / (80.0 * uScale), 0.0, 1.0), 2.0);
   float gTop  = dFdx(headTop);
   float dTop  = (px.y - headTop) * inversesqrt(1.0 + gTop * gTop);
-  float dWall = (lim - lean) - abs(px.x - GCX);
   float body  = smoothstep(0.0, 2.0, smin(dTop, dWall, 7.0 * uScale));
   float f = max(mix(fs, fb, 0.8), body);
   /* Granular outline: a whisper of bubble-scale roughness on the edge */
@@ -1121,7 +1137,7 @@ void main(){
      a crest rides one wall and not the middle: sized to clear the surge, it
      squeezed that surge to a third of its width, which is where the foam
      actually was. */
-  mask *= smoothstep(lim - lean, lim - lean - 1.5, abs(px.x - GCX));
+  mask *= smoothstep(0.0, 1.5, dWall);
 
   /* The head floats on the beer, so it ends on the near arc of the surface —
      that arc is what you see of the beer's own edge. Let out over seven pixels
