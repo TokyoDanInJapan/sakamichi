@@ -1087,10 +1087,14 @@ void main(){
   float lean = lim * 0.44 * pow(clamp(up / (80.0 * uScale), 0.0, 1.0), 2.0);
   mask *= smoothstep(lim - lean, lim - lean - 1.5, abs(px.x - GCX));
 
-  /* The head floats on the beer: cut the mask off cleanly at the front edge
-     of the surface so blobs cannot scallop down into the pour */
+  /* The head floats on the beer, so it ends on the near arc of the surface —
+     that arc is what you see of the beer's own edge. Let out over seven pixels
+     the blobs scalloped past it and the blur carried them further still, and
+     what that drew was an underside flatter than the surface beneath it: a
+     head lying in the beer rather than on it. Cut on the arc, the head's
+     underside is the ellipse exactly. */
   float front = surfaceAt(px.x) + ellipseDy(px.x);
-  mask *= 1.0 - smoothstep(front + 2.0, front + 9.0, px.y);
+  mask *= 1.0 - smoothstep(front - 0.8, front + 1.2, px.y);
   if (mask <= 0.001) discard;
 
   /* Height within the head: 0 wet at the beer, 1 dry and old at the top.
