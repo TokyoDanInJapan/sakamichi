@@ -954,14 +954,20 @@ function drawBarTop(ctx){
        blobs go on too, so the reflected crown is as ragged as the real one —
        through six pixels of blur, which is what the bar's finish comes to, a
        plain outline reads as a bar of soap. */
+    /* Crown and blobs as one outline, filled once. In the glass they are welded
+       by the goo — a blur and a hard cut — which is what makes the head read as
+       one solid body; down here they were being laid on one at a time at a
+       third of full weight, so every place two of them lapped came out heavier
+       than the foam either side of it and the reflected head was mottled where
+       the real one is solid. A single path has no overlaps to double. */
     rc.fillStyle = pal.foam;
     headPath(rc);
-    rc.fill();
     for (const f of foam){
-      rc.beginPath();
-      rc.arc(f.x, surfaceAt(f.x) - ellipseDy(f.x) * 0.4 + f.oy, f.r, 0, TAU);
-      rc.fill();
+      const fy = surfaceAt(f.x) - ellipseDy(f.x) * 0.4 + f.oy;
+      rc.moveTo(f.x + f.r, fy);
+      rc.arc(f.x, fy, f.r, 0, TAU);
     }
+    rc.fill();
     rc.restore();
     /* The beer stands a base-thickness above the floor, so its mirror image
        starts that far below the foot. The thick base between them is lit
