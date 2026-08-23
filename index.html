@@ -897,7 +897,10 @@ function liquidPath(ctx){
 function headPath(ctx){
   const [l, , w] = surfaceSpan();
   const over = Math.max(12, G.topHalf - w / 2 + 12);
-  ctx.beginPath();
+  /* A Path2D takes the same moves as a context and has no beginPath to start,
+     so the head's outline can be built as a path in its own right and handed
+     about — which is how the glass gets to ask what the head is covering. */
+  if (ctx.beginPath) ctx.beginPath();
   ctx.moveTo(l - over, headTopAt(l));
   for (let i = 1; i < N; i++){ const x = colX(i); ctx.lineTo(x, headTopAt(x)); }
   ctx.lineTo(l + w + over, headTopAt(l + w));
@@ -2306,13 +2309,50 @@ let resizeTimer = 0;
    a flat line ruled across the head where the clip's bottom chord had fallen
    short of the glass's floor. Watching the box itself catches every case; the
    window's own resize event catches only one of them. */
+/* The wordmark: BREWING is tracked out to stand exactly as wide as SAKAMICHI
+   above it. The tracking that does it cannot be a constant — it depends on the
+   two words' natural widths in whatever font actually arrives, and the fallback
+   stack runs from Futura PT to whatever the machine has. Written as one, the
+   second line overhung the first by most of a letter.
+
+   So it is measured. The first line's ink ends one letter-space short of its
+   own advance, since tracking is added after the last letter as well as
+   between; the second line needs its width shared out between its letters, of
+   which there is one fewer gap than letters. */
+function fitWordmark(){
+  const h1 = document.querySelector(".masthead h1");
+  if (!h1) return;
+  const thin = h1.querySelector(".thin");
+  const mark = h1.firstChild;
+  if (!thin || !mark || mark.nodeType !== 3) return;
+  const n = thin.textContent.trim().length;
+  if (n < 2) return;
+
+  const r = document.createRange();
+  r.selectNodeContents(h1);
+  r.setEnd(thin, 0);
+  const markW = r.getBoundingClientRect().width;
+  const own = parseFloat(getComputedStyle(h1).letterSpacing) || 0;
+  const target = markW - own;
+
+  thin.style.letterSpacing = "0px";
+  const tr = document.createRange();
+  tr.selectNodeContents(thin);
+  /* the text's own width, not the block's: a block line fills the column it is
+     in, and measuring that would only ever hand back the column */
+  const bare = tr.getBoundingClientRect().width;
+  thin.style.letterSpacing = ((target - bare) / (n - 1)).toFixed(3) + "px";
+}
+
 const restage = () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => { resize(); if (!cfg.running) renderAll(); }, 120);
+  resizeTimer = setTimeout(() => { resize(); fitWordmark(); if (!cfg.running) renderAll(); }, 120);
 };
 if (typeof ResizeObserver === "function") new ResizeObserver(restage).observe(stage);
 window.addEventListener("resize", restage);
 resize();
+fitWordmark();
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitWordmark);
 
 /* A still page still shows a poured pint */
 if (reduceMotion.matches){
