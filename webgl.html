@@ -997,6 +997,15 @@ out vec4 frag;
 
 float fieldAt(vec2 p){ return texture(uField, vec2(p.x / uRes.x, 1.0 - p.y / uRes.y)).r; }
 
+/* Rounded intersection: min() with the corner filleted off at radius k. Two
+   bounds crossing at a sharp angle meet in a point, and a head has no points
+   in it — the canvas gets its rounded hem free, from a blur and a threshold
+   that cannot hold a corner. */
+float smin(float a, float b, float k){
+  float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+  return mix(b, a, h) - k * h * (1.0 - h);
+}
+
 void main(){
   vec2 px = fragPx();
 
@@ -1060,7 +1069,25 @@ void main(){
             + fieldAt(px + vec2(0.0,  r1)) + fieldAt(px + vec2(0.0, -r1))
             + fieldAt(px + vec2( r2,  r2)) + fieldAt(px + vec2(-r2, -r2))
             + fieldAt(px + vec2( r2, -r2)) + fieldAt(px + vec2(-r2,  r2))) * 0.125;
-  float f = max(mix(fs, fb, 0.8), smoothstep(headTop, headTop + 2.0, px.y));
+  /* The head's own body, bounded above by its top and at the side by the wall,
+     and rounded where those two meet. The blobs are welded by the taps above,
+     which is a blur and a threshold and so cannot hold a corner; the body was
+     laid over them as a plain step and kept every corner it had. The head's
+     top runs away almost vertically as it reaches the wall — it is the far rim
+     of a disc, seen flat on — so it crossed the wall at a hair of an angle and
+     left a short straight facet standing out at each side, at the head's
+     widest point.
+
+     The two bounds are measured as distances and met with a filleted min, so
+     the hem turns that corner on an arc of its own. The top's distance is
+     taken across its slope rather than straight down, or a boundary running
+     that steeply would read as far away when it is a pixel off. */
+  float lean  = lim * 0.44 * pow(clamp(up / (80.0 * uScale), 0.0, 1.0), 2.0);
+  float gTop  = dFdx(headTop);
+  float dTop  = (px.y - headTop) * inversesqrt(1.0 + gTop * gTop);
+  float dWall = (lim - lean) - abs(px.x - GCX);
+  float body  = smoothstep(0.0, 2.0, smin(dTop, dWall, 7.0 * uScale));
+  float f = max(mix(fs, fb, 0.8), body);
   /* Granular outline: a whisper of bubble-scale roughness on the edge */
   float grain = vnoise(px * 0.9 + vec2(uTime * 0.04, 0.0));
   float mask = smoothstep(0.185, 0.245, f + (grain - 0.5) * 0.035);
@@ -1093,7 +1120,6 @@ void main(){
      a crest rides one wall and not the middle: sized to clear the surge, it
      squeezed that surge to a third of its width, which is where the foam
      actually was. */
-  float lean = lim * 0.44 * pow(clamp(up / (80.0 * uScale), 0.0, 1.0), 2.0);
   mask *= smoothstep(lim - lean, lim - lean - 1.5, abs(px.x - GCX));
 
   /* The head floats on the beer, so it ends on the near arc of the surface —
