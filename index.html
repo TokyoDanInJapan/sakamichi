@@ -1004,11 +1004,22 @@ function drawBarTop(ctx){
     }
     ctx.restore();
 
-    /* ...and the whole reflection sinks into the bar as it runs away from
-       the foot, which is what reads as distance across the surface */
-    const rFade = ctx.createLinearGradient(0, G.bottom, 0, G.bottom + Math.max(175, G.h * 0.62));
+    /* ...and the whole reflection sinks into the bar as it runs away from the
+       foot, which is what reads as distance across the surface. It has to sink
+       slowly and go a long way. A thing held high in the glass has its image
+       far out across the bar — that is what a mirror does — and the head is
+       the highest thing there is in a pint. Sunk over a couple of hundred
+       pixels and then done with, the fade swallowed it: stir the beer and the
+       head tilts, the high side's image runs out past the end of the fade, and
+       that side of the head went missing from the reflection altogether while
+       the low side stayed. What was left read as a reflection with holes in
+       it. So the run is better than half as long again, and weighted so the
+       near half still sinks as fast as it used to — the far half is where the
+       head lives, and it is thin out there rather than gone. */
+    const rFade = ctx.createLinearGradient(0, G.bottom, 0, G.bottom + Math.max(300, G.h * 1.05));
     rFade.addColorStop(0, hexA(pal.ground, 0));
-    rFade.addColorStop(0.5, hexA(pal.ground, 0.62));
+    rFade.addColorStop(0.26, hexA(pal.ground, 0.52));
+    rFade.addColorStop(0.58, hexA(pal.ground, 0.82));
     rFade.addColorStop(1, hexA(pal.ground, 1));
     ctx.fillStyle = rFade;
     ctx.fillRect(0, G.bottom, W, H - G.bottom);
