@@ -747,7 +747,21 @@ function headClip(ctx, domeH){
     const x = G.cx - innerHalfAt(y);
     if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
   }
-  ctx.lineTo(G.cx + innerHalfAt(G.inBottom), G.inBottom);
+  /* Across the floor on the floor's own arc, not on a chord. The bottom of a
+     glass is a disc, and a head with almost no beer left under it comes to rest
+     on that disc — so what closes it off down there is the near half of the
+     floor's ellipse, the same curve the floor itself is drawn with. Closed on
+     the chord instead, the last of the foam sat on a dead straight line ruled
+     across the glass, which is the one shape a glass with elliptical walls
+     cannot show. Walked by angle so the two ends, where the ellipse turns
+     hardest, are not joined across by a straight line either. */
+  const ihwF = innerHalfAt(G.inBottom);
+  const iryF = ihwF * ryAt(G.inBottom);
+  const fSteps = 40;
+  for (let i = 0; i <= fSteps; i++){
+    const u = -Math.cos(Math.PI * i / fSteps);
+    ctx.lineTo(G.cx + u * ihwF, G.inBottom + iryF * Math.sqrt(Math.max(0, 1 - u * u)));
+  }
   for (let i = steps; i >= 0; i--){
     const y = lerp(G.inTop, G.inBottom, i / steps);
     ctx.lineTo(G.cx + innerHalfAt(y), y);

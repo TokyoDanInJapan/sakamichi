@@ -1019,7 +1019,16 @@ void main(){
   /* and above the lip the bore stops widening: there is no more glass to hold it */
   float lim = innerHalfAt(max(px.y, lipCy));
   float up  = max(0.0, lipCy - px.y);
-  if (abs(px.x - GCX) > lim || px.y > GINBOT) discard;
+  /* The bottom of a glass is a disc, and a head with almost no beer left under
+     it comes to rest on that disc: what stops it down there is the near half of
+     the floor's ellipse, the same curve the beer is stopped on. Stopped on the
+     floor's plane instead, the last of the foam sat on a dead straight line
+     ruled across the glass — the one shape a glass with elliptical walls
+     cannot show. */
+  float ihb  = max(innerHalfAt(GINBOT), 1.0);
+  float fxn  = clamp((px.x - GCX) / ihb, -1.0, 1.0);
+  float pan  = GINBOT + uRyKs.y * ihb * sqrt(max(0.0, 1.0 - fxn * fxn));
+  if (abs(px.x - GCX) > lim || px.y > pan) discard;
 
   /* A head is a body of foam, not a heap of blobs. The canvas fills its own
      outline and lets the texture play inside it; here the blobs alone said
