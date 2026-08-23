@@ -621,6 +621,11 @@ const dropScale = d => 1 + 0.45 * clamp(d.near || 0, -0.8, 2.6);
    a deeper weep — but how far foam runs down the outside of a glass is a fact
    about the foam and the glass, not about how much of it is standing inside. */
 const weepAmount = () => clamp((cfg.weep == null ? 100 : cfg.weep) / 100, 0, 2);
+/* How plainly what has come over the lip is drawn — the collar, the ribbons
+   running down the outside, the shade under the hem and what pools at the
+   foot. Separate from how much of it there is: a glass can weep heavily in a
+   film you can see the bar through, or barely at all in solid white. */
+const weepAlpha = () => clamp((cfg.weepAlpha == null ? 100 : cfg.weepAlpha) / 100, 0, 1);
 const weepDeep = () => (G.topHalf * 2) * 0.18 * weepAmount();
 
 /* Before any of it runs, the head comes over the lip as a sheet and hangs there

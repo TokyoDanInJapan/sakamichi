@@ -418,6 +418,7 @@ const SPECS = [
   {key:"headDepth",  label:"Head depth",  min:0,   max:200, step:5, unit:"%",  group:"Head"},
   {key:"foamChurn",  label:"Foam churn",  min:0,   max:200, step:5, unit:"%",  group:null},
   {key:"weep",       label:"Weep",        min:0,   max:200, step:5, unit:"%",  group:null},
+  {key:"weepAlpha",  label:"Weep opacity",min:0,   max:100, step:1, unit:"%",  group:null},
   {key:"glassSize",  label:"Glass size",  min:60,  max:130, step:1, unit:"%",  group:"Glass"},
   {key:"glassLine",  label:"Glass lines", min:0,   max:100, step:1, unit:"",   group:null},
   {key:"condensation",label:"Condensation",min:0,  max:200, step:5, unit:"%",  group:null},
@@ -429,7 +430,7 @@ const SPECS = [
 const HOUSE = {
   fill:78, refill:32, pace:100, agitation:100, waveSpeed:46, viscosity:40,
   carbonation:100, bubbleSize:100, bubbleBreak:100, headDepth:100,
-  foamChurn:100, weep:100,
+  foamChurn:100, weep:100, weepAlpha:100,
   glassSize:100, glassLine:100, condensation:70, dewSize:100, hue:40, richness:46
 };
 
@@ -1991,7 +1992,7 @@ function drawDetail(){
      being nearer the eye than the thing casting it. */
   if (showCollar){
     ctxD.save();
-    ctxD.globalAlpha = 0.28;
+    ctxD.globalAlpha = 0.28 * weepAlpha();
     ctxD.strokeStyle = "rgba(90,72,44,.5)";
     ctxD.lineWidth = Math.max(1, G.wall * 0.35);
     hemWalk(ctxD);
@@ -2025,7 +2026,7 @@ function drawDetail(){
       py.push(h + ryAt(h) * hw * c);
       pw.push(Math.max(0.35, ribbonHalf(d, t) * fs));
     }
-    ctxD.globalAlpha = a;
+    ctxD.globalAlpha = a * weepAlpha();
     ctxD.fillStyle = pal.foam;
     ctxD.beginPath();
     for (let i = 0; i <= steps; i++){
@@ -2072,7 +2073,7 @@ function drawDetail(){
        standing edge to catch it. On a ribbon drawn down to a thread the
        highlight was the whole of it, and it read as a scratch on the glass. */
     if (pw[0] > 2.2){
-      ctxD.globalAlpha = a * 0.32;
+      ctxD.globalAlpha = a * 0.32 * weepAlpha();
       ctxD.strokeStyle = "rgba(255,255,255,.55)";
       ctxD.lineWidth = Math.max(0.6, pw[0] * 0.34);
       ctxD.beginPath();
@@ -2095,7 +2096,7 @@ function drawDetail(){
       outside.addPath(PATHS.sil);
       ctxD.save();
       ctxD.clip(outside, "evenodd");
-      ctxD.globalAlpha = a * 0.8;
+      ctxD.globalAlpha = a * 0.8 * weepAlpha();
       ctxD.fillStyle = pal.foam;
       ctxD.beginPath();
       /* centred where the bead meets the bar, which is its underside now that
@@ -2132,7 +2133,7 @@ function drawDetail(){
        the glass let it keep: scaled by the band, the weep ran shallowest at the
        brim, which is the one place it should be deepest, since it is exactly
        the foam the band has just had to give up. */
-    ctxD.globalAlpha = 0.94;
+    ctxD.globalAlpha = 0.94 * weepAlpha();
     ctxD.fillStyle = pal.foam;
     /* Its upper edge is the far arc of the rim. Foam that has come over covers
        the whole of the lip it came over — in a photograph you cannot see the rim
