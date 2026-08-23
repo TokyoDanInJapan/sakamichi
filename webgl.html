@@ -1152,7 +1152,14 @@ void main(){
      there, following the far arc of the surface rather than the near one the
      head actually ends on — so the head read as finishing at the back of the
      beer with the front of the beer showing beyond it. */
-  float lens = max(6.0, ellipseDy(px.x) * 2.1);
+  /* over a short reach, and no more. Carried the whole depth of the lens it
+     ran seventy pixels at the middle of the glass, and a head that grades into
+     the beer over seventy pixels has no edge at all: what you see then is a
+     wash with a level top, not the arc the head actually ends on. The soaking
+     is a hand's breadth of foam standing in beer, so it is a hand's breadth
+     here — enough to tell the wet foam from the dry, not enough to swallow the
+     edge it belongs to. */
+  float lens = clamp(ellipseDy(px.x) * 0.55, 7.0, 20.0);
   col = mix(col, col * uBeerTint, smoothstep(-lens, 3.0, px.y - front) * 0.45);
 
   frag = vec4(col, mask);

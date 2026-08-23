@@ -1399,7 +1399,7 @@ function drawFoam(){
     const x0 = i === 0 ? l - over : snap((xPrev + x) * 0.5);
     const x1 = i === N - 1 ? l + w + over : snap((x + xNext) * 0.5);
     if (x1 <= x0) continue;
-    const soak = Math.max(7 * G.scale, ellipseDy(x) * 2.1);
+    const soak = clamp(ellipseDy(x) * 0.55, 7, 20) * G.scale;
     const wet = ctxF.createLinearGradient(0, 0, 0, -soak);
     wet.addColorStop(0, pal.foamWet);
     wet.addColorStop(1, "transparent");
