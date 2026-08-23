@@ -1784,13 +1784,32 @@ function drawGlass(ctx){
 
   const fihw = innerHalfAt(G.inBottom);
   const firy = Math.max(2, fihw * ryAt(G.inBottom));
+  const bryF = Math.max(2, bry);
+
+  /* The head hides what is behind it down here as well as up at the lip. These
+     rings are stroked right round, but each is stroked twice — once in the far
+     colour, faded out towards the front, and once in the near colour faded out
+     towards the back — so the two arcs can be dealt with separately without
+     cutting either ellipse in half and leaving a seam through the sides where
+     they meet. The far passes go on behind the head; the near passes go on in
+     front of it, which is where they are.
+
+     Without this the floor's far arc and the standing ring's ran across the
+     foam of a nearly empty glass: the back of the glass seen through a body
+     the light does not get through. */
+  ctx.save();
+  if (level > 0.001 && foam.length){
+    const seen = new Path2D();
+    seen.rect(0, 0, W, H);
+    const head = new Path2D();
+    headPath(head);
+    seen.addPath(head);
+    ctx.clip(seen, "evenodd");
+  }
   ctx.beginPath();
   ctx.ellipse(G.cx, G.inBottom, fihw, firy, 0, 0, TAU);
   ctx.lineWidth = Math.max(1, G.wall * 0.3);
   ctx.strokeStyle = floorFade(pal.floorFar, pal.floorFar.a, 0, G.inBottom, firy);
-  ctx.stroke();
-  ctx.lineWidth = Math.max(1.2, G.wall * 0.38);
-  ctx.strokeStyle = floorFade(pal.floorNear, 0, pal.floorNear.a, G.inBottom, firy);
   ctx.stroke();
 
   /* The foot is a ring the glass stands on, and a ring is a whole ellipse. Only
@@ -1801,7 +1820,6 @@ function drawGlass(ctx){
      out at the widest points rather than past them, because the near half of
      this one is the silhouette's own stroke: the two meet there, and doubling
      over it would thicken the outline through the sides. */
-  const bryF = Math.max(2, bry);
   ctx.beginPath();
   ctx.ellipse(G.cx, G.bottom, G.botHalf, bryF, 0, 0, TAU);
   ctx.lineWidth = Math.max(1, G.wall * 0.26);
@@ -1813,6 +1831,17 @@ function drawGlass(ctx){
   ctx.ellipse(G.cx, G.bottom, G.botHalf * 0.86, bryF * 0.86, 0, 0, TAU);
   ctx.strokeStyle = floorFade(pal.floorFar, pal.floorFar.a, 0, G.bottom, bryF * 0.86);
   ctx.stroke();
+  ctx.restore();          /* out from behind the head */
+
+  /* and the near arcs, which stand in front of it */
+  ctx.beginPath();
+  ctx.ellipse(G.cx, G.inBottom, fihw, firy, 0, 0, TAU);
+  ctx.lineWidth = Math.max(1.2, G.wall * 0.38);
+  ctx.strokeStyle = floorFade(pal.floorNear, 0, pal.floorNear.a, G.inBottom, firy);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.ellipse(G.cx, G.bottom, G.botHalf * 0.86, bryF * 0.86, 0, 0, TAU);
   ctx.lineWidth = Math.max(1, G.wall * 0.4);
   ctx.strokeStyle = floorFade(pal.floorNear, 0, pal.floorNear.a, G.bottom, bryF * 0.86);
   ctx.stroke();

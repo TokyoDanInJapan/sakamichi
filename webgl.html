@@ -1334,6 +1334,31 @@ void main(){
     }
   }
 
+  /* What the head covers. Up at the lip this already hides the far half of the
+     rim; the back of the glass down at the bottom needs it just as much. A
+     nearly empty glass sits its head on the floor, and the floor's far arc and
+     the standing ring's ran straight across the foam — the back of the glass
+     seen through a body the light does not get through.
+
+     The outline is the one the foam pass fills: its top, and the near arc of
+     the beer it floats on. Each ring is then hidden by how far back the pixel
+     stands on it, which is the same split the canvas makes by stroking every
+     ring twice, once in a far colour faded out towards the front and once in a
+     near colour faded out towards the back. The near arcs are in front of the
+     head and stay whole. */
+  float headTop = 1e9, headBot = -1e9, headCov = 0.0;
+  if (uLevel > 0.001){
+    float hcu   = clamp((px.x - GCX) / max(1.0, innerHalfAt(rimTanY)), -1.0, 1.0);
+    float hdisc = sqrt(max(0.0, 1.0 - hcu * hcu));
+    float hmnd  = sqrt(max(0.0, 1.0 - pow(abs(hcu), 6.0)));
+    float hcap  = rimTanY - rimRy * 0.55 * hmnd - rimRy * hdisc;
+    headTop = max(surfaceAt(px.x) - ellipseDy(px.x) - uBandPx, hcap);
+    headBot = surfaceAt(px.x) + ellipseDy(px.x);
+    if (abs(px.x - GCX) <= innerHalfAt(max(px.y, rimTanY)))
+      headCov = smoothstep(headTop - 1.0, headTop + 2.0, px.y)
+              * (1.0 - smoothstep(headBot - 0.8, headBot + 1.2, px.y));
+  }
+
   /* The standing ring: its outer edge is the silhouette's bottom arc, its
      inner edge a second arc just inside */
   float botD = abs(length(bcS) - 1.0) * bw;
@@ -1344,6 +1369,7 @@ void main(){
   vec2 bc = vec2((px.x - GCX) / max(bw * 0.86, 1.0), (px.y - GBOT) / max(ryB * 0.86, 1.0));
   float baseArc = abs(length(bc) - 1.0) * bw * 0.86;
   float baseLine = smoothstep(GWALL * 0.5, 0.0, baseArc);
+  baseLine *= 1.0 - headCov * (1.0 - clamp(bc.y * 0.5 + 0.5, 0.0, 1.0));
   col = mix(col, uLight, clamp(baseLine, 0.0, 1.0));
   a = max(a, baseLine * 0.45 * uLine);
 
@@ -1357,6 +1383,7 @@ void main(){
   float floorArc = abs(length(fc) - 1.0) * fihw;
   float floorNear = clamp((px.y - GINBOT) / max(fihw * uRyKs.y, 1.0) * 0.5 + 0.5, 0.0, 1.0);
   float floorLine = smoothstep(GWALL * 0.55, 0.0, floorArc);
+  floorLine *= 1.0 - headCov * (1.0 - floorNear);
   col = mix(col, mix(uEdge, uLight, floorNear), clamp(floorLine, 0.0, 1.0));
   a = max(a, floorLine * mix(0.42, 0.72, floorNear) * uLine);
 
@@ -1379,16 +1406,8 @@ void main(){
      blob is cut in half and the field thins: the rim's own line was drawn
      across the foam there and read as a dark comma bitten out of the head at
      either side of the lip. */
-  if (px.y < rimTanY && uLevel > 0.001){
-    float cu    = clamp((px.x - GCX) / max(1.0, innerHalfAt(rimTanY)), -1.0, 1.0);
-    float disc  = sqrt(max(0.0, 1.0 - cu * cu));
-    float mound = sqrt(max(0.0, 1.0 - pow(abs(cu), 6.0)));
-    float cap   = rimTanY - rimRy * 0.55 * mound - rimRy * disc;
-    float back  = surfaceAt(px.x) - ellipseDy(px.x);
-    float headTop = max(back - uBandPx, cap);
-    if (abs(px.x - GCX) <= innerHalfAt(rimTanY))
-      a *= 1.0 - smoothstep(headTop - 1.0, headTop + 2.0, px.y);
-  }
+  if (px.y < rimTanY && uLevel > 0.001 && abs(px.x - GCX) <= innerHalfAt(rimTanY))
+    a *= 1.0 - smoothstep(headTop - 1.0, headTop + 2.0, px.y);
 
   if (a <= 0.003) discard;
   frag = vec4(col, clamp(a, 0.0, 1.0));
