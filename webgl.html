@@ -1065,6 +1065,18 @@ float smin(float a, float b, float k){
   return mix(b, a, h) - k * h * (1.0 - h);
 }
 
+/* The head's own top at a column: the far edge of the beer less the band the
+   head stands, or the crown arching over the lip, whichever is the higher.
+   Written as a function of x so it can be asked for a neighbouring column as
+   well as this one — see the slope below. */
+float headTopAt(float x, float lipCy, float rry, float bandPx){
+  float cu    = clamp((x - GCX) / max(1.0, innerHalfAt(lipCy)), -1.0, 1.0);
+  float disc  = sqrt(max(0.0, 1.0 - cu * cu));
+  float mound = sqrt(max(0.0, 1.0 - pow(abs(cu), 6.0)));
+  float cap   = lipCy - rry * 0.55 * mound - rry * disc;
+  return max(surfaceAt(x) - ellipseDy(x) - bandPx, cap);
+}
+
 void main(){
   vec2 px = fragPx();
 
@@ -1078,12 +1090,7 @@ void main(){
      of it and handing over with a step. */
   float rry   = GTH * GRYK;
   float lipCy = GTOP + rry;
-  float cu    = clamp((px.x - GCX) / max(1.0, innerHalfAt(lipCy)), -1.0, 1.0);
-  float disc  = sqrt(max(0.0, 1.0 - cu * cu));
-  float mound = sqrt(max(0.0, 1.0 - pow(abs(cu), 6.0)));
-  float cap   = lipCy - rry * 0.55 * mound - rry * disc;
-  float back  = surfaceAt(px.x) - ellipseDy(px.x);
-  float headTop = max(back - uBandPx, cap);
+  float headTop = headTopAt(px.x, lipCy, rry, uBandPx);
   /* and above the lip the bore stops widening: there is no more glass to hold it */
   /* The side of the head: the bore below the lip, and above it the cap of foam
      standing on the mouth. Two bounds — the wall, which widens as the glass
@@ -1159,7 +1166,21 @@ void main(){
      the hem turns that corner on an arc of its own. The top's distance is
      taken across its slope rather than straight down, or a boundary running
      that steeply would read as far away when it is a pixel off. */
-  float gTop  = dFdx(headTop);
+  /* How steeply that top runs, measured by asking the columns either side
+     rather than by taking a screen derivative of it.
+
+     A derivative is a difference across the quad the hardware happens to be
+     shading, and the other pixels of that quad are not ours to rely on: at the
+     edge of the head its neighbours are off the glass, where the top is not a
+     number at all. What comes back there is whatever the hardware does with
+     that — nothing, on the software rasteriser this is tested against, and not
+     nothing everywhere else. Divided into the distance below, one bad
+     derivative does not blur an edge, it decides that every pixel above the
+     head is inside it, and the head goes up the screen as a bar the width of
+     its own sides. Asked of the geometry instead, the slope is the same number
+     on every machine and is defined wherever the head is. */
+  float gTop  = (headTopAt(px.x + 1.0, lipCy, rry, uBandPx)
+               - headTopAt(px.x - 1.0, lipCy, rry, uBandPx)) * 0.5;
   float dTop  = (px.y - headTop) * inversesqrt(1.0 + gTop * gTop);
   float body  = smoothstep(0.0, 2.0, smin(dTop, dWall, 7.0 * uScale));
   float f = max(mix(fs, fb, 0.8), body);
