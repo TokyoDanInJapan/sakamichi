@@ -626,6 +626,13 @@ const weepAmount = () => clamp((cfg.weep == null ? 100 : cfg.weep) / 100, 0, 2);
    foot. Separate from how much of it there is: a glass can weep heavily in a
    film you can see the bar through, or barely at all in solid white. */
 const weepAlpha = () => clamp((cfg.weepAlpha == null ? 100 : cfg.weepAlpha) / 100, 0, 1);
+
+/* How much light the pour stops. At the full setting the beer is the solid
+   body it has always been; wound down, the bar and the back of the glass come
+   through it. It is one figure for the whole pour — its body, the light under
+   the head, the surface, the meniscus and the bubbles in it — because they are
+   all the same beer and thinning them separately only takes it apart. */
+const beerAlpha = () => clamp((cfg.beerAlpha == null ? 100 : cfg.beerAlpha) / 100, 0, 1);
 const weepDeep = () => (G.topHalf * 2) * 0.18 * weepAmount();
 
 /* Before any of it runs, the head comes over the lip as a sheet and hangs there

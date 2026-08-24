@@ -424,14 +424,16 @@ const SPECS = [
   {key:"condensation",label:"Condensation",min:0,  max:200, step:5, unit:"%",  group:null},
   {key:"dewSize",    label:"Bead size",   min:20,  max:220, step:5, unit:"%",  group:null},
   {key:"hue",        label:"Beer hue",    min:22,  max:50,  step:1, unit:"°",  group:"Colour"},
-  {key:"richness",   label:"Richness",    min:0,   max:100, step:1, unit:"",   group:null}
+  {key:"richness",   label:"Richness",    min:0,   max:100, step:1, unit:"",   group:null},
+  {key:"beerAlpha",  label:"Beer opacity",min:0,   max:100, step:1, unit:"%",  group:null}
 ];
 
 const HOUSE = {
   fill:78, refill:32, pace:100, agitation:100, waveSpeed:46, viscosity:40,
   carbonation:100, bubbleSize:100, bubbleBreak:100, headDepth:100,
   foamChurn:100, weep:100, weepAlpha:100,
-  glassSize:100, glassLine:100, condensation:70, dewSize:100, hue:40, richness:46
+  glassSize:100, glassLine:100, condensation:70, dewSize:100, hue:40, richness:46,
+  beerAlpha:100
 };
 
 const PRESETS = {
@@ -1147,8 +1149,14 @@ function drawLiquid(){
   ctxL.globalAlpha = 1;
   ctxL.restore();
 
+  /* Everything from here to the end of the pour is the beer, and it is all
+     drawn at the one opacity: the body, the light under the head, the surface
+     and its meniscus, and the bubbles standing in it. Set once here and
+     carried by the saves, so the few places that set an alpha of their own
+     take their share of it rather than painting back to solid. */
   ctxL.save();
   ctxL.clip(PATHS.interior);
+  ctxL.globalAlpha = beerAlpha();
   liquidPath(ctxL);
   const body = ctxL.createLinearGradient(0, sy - maxAmp, 0, G.inBottom);
   body.addColorStop(0,    pal.beerTop);
@@ -1168,7 +1176,7 @@ function drawLiquid(){
     const hw = innerHalfAt(sy);
     const slices = 60;
     const stepW = (hw * 2) / slices;
-    ctxL.globalAlpha = 0.26;
+    ctxL.globalAlpha = 0.26 * beerAlpha();
     for (let i = 0; i < slices; i++){
       const xd = G.cx - hw + (i + 0.5) * stepW;
       const nx = (xd - G.cx) / hw;
@@ -1180,10 +1188,10 @@ function drawLiquid(){
       if (u0 + uw < 0 || u0 > logoBeer.width) continue;
       ctxL.drawImage(logoBeer, u0, 0, uw, logoBeer.height, xd - stepW / 2, ly + dy, stepW, lh);
     }
-    ctxL.globalAlpha = 0.55;
+    ctxL.globalAlpha = 0.55 * beerAlpha();
     ctxL.fillStyle = body;
     ctxL.fillRect(G.cx - G.topHalf, G.top, G.topHalf * 2, G.h + 60);
-    ctxL.globalAlpha = 1;
+    ctxL.globalAlpha = beerAlpha();
   }
 
   /* Beer is deeper through the glass at the edges, and those edges lean in
@@ -1231,9 +1239,9 @@ function drawLiquid(){
   ctxL.lineTo(l - sOver, frontY(l));
   ctxL.closePath();
   ctxL.fillStyle = pal.surface;
-  ctxL.globalAlpha = 0.55;
+  ctxL.globalAlpha = 0.55 * beerAlpha();
   ctxL.fill();
-  ctxL.globalAlpha = 1;
+  ctxL.globalAlpha = beerAlpha();
 
   /* Light gathers just under the head, and the head shades the beer directly
      below it. Both belong to the surface, so each hangs from it as a band: the
