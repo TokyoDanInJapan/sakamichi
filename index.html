@@ -437,7 +437,7 @@ const SPECS = [
   {key:"hue",        label:"Beer hue",    min:22,  max:50,  step:1, unit:"°",  group:"Colour"},
   {key:"beerHex",    label:"Beer colour", type:"hex", unit:"", group:null},
   {key:"richness",   label:"Richness",    min:0,   max:100, step:1, unit:"",   group:null},
-  {key:"beerAlpha",  label:"Beer opacity",min:0,   max:100, step:1, unit:"%",  group:null}
+  {key:"beerAlpha",  label:"Beer opacity",min:0,   max:200, step:5, unit:"%",  group:null}
 ];
 
 const HOUSE = {
@@ -1197,7 +1197,7 @@ function drawLiquid(){
     const hw = innerHalfAt(sy);
     const slices = 60;
     const stepW = (hw * 2) / slices;
-    ctxL.globalAlpha = 0.26 * beerAlpha();
+    ctxL.globalAlpha = 0.26 * beerAlpha() * (1 - beerSolid());
     for (let i = 0; i < slices; i++){
       const xd = G.cx - hw + (i + 0.5) * stepW;
       const nx = (xd - G.cx) / hw;

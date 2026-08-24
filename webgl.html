@@ -440,7 +440,7 @@ const SPECS = [
   {key:"hue",        label:"Beer hue",    min:22,  max:50,  step:1, unit:"°",  group:"Colour"},
   {key:"beerHex",    label:"Beer colour", type:"hex", unit:"", group:null},
   {key:"richness",   label:"Richness",    min:0,   max:100, step:1, unit:"",   group:null},
-  {key:"beerAlpha",  label:"Beer opacity",min:0,   max:100, step:1, unit:"%",  group:null},
+  {key:"beerAlpha",  label:"Beer opacity",min:0,   max:200, step:5, unit:"%",  group:null},
   {key:"clarity",    label:"Clarity",     min:0,   max:100, step:1, unit:"",   group:null},
   {key:"caustics",   label:"Caustics",    min:0,   max:200, step:5, unit:"%",  group:"Optics"},
   {key:"lightAngle", label:"Light angle", min:0,   max:180, step:1, unit:"°",  group:null},
@@ -635,7 +635,7 @@ ${GLSL_GLASS}
 ${GLSL_NOISE}
 ${GLSL_LOGO}
 uniform sampler2D uField;
-uniform float uTime, uCaustics, uLevel, uHaze, uBeerA;
+uniform float uTime, uCaustics, uLevel, uHaze, uBeerA, uBeerSolid;
 uniform vec3  uLightTint, uAbsorb;
 out vec4 frag;
 
@@ -688,7 +688,7 @@ vec4 beerAt(vec2 px){
     rp.x = GCX + nx * ih * (0.72 - 0.20 * nx * nx);
     rp.y = px.y + 4.0;
     float la = logoA(rp) * step(0.001, uLogoOn);
-    beer *= 1.0 - la * 0.32 * exp(-d * 0.005) * (1.0 - uHaze * 0.85);
+    beer *= 1.0 - la * 0.32 * (1.0 - uBeerSolid) * exp(-d * 0.005) * (1.0 - uHaze * 0.85);
 
     /* Light gathers under the head — more so when the beer scatters */
     beer += uLightTint * (0.12 + uHaze * 0.12) * exp(-d * 0.022);
@@ -2161,6 +2161,7 @@ function render(){
   gl.uniform1f(progBeer.u.uTime, clock);
   gl.uniform1f(progBeer.u.uLevel, level);
   gl.uniform1f(progBeer.u.uBeerA, beerAlpha());
+  gl.uniform1f(progBeer.u.uBeerSolid, beerSolid());
   gl.uniform3fv(progBeer.u.uLightTint, pal.lightTint);
   gl.uniform3fv(progBeer.u.uAbsorb, pal.absorb);
   gl.uniform1f(progBeer.u.uCaustics, cfg.caustics / 100 * 0.55);

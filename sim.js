@@ -634,6 +634,12 @@ const weepAlpha = () => clamp((cfg.weepAlpha == null ? 100 : cfg.weepAlpha) / 10
    all the same beer and thinning them separately only takes it apart. */
 const beerAlpha = () => clamp((cfg.beerAlpha == null ? 100 : cfg.beerAlpha) / 100, 0, 1);
 
+/* Past the full setting the pour goes on closing: what is left showing through
+   a beer that is already covering everything behind it is the house mark on
+   the wall, read through the liquid. Wound up to the top it goes too, and
+   there is nothing behind the glass to be seen at all. */
+const beerSolid = () => clamp((cfg.beerAlpha == null ? 100 : cfg.beerAlpha) / 100 - 1, 0, 1);
+
 /* The beer's colour given outright, as a hex, instead of found with the hue
    slider. Held as the text that was typed and read back into hue, saturation
    and lightness, so everything the pour tints — the head, the light it throws
