@@ -675,12 +675,18 @@ vec4 beerAt(vec2 px){
     c = pow(c, 3.0) * stir + max(0.0, -curv) * 0.03;
     beer += beer * c * uCaustics * (1.0 - uHaze * 0.65) * exp(-d * 0.011);
 
-    /* The mark seen through the pour: magnified by the cylinder of liquid,
-       bent by the waves, and swallowed by depth and haze */
+    /* The mark seen through the pour: magnified by the cylinder of liquid and
+       swallowed by depth and haze — but not moved by the waves. It is painted
+       on the wall behind the bar and the glass stands in front of it, so the
+       beer's own motion is not its to carry: bent by the slope and lifted by
+       the wave's height, it read as a mark floating in the pour rather than
+       one standing behind it. The squeeze towards the middle stays, being the
+       cylinder it is seen through, and a cylinder does not move when the beer
+       inside it does. */
     float nx = (px.x - GCX) / max(ih, 1.0);
     vec2 rp;
-    rp.x = GCX + nx * ih * (0.72 - 0.20 * nx * nx) + sl * min(d, 90.0) * 2.0;
-    rp.y = px.y + heightAt(px.x) * 0.6 + 4.0;
+    rp.x = GCX + nx * ih * (0.72 - 0.20 * nx * nx);
+    rp.y = px.y + 4.0;
     float la = logoA(rp) * step(0.001, uLogoOn);
     beer *= 1.0 - la * 0.32 * exp(-d * 0.005) * (1.0 - uHaze * 0.85);
 

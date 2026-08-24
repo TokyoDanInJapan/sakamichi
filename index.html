@@ -1182,8 +1182,16 @@ function drawLiquid(){
   ctxL.save();
   ctxL.clip();
 
-  /* The mark refracts through the pour: sliced into columns, magnified by
-     the cylinder of liquid and bent by the waves, then sunk into the colour */
+  /* The mark seen through the pour: sliced into columns, magnified by the
+     cylinder of liquid, then sunk into the colour.
+
+     It does not move with the beer. The mark is painted on the wall behind the
+     bar, and the glass stands in front of it — swilling the pour used to carry
+     it about, each column of it shifted by the slope of the wave over it and
+     lifted by the wave's own height, which read as a mark floating in the beer
+     rather than one standing behind it. What the liquid still does is squeeze
+     it towards the middle, because that is the cylinder it is seen through and
+     the cylinder does not move when the beer does. */
   if (logoBeer){
     const [lx, ly, lw, lh] = logoRect();
     const hw = innerHalfAt(sy);
@@ -1193,11 +1201,10 @@ function drawLiquid(){
     for (let i = 0; i < slices; i++){
       const xd = G.cx - hw + (i + 0.5) * stepW;
       const nx = (xd - G.cx) / hw;
-      const sl = (surfaceAt(xd + 6) - surfaceAt(xd - 6)) / 12;
-      const xs = G.cx + nx * hw * (0.72 - 0.20 * nx * nx) + sl * 26;
+      const xs = G.cx + nx * hw * (0.72 - 0.20 * nx * nx);
       const u0 = (xs - stepW / 2 - lx) / lw * logoBeer.width;
       const uw = stepW / lw * logoBeer.width;
-      const dy = (surfaceAt(xd) - sy) * 0.6 + 4;
+      const dy = 4;
       if (u0 + uw < 0 || u0 > logoBeer.width) continue;
       ctxL.drawImage(logoBeer, u0, 0, uw, logoBeer.height, xd - stepW / 2, ly + dy, stepW, lh);
     }
