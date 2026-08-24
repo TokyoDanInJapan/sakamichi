@@ -441,6 +441,7 @@ const SPECS = [
   {key:"weepAlpha",  label:"Weep opacity",min:0,   max:100, step:1, unit:"%",  group:null},
   {key:"glassSize",  label:"Glass size",  min:60,  max:130, step:1, unit:"%",  group:"Glass"},
   {key:"glassLine",  label:"Glass lines", min:0,   max:100, step:1, unit:"",   group:null},
+  {key:"reflect",    label:"Reflection",  min:0,   max:200, step:5, unit:"%",  group:null},
   {key:"relief",     label:"Foam relief", min:0,   max:200, step:5, unit:"%",  group:null},
   {key:"condensation",label:"Condensation",min:0,  max:200, step:5, unit:"%",  group:null},
   {key:"dewSize",    label:"Bead size",   min:20,  max:220, step:5, unit:"%",  group:null},
@@ -458,7 +459,7 @@ const HOUSE = {
   fill:78, refill:32, agitation:100, waveSpeed:46, viscosity:40,
   carbonation:100, bubbleSize:100, bubbleBreak:100, headDepth:100,
   foamChurn:100, weep:100, weepAlpha:100,
-  glassSize:100, glassLine:100, relief:100, condensation:70, dewSize:100, hue:40, richness:46,
+  glassSize:100, glassLine:100, reflect:100, relief:100, condensation:70, dewSize:100, hue:40, richness:46,
   beerAlpha:100, clarity:70,
   caustics:100, lightAngle:62, gloss:55
 };
@@ -748,6 +749,7 @@ ${GLSL_GLASS}
 ${GLSL_NOISE}
 ${GLSL_LOGO}
 uniform sampler2D uWood;
+uniform float uReflect;
 uniform vec2 uWoodK;          // tiles across a camera height, and 0 or 1 for on
 uniform sampler2D uScene;
 uniform float uGlow, uDark, uLevel;
@@ -854,7 +856,7 @@ void main(){
                * mix(uDark > 0.5 ? 0.72 : 1.00, uDark > 0.5 ? 0.34 : 0.70, persp);
     }
     float fadeW = exp(-t / (GHT * 0.26)) * (uDark > 0.5 ? 0.45 : 0.30);
-    float fadeG = exp(-tg / (GHT * 0.30)) * (uDark > 0.5 ? 0.52 : 0.34);
+    float fadeG = exp(-tg / (GHT * 0.30)) * (uDark > 0.5 ? 0.52 : 0.34) * uReflect;
     col = mix(floorCol, reflW, fadeW);
 
     /* the sample is premultiplied, so it composites over the floor directly */
@@ -1281,7 +1283,7 @@ precision highp float;
 ${GLSL_GLASS}
 uniform sampler2D uField;
 uniform vec3 uEdge, uLight, uBeerGlow;
-uniform float uDark, uLightX, uLevel, uBandPx;
+uniform float uDark, uLightX, uLevel, uBandPx, uBeerSolid;
 /* How plainly the glass is drawn. It fades the lot together — the silhouette
    and its tint, both rim ellipses and the lip's light, the wall lines, the
    floor the beer stands on and the ring the glass stands on. Not the
@@ -1419,6 +1421,16 @@ void main(){
      ring twice, once in a far colour faded out towards the front and once in a
      near colour faded out towards the back. The near arcs are in front of the
      head and stay whole. */
+  /* And the beer covers them too, once it is thick enough to. At the house
+     setting you look through a pint and the back of the glass is there, which
+     is most of what says a glass is a glass; wound to the top of the opacity
+     slider the pour stops light, and nothing behind it shows. */
+  float beerCov = 0.0;
+  if (uLevel > 0.002 && uBeerSolid > 0.002){
+    float bTop = surfaceAt(px.x) - ellipseDy(px.x);
+    beerCov = uBeerSolid * smoothstep(bTop - 1.0, bTop + 1.0, px.y);
+  }
+
   float headTop = 1e9, headBot = -1e9, headCov = 0.0;
   if (uLevel > 0.001){
     float hcu   = clamp((px.x - GCX) / max(1.0, innerHalfAt(rimTanY)), -1.0, 1.0);
@@ -1442,7 +1454,7 @@ void main(){
   vec2 bc = vec2((px.x - GCX) / max(bw * 0.86, 1.0), (px.y - GBOT) / max(ryB * 0.86, 1.0));
   float baseArc = abs(length(bc) - 1.0) * bw * 0.86;
   float baseLine = smoothstep(GWALL * 0.5, 0.0, baseArc);
-  baseLine *= 1.0 - headCov * (1.0 - clamp(bc.y * 0.5 + 0.5, 0.0, 1.0));
+  baseLine *= 1.0 - max(headCov, beerCov) * (1.0 - clamp(bc.y * 0.5 + 0.5, 0.0, 1.0));
   col = mix(col, uLight, clamp(baseLine, 0.0, 1.0));
   a = max(a, baseLine * 0.45 * uLine);
 
@@ -1456,7 +1468,7 @@ void main(){
   float floorArc = abs(length(fc) - 1.0) * fihw;
   float floorNear = clamp((px.y - GINBOT) / max(fihw * uRyKs.y, 1.0) * 0.5 + 0.5, 0.0, 1.0);
   float floorLine = smoothstep(GWALL * 0.55, 0.0, floorArc);
-  floorLine *= 1.0 - headCov * (1.0 - floorNear);
+  floorLine *= 1.0 - max(headCov, beerCov) * (1.0 - floorNear);
   col = mix(col, mix(uEdge, uLight, floorNear), clamp(floorLine, 0.0, 1.0));
   a = max(a, floorLine * mix(0.42, 0.72, floorNear) * uLine);
 
@@ -2266,6 +2278,7 @@ function render(){
   gl.uniform1f(progGlass.u.uLevel, level);
   gl.uniform1i(progGlass.u.uField, 1);
   gl.uniform1f(progGlass.u.uBandPx, headBand());
+  gl.uniform1f(progGlass.u.uBeerSolid, beerSolid());
   gl.uniform1f(progGlass.u.uLine, glassLine());
   gl.enable(gl.BLEND);
   gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
@@ -2334,6 +2347,7 @@ function render(){
   gl.uniform3fv(progCompose.u.uGround, pal.ground);
   gl.uniform3fv(progCompose.u.uGroundDeep, pal.groundDeep);
   gl.uniform3fv(progCompose.u.uLightTint, pal.lightTint);
+  gl.uniform1f(progCompose.u.uReflect, reflectAmount());
   gl.uniform1f(progCompose.u.uGlow, pal.glow);
   gl.uniform1f(progCompose.u.uDark, pal.dark ? 1 : 0);
   gl.drawArrays(gl.TRIANGLES, 0, 3);

@@ -439,6 +439,7 @@ const SPECS = [
   {key:"weepAlpha",  label:"Weep opacity",min:0,   max:100, step:1, unit:"%",  group:null},
   {key:"glassSize",  label:"Glass size",  min:60,  max:130, step:1, unit:"%",  group:"Glass"},
   {key:"glassLine",  label:"Glass lines", min:0,   max:100, step:1, unit:"",   group:null},
+  {key:"reflect",    label:"Reflection",  min:0,   max:200, step:5, unit:"%",  group:null},
   {key:"condensation",label:"Condensation",min:0,  max:200, step:5, unit:"%",  group:null},
   {key:"dewSize",    label:"Bead size",   min:20,  max:220, step:5, unit:"%",  group:null},
   {key:"hue",        label:"Beer hue",    min:22,  max:50,  step:1, unit:"°",  group:"Colour"},
@@ -451,7 +452,7 @@ const HOUSE = {
   fill:78, refill:32, pace:100, agitation:100, waveSpeed:46, viscosity:40,
   carbonation:100, bubbleSize:100, bubbleBreak:100, headDepth:100,
   foamChurn:100, weep:100, weepAlpha:100,
-  glassSize:100, glassLine:100, condensation:70, dewSize:100, hue:40, richness:46,
+  glassSize:100, glassLine:100, reflect:100, condensation:70, dewSize:100, hue:40, richness:46,
   beerAlpha:100
 };
 
@@ -892,7 +893,8 @@ function liquidPath(ctx){
      The reflection is drawn from this same outline, so it wore the wedge too. */
   const syR = backY(l + w), syL = backY(l);
   const over = Math.max(12, G.topHalf - w / 2 + 12);
-  ctx.beginPath();
+  /* a Path2D takes the same moves and has no beginPath to start */
+  if (ctx.beginPath) ctx.beginPath();
   ctx.moveTo(l - over, syL);
   for (let i = 0; i < N; i++){
     const x = colX(i);
@@ -1148,6 +1150,7 @@ function drawBarTop(ctx){
     ctx.closePath();
     ctx.clip();
     const band = 4;
+    ctx.globalAlpha = clamp(reflectAmount(), 0, 1);
     for (let y = G.bottom; y < H; y += band){
       const t = y - G.bottom;
       const amp = Math.min(15 * G.scale, t * 0.10);
@@ -1155,6 +1158,7 @@ function drawBarTop(ctx){
       ctx.drawImage(REFL.mirror, 0, Math.round(y * dpr), REFL.mirror.width,
                     Math.ceil(band * dpr), dx, y, W, band);
     }
+    ctx.globalAlpha = 1;
     ctx.restore();
 
     /* ...and the whole reflection sinks into the bar as it runs away from the
@@ -1917,6 +1921,28 @@ function drawGlass(ctx){
      Without this the floor's far arc and the standing ring's ran across the
      foam of a nearly empty glass: the back of the glass seen through a body
      the light does not get through. */
+  /* The three far passes together, so they can be laid down twice: once for
+     what stands clear of the beer and once for what stands behind it. */
+  const farRings = () => {
+    ctx.beginPath();
+    ctx.ellipse(G.cx, G.inBottom, fihw, firy, 0, 0, TAU);
+    ctx.lineWidth = Math.max(1, G.wall * 0.3);
+    ctx.strokeStyle = floorFade(pal.floorFar, pal.floorFar.a, 0, G.inBottom, firy);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.ellipse(G.cx, G.bottom, G.botHalf, bryF, 0, 0, TAU);
+    ctx.lineWidth = Math.max(1, G.wall * 0.26);
+    ctx.strokeStyle = floorFade(pal.floorFar, pal.floorFar.a, 0, G.bottom, bryF, G.bottom);
+    ctx.stroke();
+
+    /* Inner edge of the standing ring, whose two arcs are both ours to hand over */
+    ctx.beginPath();
+    ctx.ellipse(G.cx, G.bottom, G.botHalf * 0.86, bryF * 0.86, 0, 0, TAU);
+    ctx.strokeStyle = floorFade(pal.floorFar, pal.floorFar.a, 0, G.bottom, bryF * 0.86);
+    ctx.stroke();
+  };
+
   ctx.save();
   if (level > 0.001 && foam.length){
     const seen = new Path2D();
@@ -1926,11 +1952,32 @@ function drawGlass(ctx){
     seen.addPath(head);
     ctx.clip(seen, "evenodd");
   }
-  ctx.beginPath();
-  ctx.ellipse(G.cx, G.inBottom, fihw, firy, 0, 0, TAU);
-  ctx.lineWidth = Math.max(1, G.wall * 0.3);
-  ctx.strokeStyle = floorFade(pal.floorFar, pal.floorFar.a, 0, G.inBottom, firy);
-  ctx.stroke();
+  /* And the beer hides them too, once it is thick enough to. At the house
+     setting it does not — you look through a pint and the back of the glass is
+     there, which is most of what says a glass is a glass — but wound to the
+     top of the opacity slider the pour stops light, and a body that stops
+     light has no back of a glass showing through it. Drawn in two passes
+     rather than clipped away, so it thins as the slider climbs instead of
+     going all at once at the end of it. */
+  const solid = level > 0.001 ? beerSolid() : 0;
+  if (solid > 0.002){
+    const liq = new Path2D();
+    liquidPath(liq);
+    const clear = new Path2D();
+    clear.rect(0, 0, W, H);
+    clear.addPath(liq);
+    ctx.save();
+    ctx.clip(clear, "evenodd");     /* standing clear of the beer */
+    farRings();
+    ctx.restore();
+    ctx.save();
+    ctx.clip(liq);                  /* and standing behind it */
+    ctx.globalAlpha *= 1 - solid;
+    farRings();
+    ctx.restore();
+  } else {
+    farRings();
+  }
 
   /* The foot is a ring the glass stands on, and a ring is a whole ellipse. Only
      its near arc is part of the silhouette — the far arc lies behind the glass
@@ -1940,18 +1987,7 @@ function drawGlass(ctx){
      out at the widest points rather than past them, because the near half of
      this one is the silhouette's own stroke: the two meet there, and doubling
      over it would thicken the outline through the sides. */
-  ctx.beginPath();
-  ctx.ellipse(G.cx, G.bottom, G.botHalf, bryF, 0, 0, TAU);
-  ctx.lineWidth = Math.max(1, G.wall * 0.26);
-  ctx.strokeStyle = floorFade(pal.floorFar, pal.floorFar.a, 0, G.bottom, bryF, G.bottom);
-  ctx.stroke();
-
-  /* Inner edge of the standing ring, whose two arcs are both ours to hand over */
-  ctx.beginPath();
-  ctx.ellipse(G.cx, G.bottom, G.botHalf * 0.86, bryF * 0.86, 0, 0, TAU);
-  ctx.strokeStyle = floorFade(pal.floorFar, pal.floorFar.a, 0, G.bottom, bryF * 0.86);
-  ctx.stroke();
-  ctx.restore();          /* out from behind the head */
+  ctx.restore();          /* out from behind the head and the beer */
 
   /* and the near arcs, which stand in front of it */
   ctx.beginPath();
