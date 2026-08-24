@@ -232,6 +232,17 @@ body[data-panel="open"] .panel{display:block}
 .ctl label{font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-soft)}
 .ctl output{font-size:11px;font-variant-numeric:tabular-nums;color:var(--ink)}
 .ctl input[type=range]{grid-column:1/-1;width:100%;margin:6px 0 0}
+.ctl .hex{grid-column:1/-1;display:flex;align-items:center;gap:8px;margin:6px 0 0}
+.ctl .hex input[type=color]{
+  width:26px;height:20px;padding:0;flex:none;cursor:pointer;
+  border:1px solid var(--hair);border-radius:4px;background:none;
+}
+.ctl .hex input[type=text]{
+  flex:1;min-width:0;font:inherit;font-size:11px;letter-spacing:.08em;
+  color:var(--ink);background:var(--track);border:1px solid var(--hair);
+  border-radius:4px;padding:3px 6px;
+}
+.ctl .hex input[type=text]::placeholder{color:var(--ink-soft);letter-spacing:.08em}
 
 input[type=range]{-webkit-appearance:none;appearance:none;background:transparent;height:16px;cursor:grab}
 input[type=range]:active{cursor:grabbing}
@@ -424,6 +435,7 @@ const SPECS = [
   {key:"condensation",label:"Condensation",min:0,  max:200, step:5, unit:"%",  group:null},
   {key:"dewSize",    label:"Bead size",   min:20,  max:220, step:5, unit:"%",  group:null},
   {key:"hue",        label:"Beer hue",    min:22,  max:50,  step:1, unit:"°",  group:"Colour"},
+  {key:"beerHex",    label:"Beer colour", type:"hex", unit:"", group:null},
   {key:"richness",   label:"Richness",    min:0,   max:100, step:1, unit:"",   group:null},
   {key:"beerAlpha",  label:"Beer opacity",min:0,   max:100, step:1, unit:"%",  group:null}
 ];
@@ -580,11 +592,12 @@ let palVersion = 0;
 function buildPalette(){
   palVersion++;
   const dark = isDark();
-  const h = cfg.hue;
   const r = cfg.richness / 100;
-  const sat = 58 + r * 32;
-  const lTop = 70 - r * 12;
-  const lBot = 50 - r * 20;
+  /* Hue and the two ends of the body's gradient, from the sliders or from the
+     hex if one is set — see beerTone. Everything below is built off these, so
+     a colour given outright carries the head, the glow and the light in the
+     base with it rather than repainting the body alone. */
+  const {h, sat, lTop, lBot} = beerTone();
   pal = {
     dark,
     ground: (getComputedStyle(document.documentElement).getPropertyValue("--ground") || (dark ? "#08090b" : "#f6f7f8")).trim(),
@@ -2260,6 +2273,8 @@ function frame(now){
 document.querySelectorAll("[data-preset]").forEach(btn => {
   btn.addEventListener("click", () => {
     Object.assign(cfg, PRESETS[btn.dataset.preset]);
+    /* a recipe brings its own colour with it */
+    cfg.beerHex = null;
     cfg.preset = btn.dataset.preset;
     syncInputs();
     if (!cfg.running) renderAll();

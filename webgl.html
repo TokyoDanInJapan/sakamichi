@@ -245,6 +245,17 @@ body[data-panel="open"] .panel{display:block}
 .ctl label{font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-soft)}
 .ctl output{font-size:11px;font-variant-numeric:tabular-nums;color:var(--ink)}
 .ctl input[type=range]{grid-column:1/-1;width:100%;margin:6px 0 0}
+.ctl .hex{grid-column:1/-1;display:flex;align-items:center;gap:8px;margin:6px 0 0}
+.ctl .hex input[type=color]{
+  width:26px;height:20px;padding:0;flex:none;cursor:pointer;
+  border:1px solid var(--hair);border-radius:4px;background:none;
+}
+.ctl .hex input[type=text]{
+  flex:1;min-width:0;font:inherit;font-size:11px;letter-spacing:.08em;
+  color:var(--ink);background:var(--track);border:1px solid var(--hair);
+  border-radius:4px;padding:3px 6px;
+}
+.ctl .hex input[type=text]::placeholder{color:var(--ink-soft);letter-spacing:.08em}
 
 input[type=range]{-webkit-appearance:none;appearance:none;background:transparent;height:16px;cursor:grab}
 input[type=range]:active{cursor:grabbing}
@@ -427,6 +438,7 @@ const SPECS = [
   {key:"condensation",label:"Condensation",min:0,  max:200, step:5, unit:"%",  group:null},
   {key:"dewSize",    label:"Bead size",   min:20,  max:220, step:5, unit:"%",  group:null},
   {key:"hue",        label:"Beer hue",    min:22,  max:50,  step:1, unit:"°",  group:"Colour"},
+  {key:"beerHex",    label:"Beer colour", type:"hex", unit:"", group:null},
   {key:"richness",   label:"Richness",    min:0,   max:100, step:1, unit:"",   group:null},
   {key:"beerAlpha",  label:"Beer opacity",min:0,   max:100, step:1, unit:"%",  group:null},
   {key:"clarity",    label:"Clarity",     min:0,   max:100, step:1, unit:"",   group:null},
@@ -1932,24 +1944,53 @@ function hslToRgb(h, s, l){
 let pal = {};
 function buildPalette(){
   const dark = isDark();
-  const h = cfg.hue;
   const r = cfg.richness / 100;
   const clarity = cfg.clarity / 100;
+  const tone = beerTone();
+  const h = tone.h;
 
-  /* Beer–Lambert: blue goes first, which is what turns a deep pour amber */
-  const base = 0.22 + r * 1.55;
-  const hueShift = (44 - h) / 22;
-  const absorb = [
-    base * (0.30 + hueShift * 0.10),
-    base * (0.95 + hueShift * 0.25),
-    base * (2.60 + hueShift * 0.70)
-  ].map(v => v * (1.35 - clarity * 0.55));
+  /* The beer here is not a colour but a depth of colour: a thin film's tint
+     and how fast each channel is swallowed as you look further through it.
+     Beer–Lambert, where blue goes first, which is what turns a deep pour amber.
+
+     Given a hex outright the two are solved the other way round. The film is
+     that colour lifted towards white, and the absorption is whatever makes the
+     pour read as the hex a couple of hundred pixels down — so the glass shows
+     the colour that was asked for at the depth you actually look through it,
+     lighter at the top of the pour and deeper at the bottom, the way beer is.
+     Clarity is left out of that solve: it goes on scattering the light, but it
+     may not walk the colour off the one that was named. */
+  const D = 220 * 0.0032;
+  const lightTint = tone.rgb ? hslToRgb(h, tone.sat, Math.min(95, tone.l + 26))
+                             : hslToRgb(h + 8, 92 - r * 10, 74 - r * 8);
+  let absorb;
+  if (tone.rgb){
+    /* The murk lifts what you see towards the film's own colour before any of
+       it is absorbed, so solving on the hex alone left the pour reading paler
+       than the colour it was given. The lift is taken off first and the
+       absorption solved for what is left underneath it. */
+    const m = (1 - clarity) * 0.60;
+    const scat = 0.38 + 0.50 * Math.exp(-220 * 0.005);
+    absorb = tone.rgb.map((c, i) => {
+      const lt = Math.max(1e-3, lightTint[i]);
+      const bare = (c - m * scat * lt) / Math.max(0.05, 1 - m);
+      return -Math.log(clamp(bare / lt, 0.02, 0.98)) / D;
+    });
+  } else {
+    const base = 0.22 + r * 1.55;
+    const hueShift = (44 - h) / 22;
+    absorb = [
+      base * (0.30 + hueShift * 0.10),
+      base * (0.95 + hueShift * 0.25),
+      base * (2.60 + hueShift * 0.70)
+    ].map(v => v * (1.35 - clarity * 0.55));
+  }
 
   pal = {
     dark,
     ground: hexToRgb(getComputedStyle(document.documentElement).getPropertyValue("--ground") || (dark ? "#08090b" : "#f6f7f8")),
     groundDeep: hexToRgb(getComputedStyle(document.documentElement).getPropertyValue("--ground-deep") || (dark ? "#040506" : "#e7eaec")),
-    lightTint: hslToRgb(h + 8, 92 - r * 10, 74 - r * 8),
+    lightTint,
     absorb,
     /* Foam is beer held in bubble walls: a pilsner head is bright white, a
        bock head beige. The wet band at the beer line carries the most colour. */
@@ -2293,6 +2334,8 @@ function frame(now){
 document.querySelectorAll("[data-preset]").forEach(btn => {
   btn.addEventListener("click", () => {
     Object.assign(cfg, PRESETS[btn.dataset.preset]);
+    /* a recipe brings its own colour with it */
+    cfg.beerHex = null;
     cfg.preset = btn.dataset.preset;
     syncInputs();
     if (!cfg.running) render();

@@ -633,6 +633,65 @@ const weepAlpha = () => clamp((cfg.weepAlpha == null ? 100 : cfg.weepAlpha) / 10
    the head, the surface, the meniscus and the bubbles in it — because they are
    all the same beer and thinning them separately only takes it apart. */
 const beerAlpha = () => clamp((cfg.beerAlpha == null ? 100 : cfg.beerAlpha) / 100, 0, 1);
+
+/* The beer's colour given outright, as a hex, instead of found with the hue
+   slider. Held as the text that was typed and read back into hue, saturation
+   and lightness, so everything the pour tints — the head, the light it throws
+   on the wall, the glow in the thick base — moves with it rather than the body
+   changing colour on its own and the rest of the glass staying amber.
+   An empty box is not a colour: it hands the pour back to the sliders. */
+function hexHsl(hex){
+  if (typeof hex !== "string") return null;
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return null;
+  let s = m[1];
+  if (s.length === 3) s = s[0] + s[0] + s[1] + s[1] + s[2] + s[2];
+  const r = parseInt(s.slice(0, 2), 16) / 255,
+        g = parseInt(s.slice(2, 4), 16) / 255,
+        b = parseInt(s.slice(4, 6), 16) / 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+  const l = (mx + mn) / 2;
+  let h = 0, sa = 0;
+  if (d > 1e-6){
+    sa = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+    h = mx === r ? ((g - b) / d + (g < b ? 6 : 0))
+      : mx === g ? ((b - r) / d + 2)
+      :            ((r - g) / d + 4);
+    h *= 60;
+  }
+  return {h, s: sa * 100, l: l * 100, rgb: [r, g, b], hex: "#" + s.toLowerCase()};
+}
+
+const hslHex = (h, s, l) => {
+  h = ((h % 360) + 360) % 360 / 360; s = clamp(s, 0, 100) / 100; l = clamp(l, 0, 100) / 100;
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p2 = 2 * l - q;
+  const f = x => {
+    x = (x + 1) % 1;
+    const v = x < 1 / 6 ? p2 + (q - p2) * 6 * x
+            : x < 1 / 2 ? q
+            : x < 2 / 3 ? p2 + (q - p2) * (2 / 3 - x) * 6
+            : p2;
+    return Math.round(clamp(s === 0 ? l : v, 0, 1) * 255).toString(16).padStart(2, "0");
+  };
+  return "#" + f(h + 1 / 3) + f(h) + f(h - 1 / 3);
+};
+
+/* Hue, saturation and the two ends of the body's gradient. Richness sets how
+   far apart those ends are either way, so it goes on meaning depth of colour
+   whether the hue came from the slider or from a hex. */
+function beerTone(){
+  const r = clamp(cfg.richness / 100, 0, 1);
+  const spread = 20 + r * 8;
+  const c = hexHsl(cfg.beerHex);
+  if (!c) return {h: cfg.hue, sat: 58 + r * 32, lTop: 70 - r * 12, lBot: 50 - r * 20,
+                  l: 60 - r * 16, rgb: null};
+  return {h: c.h, sat: c.s, l: c.l, rgb: c.rgb,
+          lTop: clamp(c.l + spread / 2, 6, 96), lBot: clamp(c.l - spread / 2, 4, 92)};
+}
+
+/* What the swatch beside the box shows: the colour the beer actually is, hex
+   or no hex, so opening the picker starts where the pour already stands. */
+const beerSwatch = () => { const t = beerTone(); return hslHex(t.h, t.sat, t.l); };
 const weepDeep = () => (G.topHalf * 2) * 0.18 * weepAmount();
 
 /* Before any of it runs, the head comes over the lip as a sheet and hangs there
@@ -1524,6 +1583,41 @@ function buildSliders(){
     const wrap = document.createElement("div");
     wrap.className = "ctl";
     const id = "ctl-" + s.key;
+
+    /* A colour is not a number on a line, so it gets a box to type a hex into
+       and a swatch to pick one with. The two are the same setting: the swatch
+       writes the box and the box tints the swatch. */
+    if (s.type === "hex"){
+      wrap.innerHTML =
+        `<label for="${id}">${s.label}</label>` +
+        `<output for="${id}" id="out-${s.key}"></output>` +
+        `<span class="hex">` +
+          `<input type="color" id="sw-${s.key}" aria-label="${s.label} swatch">` +
+          `<input type="text" id="${id}" spellcheck="false" autocomplete="off" ` +
+                `placeholder="#rrggbb" maxlength="7" inputmode="latin">` +
+        `</span>`;
+      frag.appendChild(wrap);
+      const text = wrap.querySelector("input[type=text]");
+      const sw = wrap.querySelector("input[type=color]");
+      inputs[s.key] = text;
+      const apply = v => {
+        cfg[s.key] = v;
+        paletteHook();
+        if (cfg.preset){ cfg.preset = null; chipsHook(); }
+        readout(s);
+        save();
+        if (!cfg.running) redraw();
+      };
+      text.addEventListener("input", () => {
+        const v = text.value.trim();
+        if (!v){ apply(null); return; }      /* emptied: back to the sliders */
+        const c = hexHsl(v);
+        if (c) apply(c.hex);                 /* anything else is half-typed */
+      });
+      sw.addEventListener("input", () => { text.value = sw.value; apply(sw.value); });
+      continue;
+    }
+
     wrap.innerHTML =
       `<label for="${id}">${s.label}</label>` +
       `<output for="${id}" id="out-${s.key}"></output>` +
@@ -1533,6 +1627,9 @@ function buildSliders(){
     inputs[s.key] = input;
     input.addEventListener("input", () => {
       cfg[s.key] = Number(input.value);
+      /* Moving the hue hands the colour back to the sliders: leaving a hex set
+         would take the slider's own reading away from it. */
+      if (s.key === "hue") clearBeerHex();
       if (PALETTE_KEYS.includes(s.key)) paletteHook();
       if (s.key === "glassSize"){ resizeHook(); }
       /* Moving the fill line is a deliberate adjustment, so the glass follows
@@ -1554,11 +1651,30 @@ function buildSliders(){
   SPECS.forEach(readout);
 }
 
-function readout(s){ document.getElementById("out-" + s.key).textContent = cfg[s.key] + s.unit; }
+function readout(s){
+  const out = document.getElementById("out-" + s.key);
+  if (!out) return;
+  if (s.type === "hex"){
+    out.textContent = cfg[s.key] ? "" : "auto";
+    const sw = document.getElementById("sw-" + s.key);
+    if (sw) sw.value = beerSwatch();
+    return;
+  }
+  out.textContent = cfg[s.key] + s.unit;
+}
+
+/* Give the pour back to the hue slider, box and swatch with it */
+function clearBeerHex(){
+  if (cfg.beerHex == null) return;
+  cfg.beerHex = null;
+  if (inputs.beerHex) inputs.beerHex.value = "";
+  const s = SPECS.find(x => x.key === "beerHex");
+  if (s) readout(s);
+}
 
 function syncInputs(){
   for (const s of SPECS){
-    if (inputs[s.key]) inputs[s.key].value = cfg[s.key];
+    if (inputs[s.key]) inputs[s.key].value = cfg[s.key] == null ? "" : cfg[s.key];
     readout(s);
   }
   paletteHook();
