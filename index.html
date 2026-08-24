@@ -392,6 +392,13 @@ body[data-chrome="off"] .panel-toggle{opacity:0;pointer-events:none}
       </div>
     </div>
     <div class="row">
+      <span>Counter</span>
+      <div class="chips" role="group" aria-label="Counter">
+        <button class="chip" data-counter="polished">Polished</button>
+        <button class="chip" data-counter="wood">Wood</button>
+      </div>
+    </div>
+    <div class="row">
       <span>Gooey head</span>
       <div class="chips"><button class="chip" id="gooBtn" aria-pressed="true">On</button></div>
     </div>
@@ -455,7 +462,8 @@ const PRESETS = {
 };
 
 const STORE_KEY = "sakamichi-splash-v2";
-const cfg = Object.assign({}, HOUSE, {tilt:false, theme:"auto", goo:true, running:true, preset:"helles"});
+const cfg = Object.assign({}, HOUSE, {tilt:false, theme:"auto", goo:true, running:true,
+                                     counter:"polished", preset:"helles"});
 
 try{
   const saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
@@ -476,6 +484,7 @@ if (params.has("goo")) cfg.goo = params.get("goo") !== "0";
 /* Which sliders demand a palette rebuild in this renderer */
 const PALETTE_KEYS = ["hue", "richness"];
 </script>
+<script src="bar-wood.js"></script>
 <script src="sim.js"></script>
 <script>
 (() => {
@@ -933,6 +942,82 @@ function headPath(ctx){
    function: caching it to an offscreen strip and blitting that composites
    differently from painting it in place, and the difference tells on the
    plane, so it is drawn straight onto the canvas. */
+/* How much of the counter one tile of timber covers, in camera heights */
+const WOOD_TILES = 0.34;
+let woodImg = null;
+{
+  const im = new Image();
+  im.onload = () => { woodImg = im; if (!cfg.running) renderAll(); };
+  im.src = BAR_WOOD;
+}
+
+/* The counter in timber, laid in the plane's own coordinates and kept.
+
+   A ground plane has one row of screen for each distance away from the eye, so
+   a row is all one depth and the whole plank can be laid a row at a time: how
+   far apart the grain stands across a row, and which line of the tile that row
+   is looking at, both follow from that one depth. Which is why it is drawn
+   this way rather than with an image stretched over the bar — stretching gives
+   grain running parallel to the frame, and a plane whose timber does not run
+   away from you is a poster of a counter, not a counter.
+
+   The plane vanishes where a horizontal circle would degenerate to a line,
+   which is where ryAt reads zero — the same camera the rim and the base
+   ellipses are drawn with, so the grain runs to the point they run to.
+
+   Kept, because none of it moves: it answers to the size of the stage and the
+   palette and nothing else, and rebuilding four hundred rows a frame to paint
+   the same plank again would be work for nothing. */
+const WOOD = {cv:null, key:"", top:0};
+function barWood(){
+  if (!woodImg) return null;
+  const top = Math.floor(horizonY());
+  const key = `${W}|${H}|${top}|${dpr}|${palVersion}`;
+  if (WOOD.key === key) return WOOD;
+
+  const h = Math.max(1, Math.ceil(H - top));
+  const cv = WOOD.cv || (WOOD.cv = document.createElement("canvas"));
+  cv.width = Math.max(1, Math.round(W * dpr));
+  cv.height = Math.max(1, Math.round(h * dpr));
+  const c2 = cv.getContext("2d");
+  c2.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c2.clearRect(0, 0, W, h);
+
+  const pat = c2.createPattern(woodImg, "repeat");
+  const tw = woodImg.width, th = woodImg.height;
+  const yV = -camEye * H;                       /* the plane's vanishing line */
+  const fL = camLens * H;                       /* and its focal length */
+  const rows = Math.ceil(h * dpr);
+  c2.fillStyle = pat;
+  for (let r = 0; r < rows; r++){
+    const yc = r / dpr;                         /* the row, in the sheet's own space */
+    const dy = Math.max(1, top + yc - yV);
+    const ax = dy / (WOOD_TILES * tw);          /* screen across, per pixel of tile */
+    const tv = (fL / dy) * WOOD_TILES * th;     /* and the line of it this row reads */
+    pat.setTransform(new DOMMatrix([ax, 0, 0, 1, G.cx, yc - tv]));
+    c2.fillRect(0, yc, W, 1 / dpr + 0.5);
+  }
+
+  /* Lit the way the bare plane is: paler where it recedes, deeper towards the
+     eye, so the glass goes on standing on it rather than in front of it. */
+  const lum = c2.createLinearGradient(0, 0, 0, h);
+  const near = pal.dark ? 0.34 : 0.70, far = pal.dark ? 0.72 : 1.00;
+  for (let i = 0; i <= 8; i++){
+    const yc = h * i / 8, tt = top + yc - horizonY();
+    const persp = tt / (tt + G.botHalf * 1.2);
+    const v = Math.round(255 * (far + (near - far) * persp));
+    lum.addColorStop(i / 8, `rgb(${v},${v},${v})`);
+  }
+  c2.globalCompositeOperation = "multiply";
+  c2.fillStyle = lum;
+  c2.fillRect(0, 0, W, h);
+  c2.globalCompositeOperation = "source-over";
+
+  WOOD.key = key;
+  WOOD.top = top;
+  return WOOD;
+}
+
 function drawBarTop(ctx){
   /* The bar top: the wall meets it back at the horizon, behind the glass,
      so the floor shows behind the pour and the glass stands ON the plane.
@@ -953,12 +1038,18 @@ function drawBarTop(ctx){
     ctx.drawImage(logoWall, lx, ly, lw, lh);
     ctx.restore();
   }
-  /* The wall reflection sinks into the bar */
-  const fadeR = ctx.createLinearGradient(0, hY, 0, hY + Math.max(140, G.h * 0.4));
-  fadeR.addColorStop(0, hexA(pal.ground, 0.35));
-  fadeR.addColorStop(1, hexA(pal.ground, 1));
-  ctx.fillStyle = fadeR;
-  ctx.fillRect(0, hY, W, H - hY);
+  /* The wall reflection sinks into the bar — into its own tone, or into the
+     timber, which is the same job done by the surface the counter is made of */
+  const wood = cfg.counter === "wood" ? barWood() : null;
+  if (wood){
+    ctx.drawImage(wood.cv, 0, wood.top, W, H - wood.top);
+  } else {
+    const fadeR = ctx.createLinearGradient(0, hY, 0, hY + Math.max(140, G.h * 0.4));
+    fadeR.addColorStop(0, hexA(pal.ground, 0.35));
+    fadeR.addColorStop(1, hexA(pal.ground, 1));
+    ctx.fillStyle = fadeR;
+    ctx.fillRect(0, hY, W, H - hY);
+  }
 
   if (level > 0.001){
     const syR = restSurfaceY();
@@ -2294,6 +2385,14 @@ function applyTheme(){
   buildPalette();
   if (!cfg.running) renderAll();
 }
+document.querySelectorAll("[data-counter]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    cfg.counter = btn.dataset.counter;
+    syncChips(); save();
+    if (!cfg.running) renderAll();
+  });
+});
+
 document.querySelectorAll("[data-theme-set]").forEach(btn => {
   btn.addEventListener("click", () => { cfg.theme = btn.dataset.themeSet; applyTheme(); syncChips(); save(); });
 });
@@ -2329,6 +2428,8 @@ function syncChips(){
     b.setAttribute("aria-pressed", String(cfg.preset === b.dataset.preset)));
   document.querySelectorAll("[data-theme-set]").forEach(b =>
     b.setAttribute("aria-pressed", String(cfg.theme === b.dataset.themeSet)));
+  document.querySelectorAll("[data-counter]").forEach(b =>
+    b.setAttribute("aria-pressed", String(cfg.counter === b.dataset.counter)));
   gooBtn.setAttribute("aria-pressed", String(cfg.goo));
   gooBtn.textContent = cfg.goo ? "On" : "Off";
   motionBtn.setAttribute("aria-pressed", String(cfg.running));

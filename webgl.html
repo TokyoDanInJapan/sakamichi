@@ -399,6 +399,13 @@ body[data-chrome="off"] .panel-toggle{opacity:0;pointer-events:none}
       </div>
     </div>
     <div class="row">
+      <span>Counter</span>
+      <div class="chips" role="group" aria-label="Counter">
+        <button class="chip" data-counter="polished">Polished</button>
+        <button class="chip" data-counter="wood">Wood</button>
+      </div>
+    </div>
+    <div class="row">
       <span>Motion</span>
       <div class="chips"><button class="chip" id="motionBtn" aria-pressed="true">Running</button></div>
     </div>
@@ -463,7 +470,8 @@ const PRESETS = {
 };
 
 const STORE_KEY = "sakamichi-shader-v2";
-const cfg = Object.assign({}, HOUSE, {tilt:false, theme:"auto", running:true, preset:"helles"});
+const cfg = Object.assign({}, HOUSE, {tilt:false, theme:"auto", running:true,
+                                     counter:"polished", preset:"helles"});
 
 try{
   const saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
@@ -481,8 +489,11 @@ for (const s of SPECS){
 if (params.has("theme")) cfg.theme = params.get("theme");
 
 /* Which sliders demand a palette rebuild in this renderer */
+/* How much of the counter one tile of timber covers, in camera heights */
+const WOOD_TILES = 0.34;
 const PALETTE_KEYS = ["hue", "richness", "clarity", "bubbleSize", "carbonation"];
 </script>
+<script src="bar-wood.js"></script>
 <script src="sim.js"></script>
 <script>
 (() => {
@@ -736,6 +747,8 @@ precision highp float;
 ${GLSL_GLASS}
 ${GLSL_NOISE}
 ${GLSL_LOGO}
+uniform sampler2D uWood;
+uniform vec2 uWoodK;          // tiles across a camera height, and 0 or 1 for on
 uniform sampler2D uScene;
 uniform float uGlow, uDark, uLevel;
 uniform vec3  uGround, uGroundDeep, uLightTint;
@@ -820,6 +833,26 @@ void main(){
     float persp = t / (t + GBH * 1.2);
     vec3 floorCol = uGroundDeep * mix(uDark > 0.5 ? 1.45 : 1.03,
                                       uDark > 0.5 ? 0.60 : 0.93, persp);
+
+    /* Timber, laid in the plane's own coordinates. The plane vanishes where a
+       horizontal circle would degenerate to a line, which is where ryAt reads
+       zero — the same camera the rim and the base ellipses are drawn with, so
+       the grain runs to the point they run to. Below that line the depth goes
+       as one over the distance from it, and the distance across the plane is
+       the screen offset times that depth. Those two are the plank's own
+       coordinates; a texture pasted on flat gives grain running parallel to
+       the frame rather than away from the eye, which is a poster of a bar and
+       not a bar. */
+    if (uWoodK.y > 0.5){
+      float yV  = -uRyLin.y / max(abs(uRyLin.x), 1e-6);
+      float fL  = 1.0 / max(abs(uRyLin.x), 1e-6);
+      float dyP = max(px.y - yV, 1.0);
+      vec2 wuv  = vec2((px.x - GCX) / dyP, fL / dyP) * uWoodK.x;
+      /* Lit the way the bare plane was — paler where it recedes, deeper
+         towards the eye — so the glass goes on standing on it. */
+      floorCol = texture(uWood, wuv).rgb
+               * mix(uDark > 0.5 ? 0.72 : 1.00, uDark > 0.5 ? 0.34 : 0.70, persp);
+    }
     float fadeW = exp(-t / (GHT * 0.26)) * (uDark > 0.5 ? 0.45 : 0.30);
     float fadeG = exp(-tg / (GHT * 0.30)) * (uDark > 0.5 ? 0.52 : 0.34);
     col = mix(floorCol, reflW, fadeW);
@@ -1837,6 +1870,25 @@ let logoReady = false;
   img.src = "data:image/svg+xml;utf8," + encodeURIComponent(LOGO_SVG);
 }
 
+/* The counter's timber. Repeating both ways and mipmapped: towards the far
+   edge of the bar a single row of screen covers more and more of the grain,
+   and without the smaller copies to fall back on it comes apart into moire. */
+const woodTex = gl.createTexture();
+{
+  const img = new Image();
+  img.onload = () => {
+    gl.bindTexture(gl.TEXTURE_2D, woodTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, img);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    if (!cfg.running) render();
+  };
+  img.src = BAR_WOOD;
+}
+
 let sceneTex = null, sceneFBO = null, sceneW = 1, sceneH = 1;
 
 function makeScene(w, h){
@@ -2267,7 +2319,13 @@ function render(){
   gl.bindTexture(gl.TEXTURE_2D, sceneTex);
   gl.activeTexture(gl.TEXTURE2);
   gl.bindTexture(gl.TEXTURE_2D, logoTex);
+  gl.activeTexture(gl.TEXTURE3);
+  gl.bindTexture(gl.TEXTURE_2D, woodTex);
   setShared(progCompose, dpr);
+  gl.uniform1i(progCompose.u.uWood, 3);
+  /* the tile stands for about a metre of counter, so a pint covers a fifteenth
+     of it across */
+  gl.uniform2f(progCompose.u.uWoodK, WOOD_TILES, cfg.counter === "wood" ? 1 : 0);
   gl.uniform1i(progCompose.u.uScene, 1);
   gl.uniform1i(progCompose.u.uLogo, 2);
   gl.uniform4f(progCompose.u.uLogoRect, lr[0], lr[1], lr[2], lr[3]);
@@ -2355,6 +2413,14 @@ function applyTheme(){
   buildPalette();
   if (!cfg.running) render();
 }
+document.querySelectorAll("[data-counter]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    cfg.counter = btn.dataset.counter;
+    syncChips(); save();
+    if (!cfg.running) render();
+  });
+});
+
 document.querySelectorAll("[data-theme-set]").forEach(btn => {
   btn.addEventListener("click", () => { cfg.theme = btn.dataset.themeSet; applyTheme(); syncChips(); save(); });
 });
@@ -2387,6 +2453,8 @@ function syncChips(){
     b.setAttribute("aria-pressed", String(cfg.preset === b.dataset.preset)));
   document.querySelectorAll("[data-theme-set]").forEach(b =>
     b.setAttribute("aria-pressed", String(cfg.theme === b.dataset.themeSet)));
+  document.querySelectorAll("[data-counter]").forEach(b =>
+    b.setAttribute("aria-pressed", String(cfg.counter === b.dataset.counter)));
   motionBtn.setAttribute("aria-pressed", String(cfg.running));
   motionBtn.textContent = cfg.running ? "Running" : "Paused";
   tiltBtn.setAttribute("aria-pressed", String(cfg.tilt));
