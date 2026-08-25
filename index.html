@@ -119,7 +119,8 @@ body[data-goo="off"] #foam{filter:none}
   text-transform:uppercase;
   color:var(--ink-soft);
   display:flex;flex-wrap:wrap;gap:.55em 1.1em;
-  margin:0 0 clamp(14px,2.4vw,22px);
+  /* under the wordmark now, so the gap it keeps is above it */
+  margin:clamp(14px,2.4vw,22px) 0 0;
 }
 .eyebrow span{display:inline-flex;gap:.7em;align-items:center}
 .eyebrow span::before{content:"";width:14px;height:1px;background:var(--hair)}
@@ -136,29 +137,6 @@ h1 .thin{
   line-height:1.2;margin-top:.26em;color:inherit;
 }
 
-.lower{
-  position:fixed;left:0;z-index:3;
-  bottom:max(clamp(20px,3.6vmin,48px),env(safe-area-inset-bottom));
-  width:min(30rem,62vw);
-  padding:0 clamp(20px,3.6vmin,48px);
-}
-.tagline{
-  font-family:Iowan Old Style,Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;
-  font-size:clamp(.98rem,1.9vw,1.22rem);
-  line-height:1.5;max-width:30ch;margin:0;color:var(--ink);
-}
-.actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:clamp(16px,2.6vw,26px)}
-.btn{
-  font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
-  font-size:11px;letter-spacing:.16em;text-transform:uppercase;
-  padding:13px 20px;border-radius:2px;border:1px solid transparent;
-  background:var(--brand);color:#0e1319;
-  text-decoration:none;cursor:pointer;
-  transition:transform .18s ease,background .18s ease,color .18s ease;
-}
-.btn:hover{transform:translateY(-1px)}
-.btn.ghost{background:transparent;color:var(--ink);border-color:var(--hair)}
-.btn.ghost:hover{border-color:var(--ink)}
 
 /* ------------------------------------------------------------------ *
  * Taprooms and social links, top right
@@ -284,11 +262,10 @@ input[type=range]::-moz-range-thumb{
 body[data-chrome="off"] .masthead,
 body[data-chrome="off"] .info,
 body[data-chrome="off"] .panel,
-body[data-chrome="off"] .lower,
 body[data-chrome="off"] .panel-toggle{opacity:0;pointer-events:none}
-.masthead,.info,.panel,.panel-toggle,.lower{transition:opacity .35s ease}
+.masthead,.info,.panel,.panel-toggle{transition:opacity .35s ease}
 @media (prefers-reduced-motion:reduce){
-  .masthead,.info,.panel,.panel-toggle,.btn,.lower{transition:none}
+  .masthead,.info,.panel,.panel-toggle{transition:none}
 }
 
 @media (max-width:719px){
@@ -298,11 +275,6 @@ body[data-chrome="off"] .panel-toggle{opacity:0;pointer-events:none}
     max-height:52vh;padding-bottom:env(safe-area-inset-bottom);
   }
   .masthead{max-width:100%}
-  .lower{width:100%}
-  .tagline{max-width:26ch}
-}
-@media (max-height:560px) and (orientation:landscape){
-  .tagline{display:none}
 }
 </style>
 </head>
@@ -326,19 +298,11 @@ body[data-chrome="off"] .panel-toggle{opacity:0;pointer-events:none}
 </div>
 
 <header class="masthead">
-  <p class="eyebrow">
-    <span>Est. 2019</span><span>Tachikawa · Tokyo</span><span>Helles · 4.6%</span>
-  </p>
   <h1>Sakamichi<span class="thin">Brewing</span></h1>
+  <p class="eyebrow">
+    <span>Est. 2019</span><span>Tachikawa · Tokyo</span>
+  </p>
 </header>
-
-<div class="lower">
-  <p class="tagline">Tachikawa&rsquo;s own craft brewery. Lagers and ales made the slow way &mdash; the journey matters as much as the destination. Stir the glass with your cursor.</p>
-  <div class="actions">
-    <a class="btn" href="https://www.google.com/maps/search/?api=1&amp;query=Sakamichi+Taproom+Tachikawa" target="_blank" rel="noopener">Find the taproom</a>
-    <a class="btn ghost" href="https://www.sakamichibrewing.com/" target="_blank" rel="noopener">sakamichibrewing.com</a>
-  </div>
-</div>
 
 <aside class="info" aria-label="Taprooms">
   <p>
