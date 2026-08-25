@@ -1541,6 +1541,7 @@ ${GLSL_NOISE}
 uniform vec3  uFoam;
 uniform vec4  uWeep;         // collar, how far over the lip, weepReach, weepDeep
 uniform float uWeepRun;      // and how far down the outside, which comes after
+uniform float uWeepAlive;    // and how much of it has not dried off yet
 uniform float uScale, uTime, uCoarse, uWeepA;
 uniform int   uRibN;
 uniform vec4  uRibA[6];      // th, top, bottom h, shoulder width
@@ -1694,7 +1695,7 @@ void main(){
        edge-on is a point. */
     float edge = min(1.0, abs(cos(th)) * 3.4);
     over(acc, vec3(0.353, 0.282, 0.173),
-         smoothstep(lw * 0.5, lw * 0.5 - 1.0, perp) * 0.28 * 0.5 * edge);
+         smoothstep(lw * 0.5, lw * 0.5 - 1.0, perp) * 0.28 * 0.5 * edge * uWeepAlive);
   }
 
   /* Foam over the lip, running down the outside. One body apiece: the tail and
@@ -1815,7 +1816,7 @@ void main(){
     float ring = 1.0 - smoothstep(qRing - 0.05, qRing, q);
     float hang = step(1.0, q) * step(rimCy(), px.y);
     band *= max(ring, hang);
-    over(acc, foamGrain(px), band * 0.94);
+    over(acc, foamGrain(px), band * 0.94 * uWeepAlive);
   }
 
   /* How plainly it is drawn, which is not how much of it there is. The whole
@@ -2336,6 +2337,7 @@ function render(){
     gl.uniform3fv(progWeep.u.uFoam, pal.foam);
     gl.uniform4f(progWeep.u.uWeep, collar, weepOver(), weepReach, weepDeep());
     gl.uniform1f(progWeep.u.uWeepRun, weepRun());
+    gl.uniform1f(progWeep.u.uWeepAlive, weepAlive);
     gl.uniform1f(progWeep.u.uScale, G.scale);
     gl.uniform1f(progWeep.u.uWeepA, weepAlpha());
     gl.uniform1f(progWeep.u.uTime, clock);

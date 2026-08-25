@@ -725,6 +725,11 @@ let creep = 0;
    ran up and down the outside of the glass with it. What is on the outside
    stays where it was put and the rest of it catches up slowly. */
 let weepReach = 0;
+/* Whether the weep is still being fed. Foam already on the outside of the
+   glass does not go back in when the beer drops — it stays where it was put
+   and dries out — so what happens when the pour stops feeding it is that it
+   thins away, over a couple of seconds, from wherever it had got to. */
+let weepAlive = 0;
 
 /* The weep runs in an order, and the order is the whole of what it looks like:
    the head reaches the lip, comes over the ring of it, and only then runs down
@@ -734,6 +739,8 @@ let weepReach = 0;
    outside while the ring it hangs from was still being covered, which is a
    weep arriving everywhere at once. */
 const WEEP_OVER = 0.45;
+/* and how long it takes to dry off the glass once nothing is feeding it */
+const WEEP_DRY = 2.6;
 const ease = s => (s = clamp(s, 0, 1), s * s * (3 - 2 * s));
 /* how far the foam has got over the ring of the lip */
 const weepOver = () => ease(creep / WEEP_OVER);
@@ -1342,13 +1349,29 @@ function updateDrops(dt){
   }
   /* The strength follows the pour at once — it is a fact about how full the
      glass is — and the creep takes its time, four seconds or so from the lip
-     to wherever the strength says it is going. */
-  collar = collarWant();
+     to wherever the strength says it is going.
+
+     Cut off, though, none of it runs backwards. Swill a full glass and it
+     spills, and what it spills drops the level below the line that was feeding
+     the weep; read straight, that took the collar off the glass between one
+     frame and the next, which is foam leaping back into a pint. What is on the
+     outside stays where it was put: the reach, the tongues and how far it had
+     crept are all held where they had got to, and the whole of it thins away
+     instead. Only once there is nothing left to see is any of it wound back,
+     so the next weep starts from the lip again rather than from the middle of
+     the last one. */
+  const want = collarWant();
   const k = Math.min(1, dt * 0.25);
-  creep += ((collar > 0.01 ? 1 : 0) - creep) * k;
-  const reachWant = collar > 0.01
-    ? Math.max(0, restSurfaceY() - (G.top + G.topHalf * G.ryTop)) : 0;
-  weepReach += (reachWant - weepReach) * k;
+  if (want > 0.01){
+    collar = want;
+    weepAlive = 1;
+    creep += (1 - creep) * k;
+    const reachWant = Math.max(0, restSurfaceY() - (G.top + G.topHalf * G.ryTop));
+    weepReach += (reachWant - weepReach) * k;
+  } else if (weepAlive > 0){
+    weepAlive = Math.max(0, weepAlive - dt / WEEP_DRY);
+    if (weepAlive === 0){ collar = 0; creep = 0; weepReach = 0; }
+  }
   /* It runs until it is off the glass and onto the bar: the foot is the height
      the glass stands at, which is where the wall runs out from under it. */
   for (let i = drips.length - 1; i >= 0; i--){

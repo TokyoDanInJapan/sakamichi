@@ -2152,7 +2152,7 @@ function drawDetail(){
      being nearer the eye than the thing casting it. */
   if (showCollar){
     ctxD.save();
-    ctxD.globalAlpha = 0.28 * weepAlpha();
+    ctxD.globalAlpha = 0.28 * weepAlpha() * weepAlive;
     ctxD.strokeStyle = "rgba(90,72,44,.5)";
     ctxD.lineWidth = Math.max(1, G.wall * 0.35);
     hemWalk(ctxD);
@@ -2293,7 +2293,7 @@ function drawDetail(){
        the glass let it keep: scaled by the band, the weep ran shallowest at the
        brim, which is the one place it should be deepest, since it is exactly
        the foam the band has just had to give up. */
-    ctxD.globalAlpha = 0.94 * weepAlpha();
+    ctxD.globalAlpha = 0.94 * weepAlpha() * weepAlive;
     ctxD.fillStyle = pal.foam;
     /* Its upper edge is the far arc of the rim. Foam that has come over covers
        the whole of the lip it came over — in a photograph you cannot see the rim
