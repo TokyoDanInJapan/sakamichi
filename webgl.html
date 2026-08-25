@@ -563,11 +563,23 @@ vec2 conePoint(float h, float th){
 }
 
 float heightAt(float x){
-  float t = clamp((x - (GCX - uSpanHw)) / (2.0 * uSpanHw), 0.0, 1.0) * (uCols - 1.0);
-  float i0 = floor(t);
-  float f  = t - i0;
+  float last = max(1.0, uCols - 1.0);
+  float t = (x - (GCX - uSpanHw)) / (2.0 * uSpanHw) * last;
+  /* Past the ends the surface goes on rather than stopping. The span is the
+     beer's own width at its surface, and the wall it runs to stands wider than
+     that on whichever side the beer is standing high — measured on a hard
+     tilt, thirteen pixels outside it, which is near three columns. Held at the
+     end column for those, the surface came out level against the wall while
+     the rest of it went on tilting, and what stood between the two was a thin
+     wedge of beer with a straight top: the triangle at the wall.
+
+     Carried on at the slope of the last pair instead, it arrives at the wall
+     where it was going. A few columns of it only, so that a reading taken far
+     outside the glass cannot run away with the slope. */
+  float i0 = clamp(floor(t), 0.0, last - 1.0);
+  float f  = clamp(t - i0, -4.0, 5.0);
   float a = texelFetch(uHeight, ivec2(int(i0), 0), 0).r;
-  float b = texelFetch(uHeight, ivec2(int(min(i0 + 1.0, uCols - 1.0)), 0), 0).r;
+  float b = texelFetch(uHeight, ivec2(int(i0) + 1, 0), 0).r;
   return mix(a, b, f);
 }
 float surfaceAt(float x){ return uRestY + heightAt(x); }
