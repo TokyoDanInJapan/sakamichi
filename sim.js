@@ -1227,6 +1227,17 @@ function updateFoam(dt){
   const churn = cfg.foamChurn / 100;
   /* Malt and alcohol thin the bubble walls: a bock head dies faster than a pilsner's */
   const malt = 0.8 + (cfg.richness / 100) * 0.6;
+  /* How fast a head gives itself up: a deep head holds on longer than a thin
+     one, which is what the head-depth setting buys. Both rates fall with depth
+     and both are floored, because a rate that falls through zero does not go
+     on slowing — it reverses. Past a third again of full depth every fleck of
+     foam grew instead of shrinking and none of them ever timed out, so a glass
+     left alone at a deep setting ended up with a single blob the width of the
+     bore and hundreds of pixels tall, standing off the top of the frame. It
+     grew about a pixel every two seconds and nothing stopped it. Below that
+     point the floors do not bite and the pour behaves exactly as it did. */
+  const dying = Math.max(0.20, 0.55 + (1 - depth) * 0.9);
+  const thinning = Math.max(0.10, 0.35 + (1 - depth) * 1.1);
   const band = headBand();
   const hw = innerHalfAt(restSurfaceY());
   const target = Math.round(clamp(hw / 3.2, 14, capFoam) * (0.25 + depth * 0.95));
@@ -1242,7 +1253,7 @@ function updateFoam(dt){
 
   for (let i = foam.length - 1; i >= 0; i--){
     const f = foam[i];
-    f.life -= dt * (0.55 + (1 - depth) * 0.9) * malt;
+    f.life -= dt * dying * malt;
     f.seed += dt * (1.4 + churn * 2.6);
 
     const rest = -(f.r * 0.45 + f.lift * band);
@@ -1259,7 +1270,7 @@ function updateFoam(dt){
     if (f.x < G.cx - lim){ f.x = G.cx - lim; f.vx *= -0.5; }
     if (f.x > G.cx + lim){ f.x = G.cx + lim; f.vx *= -0.5; }
 
-    f.r -= dt * (0.35 + (1 - depth) * 1.1) * (churn * 0.5 + 0.7) * malt * G.scale;
+    f.r -= dt * thinning * (churn * 0.5 + 0.7) * malt * G.scale;
     if (f.r < 2.2 * G.scale || f.life < 0) foam.splice(i, 1);
   }
 }
