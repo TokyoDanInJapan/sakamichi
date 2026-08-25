@@ -1303,6 +1303,11 @@ function drawLiquid(){
   ctxL.globalAlpha = 1;
   ctxL.restore();
 
+  /* What runs down the back of the glass goes on before the beer does, so the
+     pour stands in front of it and shows as much of it as it is clear enough
+     to show */
+  if (drips.length) paintRibbons(ctxL, true);
+
   /* Everything from here to the end of the pour is the beer, and it is all
      drawn at the one opacity: the body, the light under the head, the surface
      and its meniscus, and the bubbles standing in it. Set once here and
@@ -2051,6 +2056,130 @@ function drawGlass(ctx){
   ctx.restore();          /* the head's clip */
 }
 
+  /* Foam over the lip, running down the outside — so it goes on after the
+     glass, the way the condensation does, and after the condensation too: a run
+     of foam lies on the wall and takes the beads under it with it, so it can
+     hardly have them showing through.
+     Drawn as one outline apiece: the tail and the bead it hangs from are the
+     same body of foam, and two overlapping fills at this alpha would seam
+     where they crossed. */
+/* Its own function, and called twice: what runs down the back of the glass
+   is painted with the room, before the beer goes in over it, and what runs
+   down the front is painted with the glass. A ribbon on the far side is
+   behind the pour — you are looking through the whole depth of the beer to
+   see it — so the beer decides how much of it shows, which is what the
+   opacity of the pour is for. Painted on the near sheet with the rest, it
+   lay over the beer instead: a bright trail in front of a pint it is
+   supposed to be behind. */
+function paintRibbons(ctx, wantFar){
+  for (const d of drips){
+    if ((Math.cos(d.th) < 0) !== wantFar) continue;
+    const c = Math.cos(d.th), s = Math.sin(d.th);
+    /* which way round the glass it is: in front of the pour, or behind it */
+    const side = c < 0 ? -1 : 1;
+    const a = clamp(d.life, 0, 1) * 0.94 * (0.6 + 0.4 * (0.5 + 0.5 * c));
+    if (a <= 0.01) continue;
+    /* edge-on where the glass turns away, as the beads are */
+    const fs = Math.max(0.3, Math.abs(c));
+    const steps = 18;
+    const px = [], py = [], pw = [];
+    for (let i = 0; i <= steps; i++){
+      const t = i / steps;
+      const h = lerp(d.top, d.h, t);
+      const hw = halfAt(h);
+      /* it wanders as it goes, the way a trail down a wet wall does, and is
+         pinned where it leaves the collar so the wander does not shift its root */
+      const sway = Math.sin(t * 4.1 + d.wob) * d.wobA * t;
+      px.push(G.cx + hw * s + sway * fs);
+      py.push(h + ryAt(h) * hw * c);
+      pw.push(Math.max(0.35, ribbonHalf(d, t) * fs));
+    }
+    ctx.globalAlpha = a * weepAlpha();
+    ctx.fillStyle = pal.foam;
+    ctx.beginPath();
+    for (let i = 0; i <= steps; i++){
+      if (i) ctx.lineTo(px[i] - pw[i], py[i]); else ctx.moveTo(px[i] - pw[i], py[i]);
+    }
+    /* Round off under the bead, then back up the other edge — unless it has
+       arrived, in which case there is no bead left to round. A run of foam that
+       has reached the bottom of the glass is standing on it, its whole width
+       against the edge, and the edge is the base's own arc: a rounded end there
+       is a drop still hanging in the air a moment before it lands. */
+    if (d.pool > 0){
+      const bry = baseBulge(), bhw = Math.max(1, G.botHalf);
+      /* on the arc of the base its own side of the glass stands on */
+      const arcY = x => {
+        const u = clamp((x - G.cx) / bhw, -1, 1);
+        return G.bottom + side * bry * Math.sqrt(1 - u * u);
+      };
+      const bSteps = 5;
+      for (let i = 0; i <= bSteps; i++){
+        const x = px[steps] - pw[steps] + 2 * pw[steps] * i / bSteps;
+        ctx.lineTo(x, arcY(x));
+      }
+    } else {
+      ctx.ellipse(px[steps], py[steps], pw[steps], Math.max(0.35, d.r), 0, Math.PI, 0, true);
+    }
+    for (let i = steps; i >= 0; i--) ctx.lineTo(px[i] + pw[i], py[i]);
+    /* and across the top on the lip's own curve rather than straight. The
+       ribbon is only its own width across, but the rim is an ellipse and near
+       the two sides of the glass that is where it turns hardest — over ten
+       pixels of ribbon the lip drops four, so a level cut there reads as a tab
+       stuck on the glass rather than foam coming over the edge of it. */
+    /* on the rim's own ellipse, to its own radii, so the two meet exactly
+       rather than on a curve of nearly the same shape */
+    const rRy = G.topHalf * G.ryTop, rCy = G.top + rRy, rRx = Math.max(1, halfAt(rCy));
+    const aSteps = 6;
+    for (let i = 0; i <= aSteps; i++){
+      const x = px[0] + pw[0] - 2 * pw[0] * i / aSteps;
+      const u = clamp((x - G.cx) / rRx, -1, 1);
+      /* and cut on the lip its own side of the glass hangs from */
+      ctx.lineTo(x, rCy + side * (rRy * Math.sqrt(1 - u * u) - 0.5 * G.scale));
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    /* The light runs down the standing edge of it — but only once there is a
+       standing edge to catch it. On a ribbon drawn down to a thread the
+       highlight was the whole of it, and it read as a scratch on the glass. */
+    if (pw[0] > 2.2){
+      ctx.globalAlpha = a * 0.32 * weepAlpha();
+      ctx.strokeStyle = "rgba(255,255,255,.55)";
+      ctx.lineWidth = Math.max(0.6, pw[0] * 0.34);
+      ctx.beginPath();
+      for (let i = 0; i <= steps; i++){
+        if (pw[i] < 1.1) break;
+        const hx = px[i] - pw[i] * 0.42;
+        if (i) ctx.lineTo(hx, py[i]); else ctx.moveTo(hx, py[i]);
+      }
+      ctx.stroke();
+    }
+
+    /* and what got all the way down runs off the glass and lies on the bar.
+       Only the half of it that has cleared the foot: the glass stands on the
+       other half, and foam does not gather under a glass that is already there.
+       So the puddle is cut to everything the silhouette is not — a rectangle
+       with the glass taken out of it — and it spreads from the foot outwards. */
+    if (d.pool > 0){
+      const outside = new Path2D();
+      outside.rect(0, 0, W, H);
+      outside.addPath(PATHS.sil);
+      ctx.save();
+      ctx.clip(outside, "evenodd");
+      ctx.globalAlpha = a * 0.8 * weepAlpha();
+      ctx.fillStyle = pal.foam;
+      ctx.beginPath();
+      /* centred where the bead meets the bar, which is its underside now that
+         it stops on the edge rather than over it */
+      ctx.ellipse(px[steps], py[steps] + d.r, d.pool,
+                   Math.max(0.8, d.pool * baseBulge() / Math.max(1, G.botHalf)), 0, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
 function drawDetail(){
   ctxD.clearRect(0, 0, W, H);
 
@@ -2206,124 +2335,7 @@ function drawDetail(){
     ctxD.restore();
   }
 
-  /* Foam over the lip, running down the outside — so it goes on after the
-     glass, the way the condensation does, and after the condensation too: a run
-     of foam lies on the wall and takes the beads under it with it, so it can
-     hardly have them showing through.
-     Drawn as one outline apiece: the tail and the bead it hangs from are the
-     same body of foam, and two overlapping fills at this alpha would seam
-     where they crossed. */
-  for (const d of drips){
-    const c = Math.cos(d.th), s = Math.sin(d.th);
-    /* which way round the glass it is: in front of the pour, or behind it */
-    const side = c < 0 ? -1 : 1;
-    /* A ribbon on the back of the glass is behind the beer, so a pour wound up
-       to the top of the opacity slider hides it — the same body that takes the
-       floor's far arc away takes this with it. There is only ever a weep on a
-       brimful glass, so the beer stands behind the whole length of it and the
-       whole of it goes. */
-    const behind = side < 0 ? 1 - beerSolid() : 1;
-    const a = clamp(d.life, 0, 1) * 0.94 * (0.6 + 0.4 * (0.5 + 0.5 * c)) * behind;
-    if (a <= 0.01) continue;
-    /* edge-on where the glass turns away, as the beads are */
-    const fs = Math.max(0.3, Math.abs(c));
-    const steps = 18;
-    const px = [], py = [], pw = [];
-    for (let i = 0; i <= steps; i++){
-      const t = i / steps;
-      const h = lerp(d.top, d.h, t);
-      const hw = halfAt(h);
-      /* it wanders as it goes, the way a trail down a wet wall does, and is
-         pinned where it leaves the collar so the wander does not shift its root */
-      const sway = Math.sin(t * 4.1 + d.wob) * d.wobA * t;
-      px.push(G.cx + hw * s + sway * fs);
-      py.push(h + ryAt(h) * hw * c);
-      pw.push(Math.max(0.35, ribbonHalf(d, t) * fs));
-    }
-    ctxD.globalAlpha = a * weepAlpha();
-    ctxD.fillStyle = pal.foam;
-    ctxD.beginPath();
-    for (let i = 0; i <= steps; i++){
-      if (i) ctxD.lineTo(px[i] - pw[i], py[i]); else ctxD.moveTo(px[i] - pw[i], py[i]);
-    }
-    /* Round off under the bead, then back up the other edge — unless it has
-       arrived, in which case there is no bead left to round. A run of foam that
-       has reached the bottom of the glass is standing on it, its whole width
-       against the edge, and the edge is the base's own arc: a rounded end there
-       is a drop still hanging in the air a moment before it lands. */
-    if (d.pool > 0){
-      const bry = baseBulge(), bhw = Math.max(1, G.botHalf);
-      /* on the arc of the base its own side of the glass stands on */
-      const arcY = x => {
-        const u = clamp((x - G.cx) / bhw, -1, 1);
-        return G.bottom + side * bry * Math.sqrt(1 - u * u);
-      };
-      const bSteps = 5;
-      for (let i = 0; i <= bSteps; i++){
-        const x = px[steps] - pw[steps] + 2 * pw[steps] * i / bSteps;
-        ctxD.lineTo(x, arcY(x));
-      }
-    } else {
-      ctxD.ellipse(px[steps], py[steps], pw[steps], Math.max(0.35, d.r), 0, Math.PI, 0, true);
-    }
-    for (let i = steps; i >= 0; i--) ctxD.lineTo(px[i] + pw[i], py[i]);
-    /* and across the top on the lip's own curve rather than straight. The
-       ribbon is only its own width across, but the rim is an ellipse and near
-       the two sides of the glass that is where it turns hardest — over ten
-       pixels of ribbon the lip drops four, so a level cut there reads as a tab
-       stuck on the glass rather than foam coming over the edge of it. */
-    /* on the rim's own ellipse, to its own radii, so the two meet exactly
-       rather than on a curve of nearly the same shape */
-    const rRy = G.topHalf * G.ryTop, rCy = G.top + rRy, rRx = Math.max(1, halfAt(rCy));
-    const aSteps = 6;
-    for (let i = 0; i <= aSteps; i++){
-      const x = px[0] + pw[0] - 2 * pw[0] * i / aSteps;
-      const u = clamp((x - G.cx) / rRx, -1, 1);
-      /* and cut on the lip its own side of the glass hangs from */
-      ctxD.lineTo(x, rCy + side * (rRy * Math.sqrt(1 - u * u) - 0.5 * G.scale));
-    }
-    ctxD.closePath();
-    ctxD.fill();
-
-    /* The light runs down the standing edge of it — but only once there is a
-       standing edge to catch it. On a ribbon drawn down to a thread the
-       highlight was the whole of it, and it read as a scratch on the glass. */
-    if (pw[0] > 2.2){
-      ctxD.globalAlpha = a * 0.32 * weepAlpha();
-      ctxD.strokeStyle = "rgba(255,255,255,.55)";
-      ctxD.lineWidth = Math.max(0.6, pw[0] * 0.34);
-      ctxD.beginPath();
-      for (let i = 0; i <= steps; i++){
-        if (pw[i] < 1.1) break;
-        const hx = px[i] - pw[i] * 0.42;
-        if (i) ctxD.lineTo(hx, py[i]); else ctxD.moveTo(hx, py[i]);
-      }
-      ctxD.stroke();
-    }
-
-    /* and what got all the way down runs off the glass and lies on the bar.
-       Only the half of it that has cleared the foot: the glass stands on the
-       other half, and foam does not gather under a glass that is already there.
-       So the puddle is cut to everything the silhouette is not — a rectangle
-       with the glass taken out of it — and it spreads from the foot outwards. */
-    if (d.pool > 0){
-      const outside = new Path2D();
-      outside.rect(0, 0, W, H);
-      outside.addPath(PATHS.sil);
-      ctxD.save();
-      ctxD.clip(outside, "evenodd");
-      ctxD.globalAlpha = a * 0.8 * weepAlpha();
-      ctxD.fillStyle = pal.foam;
-      ctxD.beginPath();
-      /* centred where the bead meets the bar, which is its underside now that
-         it stops on the edge rather than over it */
-      ctxD.ellipse(px[steps], py[steps] + d.r, d.pool,
-                   Math.max(0.8, d.pool * baseBulge() / Math.max(1, G.botHalf)), 0, 0, TAU);
-      ctxD.fill();
-      ctxD.restore();
-    }
-  }
-  ctxD.globalAlpha = 1;
+  paintRibbons(ctxD, false);
 
   /* The collar: the head hanging over the outside of the lip, which is where
      the ribbons are drawn from. Its lower edge is lobed rather than level —

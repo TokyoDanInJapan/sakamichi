@@ -1542,7 +1542,9 @@ uniform vec3  uFoam;
 uniform vec4  uWeep;         // collar, how far over the lip, the hem's reach, its tongues
 uniform float uWeepRun;      // and how far down the outside, which comes after
 uniform float uWeepAlive;    // and how much of it has not dried off yet
-uniform float uBeerSolid;    // how completely the pour stops light
+uniform float uWeepPart;     // 0: what runs down the back of the glass, drawn
+                             //    before the beer so the pour stands in front
+                             //    of it; 1: everything else, drawn after
 uniform float uScale, uTime, uCoarse, uWeepA;
 uniform int   uRibN;
 uniform vec4  uRibA[6];      // th, top, bottom h, shoulder width
@@ -1663,7 +1665,7 @@ void main(){
 
   vec4 acc = vec4(0.0);
 
-  bool showCollar = uWeep.x > 0.012 && uWeep.y > 0.002;
+  bool showCollar = uWeep.x > 0.012 && uWeep.y > 0.002 && uWeepPart > 0.5;
 
   /* How far round the glass this pixel stands. The collar is not a band of one
      radius: its top edge lies on the rim, whose ellipse is the bore at the
@@ -1723,10 +1725,9 @@ void main(){
     float c = cos(rth), sr = sin(rth);
     /* which way round the glass it runs: in front of the pour, or behind it */
     float side = c < 0.0 ? -1.0 : 1.0;
-    /* One on the back of the glass is behind the beer, so a pour wound up to
-       the top of the opacity slider hides it, as it hides the floor's far arc */
-    float behind = side < 0.0 ? 1.0 - uBeerSolid : 1.0;
-    float a = clamp(life, 0.0, 1.0) * 0.94 * (0.6 + 0.4 * (0.5 + 0.5 * c)) * behind;
+    /* the back of the glass is painted with the room, the front with the glass */
+    if ((c < 0.0) != (uWeepPart < 0.5)) continue;
+    float a = clamp(life, 0.0, 1.0) * 0.94 * (0.6 + 0.4 * (0.5 + 0.5 * c));
     if (a <= 0.01) continue;
     float fs = max(0.3, abs(c));            /* edge-on where the glass turns away */
 
@@ -2310,6 +2311,47 @@ function drawSprites(){
   gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, n);
 }
 
+/* One weep, drawn in two halves — see uWeepPart. */
+function drawWeep(part){
+  if (!(drips.length || (collar > 0.012 && creep > 0.004))) return;
+  if (part < 0.5 && !drips.some(d => Math.cos(d.th) < 0)) return;
+
+  gl.useProgram(progWeep.p);
+  gl.bindVertexArray(vaoEmpty);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, heightTex);
+  setShared(progWeep, dpr);
+  gl.uniform3fv(progWeep.u.uFoam, pal.foam);
+  gl.uniform4f(progWeep.u.uWeep, collar, weepOver(), weepHem, weepDrape);
+  gl.uniform1f(progWeep.u.uWeepRun, weepRun());
+  gl.uniform1f(progWeep.u.uWeepAlive, weepAlive);
+  gl.uniform1f(progWeep.u.uBeerSolid, beerSolid());
+  gl.uniform1f(progWeep.u.uScale, G.scale);
+  gl.uniform1f(progWeep.u.uWeepA, weepAlpha());
+  gl.uniform1f(progWeep.u.uTime, clock);
+  gl.uniform1f(progWeep.u.uCoarse, pal.foamCoarse);
+  const n = Math.min(6, drips.length);
+  gl.uniform1i(progWeep.u.uRibN, n);
+  if (n){
+    const A = new Float32Array(24), B = new Float32Array(24), C = new Float32Array(24);
+    for (let i = 0; i < n; i++){
+      const d = drips[i], o = i * 4;
+      A[o] = d.th; A[o+1] = d.top; A[o+2] = d.h; A[o+3] = d.w;
+      B[o] = d.r;  B[o+1] = d.wob; B[o+2] = d.wobA; B[o+3] = d.pool || 0;
+      C[o] = d.life;
+    }
+    gl.uniform4fv(progWeep.u.uRibA, A);
+    gl.uniform4fv(progWeep.u.uRibB, B);
+    gl.uniform4fv(progWeep.u.uRibC, C);
+  }
+  gl.uniform1f(progWeep.u.uWeepPart, part);
+  /* the pass composites its own layers in order and hands over one
+     premultiplied colour, so the blend must not multiply by alpha again */
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
 function render(){
   if (!hArr || !gl) return;
   uploadHeight();
@@ -2321,6 +2363,11 @@ function render(){
   gl.clearColor(0, 0, 0, 0);
   gl.clear(gl.COLOR_BUFFER_BIT);
   gl.disable(gl.BLEND);
+
+  /* What runs down the back of the glass goes on before the beer does, so the
+     pour stands in front of it and shows as much of it as it is clear enough
+     to show */
+  drawWeep(0);
 
   gl.useProgram(progBeer.p);
   gl.bindVertexArray(vaoEmpty);
@@ -2344,6 +2391,13 @@ function render(){
   gl.uniform3fv(progBeer.u.uAbsorb, pal.absorb);
   gl.uniform1f(progBeer.u.uCaustics, cfg.caustics / 100 * 0.55);
   gl.uniform1f(progBeer.u.uHaze, 1 - cfg.clarity / 100);
+  /* Composited rather than written, because it is no longer the first thing
+     into the sheet: what runs down the back of the glass is already there, and
+     the pour goes over it. Its own output is premultiplied, so the blend must
+     not multiply by alpha again — and over an empty sheet this is the same
+     write it always was. */
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 
   /* Bubbles and anything in the air */
@@ -2399,42 +2453,11 @@ function render(){
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 
   /* The weep, in front of the glass and still inside the scene — so it is over
-     the lines the way the canvas paints it, and the bar has it to reflect */
-  if (drips.length || (collar > 0.012 && creep > 0.004)){
-    gl.useProgram(progWeep.p);
-    gl.bindVertexArray(vaoEmpty);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, heightTex);
-    setShared(progWeep, dpr);
-    gl.uniform3fv(progWeep.u.uFoam, pal.foam);
-    gl.uniform4f(progWeep.u.uWeep, collar, weepOver(), weepHem, weepDrape);
-    gl.uniform1f(progWeep.u.uWeepRun, weepRun());
-    gl.uniform1f(progWeep.u.uWeepAlive, weepAlive);
-    gl.uniform1f(progWeep.u.uBeerSolid, beerSolid());
-    gl.uniform1f(progWeep.u.uScale, G.scale);
-    gl.uniform1f(progWeep.u.uWeepA, weepAlpha());
-    gl.uniform1f(progWeep.u.uTime, clock);
-    gl.uniform1f(progWeep.u.uCoarse, pal.foamCoarse);
-    const n = Math.min(6, drips.length);
-    gl.uniform1i(progWeep.u.uRibN, n);
-    if (n){
-      const A = new Float32Array(24), B = new Float32Array(24), C = new Float32Array(24);
-      for (let i = 0; i < n; i++){
-        const d = drips[i], o = i * 4;
-        A[o] = d.th; A[o+1] = d.top; A[o+2] = d.h; A[o+3] = d.w;
-        B[o] = d.r;  B[o+1] = d.wob; B[o+2] = d.wobA; B[o+3] = d.pool || 0;
-        C[o] = d.life;
-      }
-      gl.uniform4fv(progWeep.u.uRibA, A);
-      gl.uniform4fv(progWeep.u.uRibB, B);
-      gl.uniform4fv(progWeep.u.uRibC, C);
-    }
-    /* the pass composites its own three layers in order and hands over one
-       premultiplied colour, so the blend must not multiply by alpha again */
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
-  }
+     the lines the way the canvas paints it, and the bar has it to reflect.
+     Except for what runs down the back of the glass, which went on earlier,
+     before the beer: it is behind the pour and the pour decides how much of it
+     shows through. */
+  drawWeep(1);
 
   /* Pass B: the room — wall, bar and both reflections — with the scene
      texture composited in front */
