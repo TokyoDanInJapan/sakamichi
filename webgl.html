@@ -696,9 +696,25 @@ vec4 beerAt(vec2 px){
     float men = smoothstep(2.8, 0.4, wallD);
     beer += uLightTint * men * (0.16 + 0.38 * exp(-d * 0.03));
 
-    /* The top plane of the beer, seen slightly from above */
+    /* The top plane of the beer, seen slightly from above — and guarded,
+       because the two edges of this band meet.
+
+       The band is the surface's own ellipse: its far arc above and its near arc
+       below. That ellipse has no depth where it meets the wall, so past the
+       beer's span the two arcs are one line and the reading here asked a
+       smoothstep to work between two edges that are equal, which is a division
+       by nothing and is left undefined. What came back was whatever the machine
+       made of it, at full strength: a strip of beer up each wall, from the
+       surface to the bottom of the glass, lit as though it were the top of the
+       pour rather than the depth of it. Which is the differently-coloured piece
+       at each side, the beer that did not seem to reach the cone.
+
+       Written out rather than handed to smoothstep, it is the same curve
+       wherever the band has any width at all, and closes quietly where it has
+       none. */
     float front = surfaceAt(px.x) + ellipseDy(px.x);
-    beer = mix(beer, beer * 1.14 + uLightTint * 0.10, smoothstep(front, top, px.y) * 0.85);
+    float pl = clamp((front - px.y) / max(1.0, front - top), 0.0, 1.0);
+    beer = mix(beer, beer * 1.14 + uLightTint * 0.10, pl * pl * (3.0 - 2.0 * pl) * 0.85);
 
     /* More beer to look through at the walls */
     float edge = abs(px.x - GCX) / max(ih, 1.0);
