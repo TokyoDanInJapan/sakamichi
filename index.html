@@ -2215,6 +2215,8 @@ function drawDetail(){
      where they crossed. */
   for (const d of drips){
     const c = Math.cos(d.th), s = Math.sin(d.th);
+    /* which way round the glass it is: in front of the pour, or behind it */
+    const side = c < 0 ? -1 : 1;
     const a = clamp(d.life, 0, 1) * 0.94 * (0.6 + 0.4 * (0.5 + 0.5 * c));
     if (a <= 0.01) continue;
     /* edge-on where the glass turns away, as the beads are */
@@ -2245,9 +2247,10 @@ function drawDetail(){
        is a drop still hanging in the air a moment before it lands. */
     if (d.pool > 0){
       const bry = baseBulge(), bhw = Math.max(1, G.botHalf);
+      /* on the arc of the base its own side of the glass stands on */
       const arcY = x => {
         const u = clamp((x - G.cx) / bhw, -1, 1);
-        return G.bottom + bry * Math.sqrt(1 - u * u);
+        return G.bottom + side * bry * Math.sqrt(1 - u * u);
       };
       const bSteps = 5;
       for (let i = 0; i <= bSteps; i++){
@@ -2270,7 +2273,8 @@ function drawDetail(){
     for (let i = 0; i <= aSteps; i++){
       const x = px[0] + pw[0] - 2 * pw[0] * i / aSteps;
       const u = clamp((x - G.cx) / rRx, -1, 1);
-      ctxD.lineTo(x, rCy - 0.5 * G.scale + rRy * Math.sqrt(1 - u * u));
+      /* and cut on the lip its own side of the glass hangs from */
+      ctxD.lineTo(x, rCy + side * (rRy * Math.sqrt(1 - u * u) - 0.5 * G.scale));
     }
     ctxD.closePath();
     ctxD.fill();

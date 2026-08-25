@@ -1595,7 +1595,20 @@ float lipFrontY(float x){
   return rimCy() - 0.5 * uScale + rimRy() * sqrt(max(0.0, 1.0 - u * u));
 }
 
-/* The arc the glass stands on */
+/* The same lip, on whichever side of the glass a thing hangs from: a ribbon on
+   the back comes over the far arc, which is above the near one, and cutting it
+   at the near arc took the top off it. */
+float lipSideY(float x, float side){
+  float rx = max(1.0, halfAt(rimCy()));
+  float u = clamp((x - GCX) / rx, -1.0, 1.0);
+  return rimCy() + side * (rimRy() * sqrt(max(0.0, 1.0 - u * u)) - 0.5 * uScale);
+}
+
+/* The arc the glass stands on, on whichever side */
+float footSideY(float x, float side){
+  float u = clamp((x - GCX) / max(1.0, GBH), -1.0, 1.0);
+  return GBOT + side * ryAt(GBOT) * GBH * sqrt(max(0.0, 1.0 - u * u));
+}
 float footY(float x){
   float u = clamp((x - GCX) / max(1.0, GBH), -1.0, 1.0);
   return GBOT + ryAt(GBOT) * GBH * sqrt(max(0.0, 1.0 - u * u));
@@ -1707,6 +1720,8 @@ void main(){
     float rr = uRibB[i].x, wob = uRibB[i].y, wobA = uRibB[i].z, pool = uRibB[i].w;
     float life = uRibC[i].x;
     float c = cos(rth), sr = sin(rth);
+    /* which way round the glass it runs: in front of the pour, or behind it */
+    float side = c < 0.0 ? -1.0 : 1.0;
     float a = clamp(life, 0.0, 1.0) * 0.94 * (0.6 + 0.4 * (0.5 + 0.5 * c));
     if (a <= 0.01) continue;
     float fs = max(0.3, abs(c));            /* edge-on where the glass turns away */
@@ -1723,7 +1738,7 @@ void main(){
     float endHw = max(0.35, ribbonHalf(rw, rr, 1.0) * fs);
 
     float cover = 0.0;
-    float underLip = smoothstep(-0.7, 0.7, px.y - lipFrontY(px.x));
+    float underLip = smoothstep(-0.7, 0.7, px.y - lipSideY(px.x, side));
     if (underLip > 0.001){
       if (px.y <= endP.y){
         cover = smoothstep(phw + 0.7, phw - 0.7, abs(px.x - cxr));
@@ -1732,7 +1747,7 @@ void main(){
            its whole width against the edge, and the edge is the base's own arc:
            a rounded end there is a drop still hanging in the air. */
         cover = smoothstep(endHw + 0.7, endHw - 0.7, abs(px.x - endP.x))
-              * step(px.y, footY(px.x));
+              * step(px.y, footSideY(px.x, side));
       } else {
         /* and if it has not, it ends in the bead that is pulling it */
         vec2 q = vec2((px.x - endP.x) / endHw, (px.y - endP.y) / max(0.35, rr));

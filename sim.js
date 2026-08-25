@@ -807,7 +807,16 @@ function spillFoam(x, r){
   if (weepOver() < 0.999) return;
   const rimY = G.inTop;
   const hwRim = Math.max(1, innerHalfAt(rimY));
-  const th = Math.asin(clamp((x - G.cx) / hwRim, -1, 1));
+  /* Which side of the glass it runs down. A column of beer knows only how far
+     across the glass it stands, not where round it, and the rim is a circle:
+     that distance meets it at two places, one on the near lip and one on the
+     far. The beads that come off the lip already leave by both — a ribbon has
+     no more reason to keep to the front of the glass than they have, and one
+     on the back is seen through the pour, which is most of what makes a glass
+     read as a thing with a back to it. */
+  const base = Math.asin(clamp((x - G.cx) / hwRim, -1, 1));
+  let th = Math.random() < 0.5 ? base : Math.PI - base;
+  if (th > Math.PI) th -= TAU;
   /* A ribbon is hung from a height, and the height is turned into a point on
      the glass by leaning it round the cone — so it lands on whatever circle it
      was hung from. Hung from the inner top it landed on a circle a rim's depth
