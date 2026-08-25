@@ -528,16 +528,38 @@ function resize(){
     ctx.setTransform(s, 0, 0, s, 0, 0);
   }
 
+  const wasTop = G.top, wasHalf = G.topHalf, wasBot = G.bottom;
   layoutGlass();
+  const moved = Math.abs(G.top - wasTop) > 0.01
+             || Math.abs(G.topHalf - wasHalf) > 0.01
+             || Math.abs(G.bottom - wasBot) > 0.01;
   buildPaths();
 
   const span = innerHalfAt(G.inTop) * 2;
+  const nWas = N, hWas = hArr, uWas = uArr;
   N = clamp(Math.round(span / 5), 32, 220);
   hArr = new Float32Array(N);
   /* Velocity and flux live on the faces between the columns, not on the
      columns, so there is one fewer of each */
   uArr = new Float32Array(Math.max(1, N - 1));
   fArr = new Float32Array(Math.max(1, N - 1));
+  /* The pour is carried across rather than started again. A resize is not only
+     the window changing: the frame timer calls this when it drops the quality,
+     which can happen at any moment and for reasons the glass knows nothing
+     about. Handed a fresh mesh the beer went flat between one frame and the
+     next, which is a glass that resets itself while you are looking at it. The
+     surface and the flow are resampled onto whatever mesh the new size asks
+     for; the flux is not, being worked out afresh every step anyway. */
+  const carry = (src, m, dst, n) => {
+    if (!src || m < 2) return;
+    for (let i = 0; i < n; i++){
+      const t = n > 1 ? i / (n - 1) * (m - 1) : 0;
+      const a = clamp(Math.floor(t), 0, m - 1), b = Math.min(m - 1, a + 1);
+      dst[i] = src[a] + (src[b] - src[a]) * (t - a);
+    }
+  };
+  carry(hWas, nWas, hArr, N);
+  carry(uWas, Math.max(1, nWas - 1), uArr, Math.max(1, N - 1));
   maxAmp = Math.min(G.inH * 0.30, G.topHalf * 1.1);
 
   capBubbles = clamp(Math.round(G.topHalf * G.inH / 260), 60, isCoarse ? 220 : 380);
@@ -550,19 +572,43 @@ function resize(){
      bubble in the pour rose off the same line ruled across the bottom.
      Scattered by the square root of a random radius, which is what keeps them
      from crowding into the middle of a disc. */
-  sites = [];
   const n = clamp(Math.round(G.topHalf / 26), 3, 12);
   const floorHalf = innerHalfAt(G.inBottom - 4);
-  for (let i = 0; i < n; i++){
-    const rr = Math.sqrt(Math.random()) * 0.86, th = Math.random() * TAU;
-    sites.push({
-      u: Math.cos(th) * rr * floorHalf,
-      v: Math.sin(th) * rr,                /* -1 at the back of the floor, +1 at the front */
-      acc: Math.random(), rate: rand(1.4, 3.2), scale: rand(0.6, 1.5)
-    });
+  /* The sites are where they are. Scattered again on every resize, every
+     stream of bubbles in the glass jumped to a new part of the floor whenever
+     the frame timer dropped the quality — so they are kept and carried across
+     the size change, and only scattered afresh when the floor asks for a
+     different number of them. */
+  if (sites.length === n){
+    for (const s of sites){
+      s.u *= floorHalf / Math.max(1, s.half || floorHalf);
+      s.half = floorHalf;
+    }
+  } else {
+    sites = [];
+    for (let i = 0; i < n; i++){
+      const rr = Math.sqrt(Math.random()) * 0.86, th = Math.random() * TAU;
+      sites.push({
+        u: Math.cos(th) * rr * floorHalf,
+        v: Math.sin(th) * rr,              /* -1 at the back of the floor, +1 at the front */
+        half: floorHalf,
+        acc: Math.random(), rate: rand(1.4, 3.2), scale: rand(0.6, 1.5)
+      });
+    }
   }
-  bubbles.length = 0; foam.length = 0; drops.length = 0; mist.length = 0; drips.length = 0;
-  dew.length = 0; lace.length = 0;
+
+  /* And the glass is only emptied when it has actually moved. Everything the
+     pour is wearing — its bubbles, its head, the beads on the outside, the
+     lacing and whatever is running down it — is held in pixels, so a glass
+     that changes size has to let them go. A glass that does not has no reason
+     to: the frame timer calls this to drop the quality, which changes what the
+     picture is drawn into and not where anything is, and clearing there took
+     the head and the condensation off a pint in the middle of a frame for no
+     reason anyone watching could see. */
+  if (moved){
+    bubbles.length = 0; foam.length = 0; drops.length = 0; mist.length = 0; drips.length = 0;
+    dew.length = 0; lace.length = 0;
+  }
 }
 
 /* ================================================================== *
@@ -2383,6 +2429,9 @@ function renderAll(){
  * ================================================================== */
 const FIXED = 1 / 60;
 let acc = 0, last = performance.now(), clock = 0, emaFrame = 16.7, downgraded = 0;
+/* The quality check has its own clock. Winding the scene's back to nought to
+   restart the check jumps every phase that is drawn from it. */
+let qClock = 0;
 
 function frame(now){
   requestAnimationFrame(frame);
@@ -2407,6 +2456,7 @@ function frame(now){
   }
 
   clock += real;
+  qClock += real;
 
   if (ptr.lx === -999){ ptr.lx = ptr.x; ptr.ly = ptr.y; }
   ptr.vx = ptr.x - ptr.lx;
@@ -2432,12 +2482,12 @@ function frame(now){
   renderAll();
 
   emaFrame += (real * 1000 - emaFrame) * 0.05;
-  if (downgraded < 2 && emaFrame > 30 && clock > 3){
+  if (downgraded < 2 && emaFrame > 30 && qClock > 3){
     downgraded++;
     quality = downgraded === 1 ? 0.8 : 0.62;
     resize();
     emaFrame = 16.7;
-    clock = 0;
+    qClock = 0;
   }
 }
 
