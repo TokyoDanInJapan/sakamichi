@@ -730,6 +730,10 @@ let weepReach = 0;
    and dries out — so what happens when the pour stops feeding it is that it
    thins away, over a couple of seconds, from wherever it had got to. */
 let weepAlive = 0;
+/* Ribbons come out of the collar at a rate rather than one per fleck, so what
+   is owed is kept between frames */
+let ribbonOwed = 0;
+const RIBBON_RATE = 0.45;      /* at a full collar, about one every two seconds */
 
 /* The weep runs in an order, and the order is the whole of what it looks like:
    the head reaches the lip, comes over the ring of it, and only then runs down
@@ -817,13 +821,20 @@ function spillFoam(x, r){
   const base = Math.asin(clamp((x - G.cx) / hwRim, -1, 1));
   let th = Math.random() < 0.5 ? base : Math.PI - base;
   if (th > Math.PI) th -= TAU;
+  addRibbon(th, r);
+}
+
+/* Hang a ribbon at this angle round the rim, or feed one already hanging near
+   enough to it. Its own function because two things start them: foam thrown
+   over the lip, and the collar itself, which sheds them as it hangs. */
+function addRibbon(th, r){
+  const lip = G.top + G.topHalf * G.ryTop;
   /* A ribbon is hung from a height, and the height is turned into a point on
      the glass by leaning it round the cone — so it lands on whatever circle it
      was hung from. Hung from the inner top it landed on a circle a rim's depth
      above the rim itself, and every ribbon on the glass sat some fifteen pixels
      high of the lip and cut across it. The lip is the plane of the rim ellipse,
      which is a good way below the point where the inside of the glass begins. */
-  const lip = G.top + G.topHalf * G.ryTop;
   for (const d of drips){
     if (d.pool <= 0 && Math.abs(d.th - th) < 0.40){
       d.w = Math.min(d.w + r * 0.13, 10 * G.scale);
@@ -1381,6 +1392,24 @@ function updateDrops(dt){
     weepAlive = Math.max(0, weepAlive - dt / WEEP_DRY);
     if (weepAlive === 0){ collar = 0; creep = 0; weepReach = 0; }
   }
+
+  /* And the collar sheds ribbons, because they are drawn out of it. What feeds
+     them is how much of the head is over the lip, which is the one thing the
+     collar already measures — not whether some particular fleck of foam
+     happens to be standing over the rim and out at the wall at the same
+     moment. At the brim the head sits level with the lip by design, so in a
+     minute of a full quiet glass only three hundred fleck-frames out of three
+     hundred thousand ever passed that test: the glass wore a full collar and
+     shed almost nothing down its sides, which is a weep with no drips in it.
+     They start anywhere round the rim, since the collar hangs all the way
+     round and there is nothing to say which part of it lets go first. */
+  if (weepOver() > 0.999 && weepAlive > 0.5 && collar > 0.15){
+    ribbonOwed += dt * collar * weepAmount() * RIBBON_RATE;
+    while (ribbonOwed >= 1){
+      ribbonOwed -= 1;
+      addRibbon(rand(-Math.PI, Math.PI), rand(5, 11) * G.scale);
+    }
+  } else ribbonOwed = 0;
   /* It runs until it is off the glass and onto the bar: the foot is the height
      the glass stands at, which is where the wall runs out from under it. */
   for (let i = drips.length - 1; i >= 0; i--){
