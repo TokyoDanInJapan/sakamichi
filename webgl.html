@@ -1795,6 +1795,26 @@ void main(){
     vec2 m = vec2((px.x - GCX) / mrx,
                   (px.y - rimCy()) / max(1.0, rimRy() * 0.94 - inset));
     band *= smoothstep(1.0 - 1.2 / mrx, 1.0, length(m));
+
+    /* And it comes over the lip rather than landing on it. The hem creeps down
+       the outside from the first frame, but the ring of the lip was covered
+       whole the moment the weep came on — a rim's depth of foam arriving in
+       one frame at full weight while the hem below was still up at the lip,
+       which reads as a flash and not a creep.
+
+       So the ring is covered the way foam covers it: outward from the mouth. A
+       pixel is allowed once the weep has reached its distance from the lip's
+       centre, measured in shares of the rim's own ellipse so the near side and
+       the far side fill at the same rate — and past the rim it is the outside
+       of the glass, where the hem does the running and this has no say. */
+    float cs   = clamp(uWeep.y / 0.45, 0.0, 1.0);
+    float rise = cs * cs * (3.0 - 2.0 * cs);
+    float rx   = max(1.0, halfAt(rimCy()));
+    float q    = length(vec2((px.x - GCX) / rx, (px.y - rimCy()) / max(1.0, rimRy())));
+    float qRing = mix(mrx / rx, 1.0, rise);
+    float ring = 1.0 - smoothstep(qRing - 0.05, qRing, q);
+    float hang = step(1.0, q) * step(rimCy(), px.y);
+    band *= max(ring, hang);
     over(acc, foamGrain(px), band * 0.94);
   }
 

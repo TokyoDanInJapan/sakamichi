@@ -2300,6 +2300,38 @@ function drawDetail(){
        the arc as it raises it: at nine tenths what came out was a rule drawn
        straight across an elliptical rim. The far arc is the whole ellipse
        again, and it meets the near one at the sides on its own. */
+    /* And it comes over the lip rather than landing on it. The hem creeps down
+       the outside from the first frame, but the ring of the lip was covered
+       whole the moment the weep came on — better than twenty pixels of foam
+       arriving in one frame at full weight while the hem below it was still up
+       at the lip, which reads as a flash and not a creep.
+
+       So the ring is covered the way foam actually covers it: outward from the
+       mouth. What is allowed is a growing ellipse about the lip's own centre,
+       from the edge of the mouth out to the rim — and, beyond the rim, the
+       outside of the glass, where the hem does the running. Measured in shares
+       of the rim's own ellipse so the near side and the far side fill at the
+       same rate: raised from the lip's widest points instead, the far half
+       climbed and the whole near half was there from the first frame, which is
+       a weep starting in the middle of the glass. */
+    const cs = clamp(creep / 0.45, 0, 1);
+    const rise = cs * cs * (3 - 2 * cs);
+    const mRx = Math.max(2, cRx - G.wall), mRy = cRy * 0.94;
+    ctxD.save();
+    if (rise < 0.999){
+      ctxD.beginPath();
+      ctxD.ellipse(G.cx, cCy, lerp(mRx, cRx, rise), lerp(mRy, cRy, rise), 0, 0, TAU);
+      /* and everything past the rim on the near side, which is the hang. The
+         near arc runs from angle nought to pi: y is down the screen here, so
+         that is the half that bulges towards the eye, and the other way round
+         traces the far arc and lets the whole back of the ring through. */
+      ctxD.moveTo(G.cx + cRx, cCy);
+      ctxD.ellipse(G.cx, cCy, cRx, cRy, 0, 0, Math.PI);
+      ctxD.lineTo(0, H);
+      ctxD.lineTo(W, H);
+      ctxD.closePath();
+      ctxD.clip();
+    }
     ctxD.beginPath();
     for (let i = 0; i <= steps; i++){
       const th = -Math.PI / 2 + Math.PI * i / steps;
@@ -2321,9 +2353,10 @@ function drawDetail(){
        the far arc straight down, the collar was painted over the head and the
        beer it is supposed to be sitting on the edge of, so the inside of the rim
        is cut back out of it and the contents show through the ring. */
-    ctxD.moveTo(G.cx + Math.max(2, cRx - G.wall), cCy);
-    ctxD.ellipse(G.cx, cCy, Math.max(2, cRx - G.wall), cRy * 0.94, 0, 0, TAU);
+    ctxD.moveTo(G.cx + mRx, cCy);
+    ctxD.ellipse(G.cx, cCy, mRx, mRy, 0, 0, TAU);
     ctxD.fill("evenodd");
+    ctxD.restore();
     ctxD.globalAlpha = 1;
   }
 
