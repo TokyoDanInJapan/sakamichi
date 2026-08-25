@@ -2178,7 +2178,7 @@ function drawDetail(){
      leaves the lip as one hem rather than the lobes arriving after the level
      part of it. */
   const runOut = weepRun();
-  const hemAt = th => colCy + runOut * (weepReach + collar * colDeep * collarDrape(th));
+  const hemAt = th => colCy + runOut * (weepHem + weepDrape * collarDrape(th));
   const showCollar = collar > 0.012 && creep > 0.004;
   const hemWalk = ctx => {
     ctx.beginPath();
@@ -2217,7 +2217,13 @@ function drawDetail(){
     const c = Math.cos(d.th), s = Math.sin(d.th);
     /* which way round the glass it is: in front of the pour, or behind it */
     const side = c < 0 ? -1 : 1;
-    const a = clamp(d.life, 0, 1) * 0.94 * (0.6 + 0.4 * (0.5 + 0.5 * c));
+    /* A ribbon on the back of the glass is behind the beer, so a pour wound up
+       to the top of the opacity slider hides it — the same body that takes the
+       floor's far arc away takes this with it. There is only ever a weep on a
+       brimful glass, so the beer stands behind the whole length of it and the
+       whole of it goes. */
+    const behind = side < 0 ? 1 - beerSolid() : 1;
+    const a = clamp(d.life, 0, 1) * 0.94 * (0.6 + 0.4 * (0.5 + 0.5 * c)) * behind;
     if (a <= 0.01) continue;
     /* edge-on where the glass turns away, as the beads are */
     const fs = Math.max(0.3, Math.abs(c));

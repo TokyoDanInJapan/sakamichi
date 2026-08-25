@@ -1539,9 +1539,10 @@ precision highp float;
 ${GLSL_GLASS}
 ${GLSL_NOISE}
 uniform vec3  uFoam;
-uniform vec4  uWeep;         // collar, how far over the lip, weepReach, weepDeep
+uniform vec4  uWeep;         // collar, how far over the lip, the hem's reach, its tongues
 uniform float uWeepRun;      // and how far down the outside, which comes after
 uniform float uWeepAlive;    // and how much of it has not dried off yet
+uniform float uBeerSolid;    // how completely the pour stops light
 uniform float uScale, uTime, uCoarse, uWeepA;
 uniform int   uRibN;
 uniform vec4  uRibA[6];      // th, top, bottom h, shoulder width
@@ -1564,7 +1565,7 @@ float rimCy(){ return GTOP + rimRy(); }
 
 /* How far down the glass the hem has got at this angle */
 float hemH(float th){
-  return rimCy() + uWeepRun * (uWeep.z + uWeep.x * uWeep.w * drape(th));
+  return rimCy() + uWeepRun * (uWeep.z + uWeep.w * drape(th));
 }
 vec2 hemPt(float th){ return conePoint(hemH(th), th); }
 
@@ -1722,7 +1723,10 @@ void main(){
     float c = cos(rth), sr = sin(rth);
     /* which way round the glass it runs: in front of the pour, or behind it */
     float side = c < 0.0 ? -1.0 : 1.0;
-    float a = clamp(life, 0.0, 1.0) * 0.94 * (0.6 + 0.4 * (0.5 + 0.5 * c));
+    /* One on the back of the glass is behind the beer, so a pour wound up to
+       the top of the opacity slider hides it, as it hides the floor's far arc */
+    float behind = side < 0.0 ? 1.0 - uBeerSolid : 1.0;
+    float a = clamp(life, 0.0, 1.0) * 0.94 * (0.6 + 0.4 * (0.5 + 0.5 * c)) * behind;
     if (a <= 0.01) continue;
     float fs = max(0.3, abs(c));            /* edge-on where the glass turns away */
 
@@ -2403,9 +2407,10 @@ function render(){
     gl.bindTexture(gl.TEXTURE_2D, heightTex);
     setShared(progWeep, dpr);
     gl.uniform3fv(progWeep.u.uFoam, pal.foam);
-    gl.uniform4f(progWeep.u.uWeep, collar, weepOver(), weepReach, weepDeep());
+    gl.uniform4f(progWeep.u.uWeep, collar, weepOver(), weepHem, weepDrape);
     gl.uniform1f(progWeep.u.uWeepRun, weepRun());
     gl.uniform1f(progWeep.u.uWeepAlive, weepAlive);
+    gl.uniform1f(progWeep.u.uBeerSolid, beerSolid());
     gl.uniform1f(progWeep.u.uScale, G.scale);
     gl.uniform1f(progWeep.u.uWeepA, weepAlpha());
     gl.uniform1f(progWeep.u.uTime, clock);

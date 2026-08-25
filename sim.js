@@ -730,6 +730,14 @@ let weepReach = 0;
    and dries out — so what happens when the pour stops feeding it is that it
    thins away, over a couple of seconds, from wherever it had got to. */
 let weepAlive = 0;
+/* The deepest the hem has got, and the deepest its tongues have hung. Foam on
+   the outside of a glass does not climb back up it, so neither of these ever
+   falls while the weep is alive: read live they followed the pour, and the
+   pour at the brim is never still — a fleck of head goes over, the level dips
+   a thousandth, and the collar's strength drops with it. That put the hem
+   three pixels up the glass and back down again, over and over, which is the
+   judder. */
+let weepHem = 0, weepDrape = 0;
 /* Ribbons come out of the collar at a rate rather than one per fleck, so what
    is owed is kept between frames */
 let ribbonOwed = 0;
@@ -1388,9 +1396,12 @@ function updateDrops(dt){
     creep += (1 - creep) * k;
     const reachWant = Math.max(0, restSurfaceY() - (G.top + G.topHalf * G.ryTop));
     weepReach += (reachWant - weepReach) * k;
+    /* and what is drawn only ever runs further down */
+    weepHem = Math.max(weepHem, weepReach);
+    weepDrape = Math.max(weepDrape, collar * weepDeep());
   } else if (weepAlive > 0){
     weepAlive = Math.max(0, weepAlive - dt / WEEP_DRY);
-    if (weepAlive === 0){ collar = 0; creep = 0; weepReach = 0; }
+    if (weepAlive === 0){ collar = 0; creep = 0; weepReach = 0; weepHem = 0; weepDrape = 0; }
   }
 
   /* And the collar sheds ribbons, because they are drawn out of it. What feeds
