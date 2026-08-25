@@ -725,6 +725,20 @@ let creep = 0;
    ran up and down the outside of the glass with it. What is on the outside
    stays where it was put and the rest of it catches up slowly. */
 let weepReach = 0;
+
+/* The weep runs in an order, and the order is the whole of what it looks like:
+   the head reaches the lip, comes over the ring of it, and only then runs down
+   the outside. Both stages are cut out of the one creep so they cannot drift
+   apart — the first half of it takes the foam over the lip and the rest takes
+   it down the glass. Run together, the hem was already on its way down the
+   outside while the ring it hangs from was still being covered, which is a
+   weep arriving everywhere at once. */
+const WEEP_OVER = 0.45;
+const ease = s => (s = clamp(s, 0, 1), s * s * (3 - 2 * s));
+/* how far the foam has got over the ring of the lip */
+const weepOver = () => ease(creep / WEEP_OVER);
+/* and how far down the outside it has run, which does not start until it is over */
+const weepRun = () => ease((creep - WEEP_OVER) / (1 - WEEP_OVER));
 function collarWant(){
   const band = headBand();
   if (band < 1 || weepAmount() <= 0.001) return 0;
@@ -779,6 +793,11 @@ function ribbonHalf(d, t){
    a fringe of identical ones. */
 function spillFoam(x, r){
   if (weepAmount() <= 0.001) return;      /* turned right down, nothing runs */
+  /* And nothing runs down the glass before the collar it is drawn out of has
+     come over the lip. A ribbon is the tail of the collar, not a thing that
+     arrives on its own: started while the lip was still being covered, one
+     would be halfway down the outside with nothing at the top of it. */
+  if (weepOver() < 0.999) return;
   const rimY = G.inTop;
   const hwRim = Math.max(1, innerHalfAt(rimY));
   const th = Math.asin(clamp((x - G.cx) / hwRim, -1, 1));

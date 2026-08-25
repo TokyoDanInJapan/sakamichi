@@ -2127,7 +2127,12 @@ function drawDetail(){
   const colRx = halfAt(colCy);
   const colDeep = weepDeep();
   const colSteps = 48;
-  const hemAt = th => colCy + weepReach + creep * collar * colDeep * collarDrape(th);
+  /* The hem does not move until the foam is over the ring of the lip — see
+     weepRun. Both its reach and its tongues are held back together, so it
+     leaves the lip as one hem rather than the lobes arriving after the level
+     part of it. */
+  const runOut = weepRun();
+  const hemAt = th => colCy + runOut * (weepReach + collar * colDeep * collarDrape(th));
   const showCollar = collar > 0.012 && creep > 0.004;
   const hemWalk = ctx => {
     ctx.beginPath();
@@ -2314,8 +2319,7 @@ function drawDetail(){
        same rate: raised from the lip's widest points instead, the far half
        climbed and the whole near half was there from the first frame, which is
        a weep starting in the middle of the glass. */
-    const cs = clamp(creep / 0.45, 0, 1);
-    const rise = cs * cs * (3 - 2 * cs);
+    const rise = weepOver();
     const mRx = Math.max(2, cRx - G.wall), mRy = cRy * 0.94;
     ctxD.save();
     if (rise < 0.999){
