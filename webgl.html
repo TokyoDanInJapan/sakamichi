@@ -303,7 +303,7 @@ body[data-chrome="off"] .panel-toggle{opacity:0;pointer-events:none}
    axis. A card rather than a picture: it is artwork with a front and a back,
    and it shows a new one each time it comes round. */
 .beer{
-  position:fixed;z-index:2;pointer-events:none;
+  position:fixed;z-index:2;cursor:pointer;
   /* a third in from the right, as the glass is a third in from the left */
   left:66.7%;top:50%;transform:translate(-50%,-50%);margin-top:2vh;
   width:clamp(188px,24vw,362px);
@@ -2789,26 +2789,63 @@ requestAnimationFrame(frame);
 const BEERS = ["anniversary-ipa-2026", "calico-cats-meow", "dr-krush", "fruit-fool", "hunters-mark-dip-hop-ipa", "miami-weisse", "mount-crushmore", "mr-bones", "mr-bones-raspberry", "new-year-pilsner-2026", "no-rest-for-the-wicked-2026", "oast-house-ale", "passion-project", "passion-project-v02", "praxis", "razcherry-sour", "seize-the-means-red-ipa", "shibasaki-session", "shirasagi-white-ipa", "skysaw", "sommergold-weisse", "sumomo-mo-momo-mo-momo-no-hazy", "tachikawa-helles", "tachikawa-hop-city", "tama-monoale-simcoe", "tamas-chocolate-organe-porter", "tanabata-pale-ale", "telefunk", "this-is-a-hazy-ipa", "tricerahops", "watling-esb", "wolly-mammoth-dipa", "yozakura!"];
 const BEER_EVERY = 5000, BEER_TURN = 1150;
 {
-  const card = document.querySelector(".beer-turn");
+  const wrap  = document.querySelector(".beer");
+  const card  = document.querySelector(".beer-turn");
   const faces = [document.querySelector(".beer-face"),
                  document.querySelector(".beer-face.back")];
-  if (card && faces[0] && faces[1] && BEERS.length){
-    const show = (el, k) => { el.src = "beers/" + encodeURIComponent(BEERS[k]) + ".jpg"; };
+  if (wrap && card && faces[0] && faces[1] && BEERS.length){
+    const url  = k => "beers/" + encodeURIComponent(BEERS[k]) + ".jpg";
+    const show = (el, k) => { el.src = url(k); };
     let turn = 0;
-    let i = Math.floor(Math.random() * BEERS.length);
-    let next = (i + 1) % BEERS.length;
-    show(faces[0], i);
+    let next = (Math.floor(Math.random() * BEERS.length) + 1) % BEERS.length;
+    show(faces[0], (next - 1 + BEERS.length) % BEERS.length);
     show(faces[1], next);          /* already loaded, and facing away */
-    setInterval(() => {
+
+    /* One half turn: the face coming round is already the next beer, and the
+       one going out of sight is given the one after it, to have loaded by the
+       time it comes back. */
+    const step = ms => {
+      card.style.transitionDuration = ms + "ms";
       turn += 180;
       card.style.transform = "rotateY(" + turn + "deg)";
-      i = next;
       next = (next + 1) % BEERS.length;
-      /* the face that has just gone out of sight takes the one after next, and
-         has the whole wait to fetch it */
       const away = faces[((turn / 180) + 1) % 2];
-      setTimeout(() => show(away, next), BEER_TURN);
-    }, BEER_EVERY);
+      setTimeout(() => show(away, next), ms);
+    };
+
+    let timer = setInterval(() => step(BEER_TURN), BEER_EVERY);
+    const idle = () => { clearInterval(timer); timer = setInterval(() => step(BEER_TURN), BEER_EVERY); };
+
+    /* Given a push it spins: three turns, hard, and then back to its own time.
+       The beers it will land on are fetched first — at this speed a face comes
+       round in a third of a second, which is not long enough to go and get a
+       picture, and an empty face is exactly the flicker the two faces were
+       for. */
+    let spinning = false;
+    wrap.addEventListener("click", () => {
+      if (spinning) return;
+      spinning = true;
+      clearInterval(timer);
+      const ready = [];
+      for (let k = 1; k <= 4; k++){
+        const im = new Image();
+        im.src = url((next + k) % BEERS.length);
+        ready.push(im.decode ? im.decode().catch(() => {}) : Promise.resolve());
+      }
+      const fast = 330;
+      Promise.race([Promise.all(ready), new Promise(r => setTimeout(r, 500))]).then(() => {
+        let n = 0;
+        (function go(){
+          step(fast);
+          if (++n < 3) setTimeout(go, fast);
+          else setTimeout(() => {
+            card.style.transitionDuration = BEER_TURN + "ms";
+            spinning = false;
+            idle();
+          }, fast);
+        })();
+      });
+    });
   }
 }})();
 </script>
