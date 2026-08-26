@@ -2746,18 +2746,27 @@ const BEER_EVERY = 5000, BEER_TURN = 1150;
     /* One half turn: the face coming round is already the next beer, and the
        one going out of sight is given the one after it, to have loaded by the
        time it comes back. */
+    /* The beer coming round is not poured until the card has stopped moving.
+       Changing the glass under a turning card puts two changes on the screen
+       at once and neither is watchable; held back, the card lands, and then
+       the beer beside it becomes that beer. */
     const step = ms => {
       card.style.transitionDuration = ms + "ms";
       turn += 180;
       card.style.transform = "rotateY(" + turn + "deg)";
-      pour(BEERS[next], ms + 250);   /* the beer arriving is the one now coming round */
+      const arriving = BEERS[next];
       next = (next + 1) % BEERS.length;
       const away = faces[((turn / 180) + 1) % 2];
-      setTimeout(() => show(away, next), ms);
+      setTimeout(() => { show(away, next); pour(arriving); }, ms);
     };
 
-    let timer = setInterval(() => step(BEER_TURN), BEER_EVERY);
-    const idle = () => { clearInterval(timer); timer = setInterval(() => step(BEER_TURN), BEER_EVERY); };
+    /* Left alone the card turns itself. It stops doing that while the tuning
+       panel is open: somebody with the sliders out is working on the glass in
+       front of them, and having it poured out from under them every five
+       seconds makes that impossible. The card still turns when pushed. */
+    const auto = () => { if (document.body.dataset.panel !== "open") step(BEER_TURN); };
+    let timer = setInterval(auto, BEER_EVERY);
+    const idle = () => { clearInterval(timer); timer = setInterval(auto, BEER_EVERY); };
 
     /* Given a push it is spun: one turn of three, thrown hard and left to run
        down — not three flips one after another, which is a stutter with three
@@ -2771,11 +2780,18 @@ const BEER_EVERY = 5000, BEER_TURN = 1150;
        and find a picture, and a face arriving empty is the flicker that having
        two of them was meant to end. */
     let spinning = false;
-    const SPIN_HALVES = 3, SPIN_MS = 1700;
     wrap.addEventListener("click", () => {
       if (spinning) return;
       spinning = true;
       clearInterval(timer);
+      /* How far it goes is not decided in advance. A card that always stops
+         three faces along is a mechanism; one that comes to rest somewhere
+         between three and eight is a card that was thrown. It is at least one
+         either way, so the beer it lands on is never the beer it left. The
+         throw is given a little longer for a longer run, so a spin of eight
+         does not have to travel at eight thirds the speed of a spin of three. */
+      const SPIN_HALVES = 3 + Math.floor(Math.random() * 6);
+      const SPIN_MS = 1100 + 200 * SPIN_HALVES;
       const ready = [];
       for (let k = 1; k <= SPIN_HALVES + 1; k++){
         const im = new Image();
@@ -2799,9 +2815,6 @@ const BEER_EVERY = 5000, BEER_TURN = 1150;
           while (crossed < done){
             crossed++;
             turn += 180;
-            /* short, because another face is close behind — except the last,
-               which is the beer that stays and can take its time arriving */
-            pour(BEERS[next], crossed === SPIN_HALVES ? POUR_MS : 450);
             next = (next + 1) % BEERS.length;
             show(faces[((turn / 180) + 1) % 2], next);
           }
@@ -2810,6 +2823,11 @@ const BEER_EVERY = 5000, BEER_TURN = 1150;
           card.style.transform = "rotateY(" + to + "deg)";
           card.style.transitionDuration = BEER_TURN + "ms";
           spinning = false;
+          /* nothing was poured on the way past. The beers it flew through are
+             not what was asked for — the one it stopped on is, and it is poured
+             now the card is still. A push is the viewer's own doing, so this
+             one is allowed to move their tuning even with the panel open. */
+          pour(BEERS[(next - 1 + BEERS.length) % BEERS.length]);
           idle();
         };
         requestAnimationFrame(frame);
