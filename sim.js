@@ -1425,16 +1425,18 @@ function updateFoam(dt){
     const rest = -(f.r * 0.45 + f.lift * band);
     f.vy += (rest - f.oy) * 26 * dt;
     f.vy *= 0.90;
-    /* Half what it was. A head does tremble as its bubbles work, but at the
-       old figures it read as a boil rather than a settling, and the setting
-       was doing that at its ordinary mark rather than at some extreme of
-       itself. The rate is untouched: it was moving too far, not too fast, and
-       slowing it as well would have made the head sluggish instead of calm.
-       Anyone who wants the old head still has it, at twice the setting. */
-    f.oy += f.vy * dt + Math.sin(f.seed * 2.1) * churn * 7 * G.scale * dt;
+    /* A quarter of what it was, in two halvings. A head does tremble as its
+       bubbles work, but at the old figures it read as a boil rather than a
+       settling, and the setting was doing that at its ordinary mark rather
+       than at some extreme of itself. The rate is untouched: it was moving too
+       far, not too fast, and slowing it as well would have made the head
+       sluggish instead of calm. The scale is linear in the setting, so the old
+       head is still in there — it is simply no longer anywhere near the middle
+       of the slider. */
+    f.oy += f.vy * dt + Math.sin(f.seed * 2.1) * churn * 3.5 * G.scale * dt;
 
     f.vx *= 0.93;
-    f.x += (f.vx + Math.sin(f.seed * 0.8 + f.r) * churn * 2.5) * dt;
+    f.x += (f.vx + Math.sin(f.seed * 0.8 + f.r) * churn * 1.25) * dt;
 
     /* The head is held by the walls, not wrapped around them — by the wall at
        the height this blob rides at, which a swell and a trough both move */
