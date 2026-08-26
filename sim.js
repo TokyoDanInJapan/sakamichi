@@ -1772,12 +1772,33 @@ const mqDark = matchMedia("(prefers-color-scheme: dark)");
    house hue nothing moves. */
 function applyRoom(){
   const dark = isDark();
+  const st = document.documentElement.style;
+  const c = hexHsl(cfg.roomHex);
+  if (c){
+    /* Given a colour outright the room is that colour, and the ground under it
+       a shade of the same — the two are one wall, the lit part and the part in
+       shadow, and they have to stay the same colour or the bar stops belonging
+       to the room behind it. The shade is the one the two were already mixed
+       at, so a room given its own hue is lit the way the house room is. */
+    st.setProperty("--ground", c.hex);
+    st.setProperty("--ground-deep",
+                   hslHex(c.h, c.s, clamp(c.l * (dark ? 0.54 : 0.95), 0, 100)));
+    return;
+  }
   const h = cfg.bgHue == null ? 220 : cfg.bgHue;
   const s = dark ? 16 : 9;
-  const st = document.documentElement.style;
   st.setProperty("--ground", hslHex(h, s, dark ? 3.7 : 97));
   st.setProperty("--ground-deep", hslHex(h, s, dark ? 2 : 92));
 }
+
+/* What the swatch beside the room's box shows: the colour the room actually
+   is, hex or no hex, so the picker opens where the room already stands. */
+const roomSwatch = () => {
+  const c = hexHsl(cfg.roomHex);
+  if (c) return c.hex;
+  const dark = isDark();
+  return hslHex(cfg.bgHue == null ? 220 : cfg.bgHue, dark ? 16 : 9, dark ? 3.7 : 97);
+};
 
 const isDark = () => {
   const t = document.documentElement.dataset.theme;
@@ -1850,7 +1871,7 @@ function buildSliders(){
       cfg[s.key] = Number(input.value);
       /* Moving the hue hands the colour back to the sliders: leaving a hex set
          would take the slider's own reading away from it. */
-      if (s.key === "hue") clearBeerHex();
+      for (const hk in HEX_OVER) if (HEX_OVER[hk] === s.key) clearHex(hk);
       if (PALETTE_KEYS.includes(s.key)) paletteHook();
       if (s.key === "glassSize"){ resizeHook(); }
       /* Moving the fill line is a deliberate adjustment, so the glass follows
@@ -1878,18 +1899,25 @@ function readout(s){
   if (s.type === "hex"){
     out.textContent = cfg[s.key] ? "" : "auto";
     const sw = document.getElementById("sw-" + s.key);
-    if (sw) sw.value = beerSwatch();
+    const paint = HEX_SWATCH[s.key];
+    if (sw && paint) sw.value = paint();
     return;
   }
   out.textContent = cfg[s.key] + s.unit;
 }
 
-/* Give the pour back to the hue slider, box and swatch with it */
-function clearBeerHex(){
-  if (cfg.beerHex == null) return;
-  cfg.beerHex = null;
-  if (inputs.beerHex) inputs.beerHex.value = "";
-  const s = SPECS.find(x => x.key === "beerHex");
+/* Each colour box stands over a slider: set it and the slider has nothing to
+   say, empty it and the slider has it back. The box shows what its own thing
+   is currently mixed at, whichever of the two is deciding. */
+const HEX_OVER = {beerHex:"hue", roomHex:"bgHue"};
+const HEX_SWATCH = {beerHex: () => beerSwatch(), roomHex: () => roomSwatch()};
+
+/* Give it back to the slider, box and swatch with it */
+function clearHex(key){
+  if (cfg[key] == null) return;
+  cfg[key] = null;
+  if (inputs[key]) inputs[key].value = "";
+  const s = SPECS.find(x => x.key === key);
   if (s) readout(s);
 }
 
