@@ -1219,7 +1219,23 @@ void main(){
   float mt     = clamp(up / max(1.0, rry), 0.0, 1.0);
   float ringHw = ihLip * sqrt(max(0.0, 1.0 - mt * mt));
   float capHw  = max(domeHw, ringHw);
-  float dWall = smin(innerHalfAt(px.y) - abs(px.x - GCX),
+  /* And the side is carried a little past the inner wall, the way the canvas
+     head is. What settles the hem here is a threshold on a blurred field and a
+     fillet where the head's top turns onto the wall, and both take something
+     off the edge: about three pixels up at the top of the head, where the
+     fillet bites hardest, tapering to under one further down. Cut dead on the
+     wall that came out of the head itself, and showed as a dark line between
+     the foam and the glass, widest at the top — a head that does not follow
+     the bore, which is the one thing a head in a glass certainly does.
+
+     Carried out, the hem lands on the wall and what stands past it goes under
+     the glass, which is drawn over the foam. Never further than the wall is
+     thick, so it cannot reach the outside of the glass and show there. Only
+     the wall is carried: the cap is foam standing in air above the lip, with
+     no glass to hold it and nothing covering it, and widening that would just
+     make the crown fatter. */
+  float wallOut = min(3.0 * uScale, GWALL);
+  float dWall = smin(innerHalfAt(px.y) + wallOut - abs(px.x - GCX),
                      capHw - abs(px.x - GCX), 10.0 * uScale);
   /* The bottom of a glass is a disc, and a head with almost no beer left under
      it comes to rest on that disc: what stops it down there is the near half of
@@ -1291,7 +1307,7 @@ void main(){
   float gTop  = (headTopAt(px.x + 1.0, lipCy, rry, uBandPx)
                - headTopAt(px.x - 1.0, lipCy, rry, uBandPx)) * 0.5;
   float dTop  = (px.y - headTop) * inversesqrt(1.0 + gTop * gTop);
-  float body  = smoothstep(0.0, 2.0, smin(dTop, dWall, 7.0 * uScale));
+  float body  = smoothstep(0.0, 2.0, smin(dTop, dWall, 3.0 * uScale));
   float f = max(mix(fs, fb, 0.8), body);
   /* Granular outline: a whisper of bubble-scale roughness on the edge */
   float grain = vnoise(px * 0.9 + vec2(uTime * 0.04, 0.0));
