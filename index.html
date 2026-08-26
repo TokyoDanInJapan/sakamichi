@@ -2760,13 +2760,29 @@ const BEER_EVERY = 5000, BEER_TURN = 1150;
       setTimeout(() => { show(away, next); pour(arriving); }, ms);
     };
 
-    /* Left alone the card turns itself. It stops doing that while the tuning
-       panel is open: somebody with the sliders out is working on the glass in
-       front of them, and having it poured out from under them every five
-       seconds makes that impossible. The card still turns when pushed. */
-    const auto = () => { if (document.body.dataset.panel !== "open") step(BEER_TURN); };
+    /* Left alone the card turns itself. It stops doing that in two cases.
+
+       While the tuning panel is open: somebody with the sliders out is working
+       on the glass in front of them, and having it poured out from under them
+       every five seconds makes that impossible.
+
+       And while the tab is not being looked at. The angle it is turned to only
+       ever goes up, and a turn is a transition between two angles — but a
+       hidden tab paints nothing while its timers go on firing, so the turns
+       pile into the transform unseen and the whole heap animates at once on
+       the way back. That is the card spinning wildly for a second after a
+       return, and nothing accumulates if nothing turns. Coming back restarts
+       the clock rather than resuming it, so the card is never caught mid-turn
+       by a tab being brought forward.
+
+       The card still turns when pushed, in either case. */
+    const auto = () => {
+      if (document.hidden || document.body.dataset.panel === "open") return;
+      step(BEER_TURN);
+    };
     let timer = setInterval(auto, BEER_EVERY);
     const idle = () => { clearInterval(timer); timer = setInterval(auto, BEER_EVERY); };
+    document.addEventListener("visibilitychange", () => { if (!document.hidden && !spinning) idle(); });
 
     /* Given a push it is spun: one turn of three, thrown hard and left to run
        down — not three flips one after another, which is a stutter with three
