@@ -1121,9 +1121,17 @@ void main(){
      The dome is sized to how far the head is actually standing proud, so it
      closes exactly where the foam ends rather than at some height of its own —
      a shallow head gets a shallow crown and a proud one a tall one. */
-  float crest = max(uCrest, 1.0);
-  float ct    = clamp(up / crest, 0.0, 1.0);
-  float capHw = ihLip * sqrt(max(0.0, 1.0 - ct * ct));
+  float crest  = max(uCrest, 1.0);
+  float ct     = clamp(up / crest, 0.0, 1.0);
+  float domeHw = ihLip * sqrt(max(0.0, 1.0 - ct * ct));
+  /* And never inside the mouth's own ring. The rim is a circle seen at an
+     angle, so for a rim's depth above the lip the glass still stands out to
+     that ellipse — and a dome cutting inside it left a crescent of room
+     showing between the foam and the far lip, which is the dark nick at each
+     shoulder of the head. */
+  float mt     = clamp(up / max(1.0, rry), 0.0, 1.0);
+  float ringHw = ihLip * sqrt(max(0.0, 1.0 - mt * mt));
+  float capHw  = max(domeHw, ringHw);
   float dWall = smin(innerHalfAt(px.y) - abs(px.x - GCX),
                      capHw - abs(px.x - GCX), 10.0 * uScale);
   /* The bottom of a glass is a disc, and a head with almost no beer left under
