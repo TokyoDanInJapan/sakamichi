@@ -762,6 +762,14 @@ let weepAlive = 0;
    three pixels up the glass and back down again, over and over, which is the
    judder. */
 let weepHem = 0, weepDrape = 0;
+/* The ratchet is kept as a bare fraction of the collar and turned into pixels
+   fresh every frame. Held in pixels it also ratcheted against the beer itself:
+   pour a stout after an IPA and the drape stayed at the depth the IPA had
+   dragged it to, because a smaller number never gets past a Math.max. What
+   must not run backwards is the foam's own reach on a glass that is being
+   swilled; how deep this beer hangs at all is not that, and follows the pour
+   it belongs to. */
+let weepDrapeK = 0;
 /* Ribbons come out of the collar at a rate rather than one per fleck, so what
    is owed is kept between frames */
 let ribbonOwed = 0;
@@ -807,13 +815,31 @@ function collarWant(){
   return clamp(over / Math.max(1, G.inH * BRIM_LIFT), 0, 1);
 }
 /* Four or five broad tongues across the face of the glass, not a dozen little
-   scallops — foam hangs in lobes the width of a finger */
-const COLLAR_LOBES = [1.4, 2.6, 4.3];
+   scallops — foam hangs in lobes the width of a finger.
+
+   Three waves round the rim make them, and which three is rolled once when a
+   weep starts and then held for as long as that weep is on the glass. Fixed,
+   every glass all evening wore the same collar with its tongues in the same
+   places, which is the one part of the pour that repeats itself exactly and
+   so the one the eye learns. Rolled per frame it would crawl, and foam on the
+   outside of a glass does not crawl. Rolled per weep, no two pours hang alike
+   and each one hangs still.
+
+   The ranges keep the character rather than opening it up: a few broad
+   tongues, never a fringe of scallops. */
+let drapeF = [1.4, 2.6, 4.3];       /* how many tongues each wave makes */
+let drapeP = [0, 2.1, 4.2];         /* and where round the glass they sit */
+let drapeG = [0.400, 0.200, 0.133]; /* how deep each hangs */
+let drapeB = 0.58;                  /* and how much of it is level hem */
+function rollDrape(){
+  drapeF = [rand(1.1, 1.9), rand(2.1, 3.2), rand(3.6, 5.2)];
+  drapeP = [Math.random() * TAU, Math.random() * TAU, Math.random() * TAU];
+  drapeG = [rand(0.30, 0.50), rand(0.14, 0.26), rand(0.08, 0.18)];
+  drapeB = rand(0.50, 0.66);
+}
 function collarDrape(th){
-  let v = 0.58;
-  for (let i = 0; i < COLLAR_LOBES.length; i++){
-    v += 0.40 / (i + 1) * Math.sin(th * COLLAR_LOBES[i] + i * 2.1);
-  }
+  let v = drapeB;
+  for (let i = 0; i < 3; i++) v += drapeG[i] * Math.sin(th * drapeF[i] + drapeP[i]);
   /* Closed off at the two sides. There the glass has turned away and the
      collar is edge on, so it has no depth to show — left open it hung off the
      silhouette as a pair of square tabs. */
@@ -1477,18 +1503,29 @@ function updateDrops(dt){
   const want = collarWant();
   const k = Math.min(1, dt * 0.25);
   if (want > 0.01){
-    collar = want;
+    if (weepAlive === 0) rollDrape();     /* a new weep hangs its own way */
     weepAlive = 1;
+    /* Gained at the pace of the pour and lost at the pace it dries. A glass
+       filled to the lip wears a collar directly; one whose head has dipped
+       under the lip for a moment does not lose it between two frames, because
+       foam already on the outside is not taken back in by the beer going
+       quiet. Read straight off the fill this fell by nine tenths and returned
+       inside three seconds every time the head was tuned shorter — the collar
+       blinking out and back, which is not something a glass does. */
+    collar += (want - collar) * (want > collar ? Math.min(1, dt * 6)
+                                               : Math.min(1, dt / WEEP_DRY));
     creep += (1 - creep) * k;
     const reachWant = Math.max(0, restSurfaceY() - (G.top + G.topHalf * G.ryTop));
     weepReach += (reachWant - weepReach) * k;
     /* and what is drawn only ever runs further down */
     weepHem = Math.max(weepHem, weepReach);
-    weepDrape = Math.max(weepDrape, collar * weepDeep());
+    weepDrapeK = Math.max(weepDrapeK, collar);
   } else if (weepAlive > 0){
     weepAlive = Math.max(0, weepAlive - dt / WEEP_DRY);
-    if (weepAlive === 0){ collar = 0; creep = 0; weepReach = 0; weepHem = 0; weepDrape = 0; }
+    if (weepAlive === 0){ collar = 0; creep = 0; weepReach = 0; weepHem = 0; weepDrapeK = 0; }
   }
+  /* turned into pixels here, against the beer standing in the glass now */
+  weepDrape = weepDrapeK * weepDeep();
 
   /* And the collar sheds ribbons, because they are drawn out of it. What feeds
      them is how much of the head is over the lip, which is the one thing the

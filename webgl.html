@@ -1639,15 +1639,20 @@ uniform int   uRibN;
 uniform vec4  uRibA[6];      // th, top, bottom h, shoulder width
 uniform vec4  uRibB[6];      // bead r, wob, wobA, pool
 uniform vec4  uRibC[6];      // life
+/* the three waves this weep's tongues are made of: how many, where, how deep,
+   and how much of the hem is level. Rolled once per weep, over in sim.js. */
+uniform vec3  uDrapeF;
+uniform vec3  uDrapeP;
+uniform vec4  uDrapeG;       // depths, and the level part in w
 out vec4 frag;
 
 /* The hem hangs in tongues rather than level, and is closed off at the two
    sides, where the glass has turned away and the collar is edge on. */
 float drape(float th){
-  float v = 0.58;
-  v += 0.400 * sin(th * 1.4);
-  v += 0.200 * sin(th * 2.6 + 2.1);
-  v += 0.400 / 3.0 * sin(th * 4.3 + 4.2);
+  float v = uDrapeG.w;
+  v += uDrapeG.x * sin(th * uDrapeF.x + uDrapeP.x);
+  v += uDrapeG.y * sin(th * uDrapeF.y + uDrapeP.y);
+  v += uDrapeG.z * sin(th * uDrapeF.z + uDrapeP.z);
   return clamp(v, 0.06, 1.0) * min(1.0, abs(cos(th)) * 3.4);
 }
 
@@ -2429,6 +2434,9 @@ function drawWeep(part){
   setShared(progWeep, dpr);
   gl.uniform3fv(progWeep.u.uFoam, pal.foam);
   gl.uniform4f(progWeep.u.uWeep, collar, weepOver(), weepHem, weepDrape);
+  gl.uniform3f(progWeep.u.uDrapeF, drapeF[0], drapeF[1], drapeF[2]);
+  gl.uniform3f(progWeep.u.uDrapeP, drapeP[0], drapeP[1], drapeP[2]);
+  gl.uniform4f(progWeep.u.uDrapeG, drapeG[0], drapeG[1], drapeG[2], drapeB);
   gl.uniform1f(progWeep.u.uWeepRun, weepRun());
   gl.uniform1f(progWeep.u.uWeepAlive, weepAlive);
   gl.uniform1f(progWeep.u.uBeerSolid, beerSolid());
