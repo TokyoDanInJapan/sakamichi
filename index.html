@@ -2725,34 +2725,57 @@ const BEER_EVERY = 5000, BEER_TURN = 1150;
     let timer = setInterval(() => step(BEER_TURN), BEER_EVERY);
     const idle = () => { clearInterval(timer); timer = setInterval(() => step(BEER_TURN), BEER_EVERY); };
 
-    /* Given a push it spins: three turns, hard, and then back to its own time.
-       The beers it will land on are fetched first — at this speed a face comes
-       round in a third of a second, which is not long enough to go and get a
-       picture, and an empty face is exactly the flicker the two faces were
-       for. */
+    /* Given a push it is spun: one turn of three, thrown hard and left to run
+       down — not three flips one after another, which is a stutter with three
+       starts in it. The angle is carried frame by frame here rather than
+       handed to a transition, because the faces have to change exactly as the
+       card goes edge on, and where those moments fall depends on how the spin
+       is slowing.
+
+       The beers it will pass are fetched first. Under momentum the first face
+       comes round in a fraction of a second, which is not long enough to go
+       and find a picture, and a face arriving empty is the flicker that having
+       two of them was meant to end. */
     let spinning = false;
+    const SPIN_HALVES = 3, SPIN_MS = 1700;
     wrap.addEventListener("click", () => {
       if (spinning) return;
       spinning = true;
       clearInterval(timer);
       const ready = [];
-      for (let k = 1; k <= 4; k++){
+      for (let k = 1; k <= SPIN_HALVES + 1; k++){
         const im = new Image();
         im.src = url((next + k) % BEERS.length);
         ready.push(im.decode ? im.decode().catch(() => {}) : Promise.resolve());
       }
-      const fast = 330;
       Promise.race([Promise.all(ready), new Promise(r => setTimeout(r, 500))]).then(() => {
-        let n = 0;
-        (function go(){
-          step(fast);
-          if (++n < 3) setTimeout(go, fast);
-          else setTimeout(() => {
-            card.style.transitionDuration = BEER_TURN + "ms";
-            spinning = false;
-            idle();
-          }, fast);
-        })();
+        const from = turn, to = turn + 180 * SPIN_HALVES;
+        const t0 = performance.now();
+        let crossed = 0;
+        card.style.transitionDuration = "0ms";
+        const frame = now => {
+          const p = Math.min(1, (now - t0) / SPIN_MS);
+          /* thrown, and running down: quick away, and the last of it slow */
+          const e = 1 - Math.pow(1 - p, 3);
+          const a = from + (to - from) * e;
+          card.style.transform = "rotateY(" + a + "deg)";
+          /* each time it passes edge on, the face going out of sight takes the
+             next beer — the same handover the idle turn makes */
+          const done = Math.min(SPIN_HALVES, Math.floor((a - from) / 180));
+          while (crossed < done){
+            crossed++;
+            turn += 180;
+            next = (next + 1) % BEERS.length;
+            show(faces[((turn / 180) + 1) % 2], next);
+          }
+          if (p < 1){ requestAnimationFrame(frame); return; }
+          turn = to;
+          card.style.transform = "rotateY(" + to + "deg)";
+          card.style.transitionDuration = BEER_TURN + "ms";
+          spinning = false;
+          idle();
+        };
+        requestAnimationFrame(frame);
       });
     });
   }
