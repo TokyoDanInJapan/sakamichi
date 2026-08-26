@@ -402,6 +402,10 @@ body[data-chrome="off"] .beer{opacity:0}
       <button class="chip" data-preset="pilsner">Pilsner</button>
       <button class="chip" data-preset="helles">Helles</button>
       <button class="chip" data-preset="bock">Bock</button>
+      <button class="chip" data-preset="stout">Stout</button>
+      <button class="chip" data-preset="hazy">Hazy IPA</button>
+      <button class="chip" data-preset="red">Red ale</button>
+      <button class="chip" data-preset="sour">Sour</button>
     </div>
     <div id="sliders"></div>
 
@@ -465,6 +469,7 @@ const SPECS = [
   {key:"beerHex",    label:"Beer colour", type:"hex", unit:"", group:null},
   {key:"richness",   label:"Richness",    min:0,   max:100, step:1, unit:"",   group:null},
   {key:"beerAlpha",  label:"Beer opacity",min:0,   max:200, step:5, unit:"%",  group:null},
+  {key:"bgHue",      label:"Room hue",    min:0,   max:360, step:1, unit:"°",  group:null},
   {key:"clarity",    label:"Clarity",     min:0,   max:100, step:1, unit:"",   group:null},
   {key:"caustics",   label:"Caustics",    min:0,   max:200, step:5, unit:"%",  group:"Optics"},
   {key:"lightAngle", label:"Light angle", min:0,   max:180, step:1, unit:"°",  group:null},
@@ -476,14 +481,18 @@ const HOUSE = {
   carbonation:100, bubbleSize:100, bubbleBreak:100, headDepth:100,
   foamChurn:100, weep:100, weepAlpha:100,
   glassSize:100, glassLine:100, reflect:100, relief:100, condensation:70, dewSize:100, hue:40, richness:46,
-  beerAlpha:100, clarity:70,
+  beerAlpha:100, bgHue:220, clarity:70,
   caustics:100, lightAngle:62, gloss:55
 };
 
 const PRESETS = {
   pilsner:{hue:45, richness:22, clarity:88, caustics:150, carbonation:145, bubbleSize:75,  headDepth:135, foamChurn:130, waveSpeed:56, viscosity:24},
   helles: {hue:40, richness:46, clarity:70, caustics:100, carbonation:100, bubbleSize:100, headDepth:100, foamChurn:100, waveSpeed:46, viscosity:40},
-  bock:   {hue:25, richness:92, clarity:34, caustics:55, carbonation:60,  bubbleSize:135, headDepth:70,  foamChurn:60,  waveSpeed:34, viscosity:66}
+  bock:   {hue:25, richness:92, clarity:34, caustics:55, carbonation:60,  bubbleSize:135, headDepth:70,  foamChurn:60,  waveSpeed:34, viscosity:66},
+  stout:  {beerHex:"#2a1409", richness:100, clarity:12, caustics:20,  carbonation:42,  bubbleSize:150, headDepth:135, foamChurn:40, waveSpeed:28, viscosity:82},
+  hazy:   {beerHex:"#e9a83f", richness:58,  clarity:14, caustics:45,  carbonation:85,  bubbleSize:105, headDepth:115, foamChurn:95, waveSpeed:42, viscosity:54},
+  red:    {beerHex:"#9d3312", richness:74,  clarity:56, caustics:80,  carbonation:78,  bubbleSize:118, headDepth:95,  foamChurn:78, waveSpeed:39, viscosity:58},
+  sour:   {beerHex:"#cf5566", richness:28,  clarity:92, caustics:140, carbonation:135, bubbleSize:78,  headDepth:55,  foamChurn:70, waveSpeed:54, viscosity:26}
 };
 
 const STORE_KEY = "sakamichi-shader-v2";
@@ -508,7 +517,7 @@ if (params.has("theme")) cfg.theme = params.get("theme");
 /* Which sliders demand a palette rebuild in this renderer */
 /* How much of the counter one tile of timber covers, in camera heights */
 const WOOD_TILES = 0.34;
-const PALETTE_KEYS = ["hue", "richness", "clarity", "bubbleSize", "carbonation"];
+const PALETTE_KEYS = ["hue", "richness", "clarity", "bubbleSize", "carbonation", "bgHue"];
 </script>
 <script src="bar-wood.js"></script>
 <script src="sim.js"></script>
@@ -2204,6 +2213,7 @@ function hslToRgb(h, s, l){
 
 let pal = {};
 function buildPalette(){
+  applyRoom();
   const dark = isDark();
   const r = cfg.richness / 100;
   const clarity = cfg.clarity / 100;
@@ -2621,6 +2631,7 @@ function frame(now){
 
   tiltNow += (tiltWant - tiltNow) * Math.min(1, dt * 6);
   pointerForces(dt);
+  tiltForces(dt);
   ambient(dt);
   spillOverRim(dt);
   updateBubbles(dt);
@@ -2642,9 +2653,10 @@ function frame(now){
 
 document.querySelectorAll("[data-preset]").forEach(btn => {
   btn.addEventListener("click", () => {
-    Object.assign(cfg, PRESETS[btn.dataset.preset]);
-    /* a recipe brings its own colour with it */
+    /* cleared first, so a recipe that names its own colour keeps it and one
+       that does not goes back to the hue slider */
     cfg.beerHex = null;
+    Object.assign(cfg, PRESETS[btn.dataset.preset]);
     cfg.preset = btn.dataset.preset;
     syncInputs();
     if (!cfg.running) render();

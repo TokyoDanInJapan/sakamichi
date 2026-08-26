@@ -1043,6 +1043,14 @@ function updateLevel(dt){
  * Tilt — the phone's own gravity, which the beer answers to
  * ================================================================== */
 let tiltWant = 0, tiltNow = 0, tiltLive = false;
+/* How fast the lean is changing, which is a different thing from the lean and
+   does a different job: held at an angle a phone only tips the beer downhill,
+   and the pour settles into the slope. What swirls it is the phone being
+   moved — the same reading a hand gives when it rocks a glass — so the swing
+   between one reading and the next is gathered here and spent as a sideways
+   drive, exactly as a cursor dragged across the glass is spent. */
+let tiltSwing = 0, tiltLast = 0, tiltSeen = false;
+const TILT_SWIRL = 200;
 
 /* beta and gamma are the device's own axes, so they have to be turned into
    the page's before the beer can lean the way the phone is leaning */
@@ -1053,6 +1061,9 @@ function onOrient(e){
   const gx = Math.sin((e.gamma || 0) * r);
   const gy = Math.sin((e.beta  || 0) * r);
   tiltWant = clamp(gx * Math.cos(a) + gy * Math.sin(a), -1, 1);
+  if (tiltSeen) tiltSwing += tiltWant - tiltLast;
+  tiltLast = tiltWant;
+  tiltSeen = true;
   tiltLive = true;
 }
 
@@ -1097,6 +1108,18 @@ async function tiltEnable(){
    gravity. */
 function tiltForce(){
   return cfg.tilt && tiltLive ? tiltNow * 0.5 * (cfg.agitation / 100) : 0;
+}
+
+/* And what the phone's moving does, which the lean cannot: it swirls the pour.
+   Spent as it is used, so a phone left alone stops driving it, and clamped to
+   what a hard drag of the cursor comes to — a device can be swung a great deal
+   faster than a hand can move a mouse, and the solver should not be asked to
+   carry a shove it would never see otherwise. */
+function tiltForces(dt){
+  if (!cfg.tilt || !tiltLive || cfg.agitation === 0) return;
+  const drive = tiltSwing * TILT_SWIRL * (cfg.agitation / 100) * Math.min(1, dt * 60);
+  if (Math.abs(drive) > 0.5) driveFlow(clamp(drive, -1600, 1600));
+  tiltSwing *= Math.max(0, 1 - dt * 14);
 }
 
 /* ================================================================== *
@@ -1738,6 +1761,24 @@ function logoRect(){
  * Palette
  * ================================================================== */
 const mqDark = matchMedia("(prefers-color-scheme: dark)");
+/* The room's own colour. Both renderers read the ground and the deep ground
+   from these two variables, and the page's own background is the first of
+   them, so setting them here colours the room, the bar and the wall behind the
+   glass together rather than one at a time.
+
+   Only the hue is given. The saturation and the lightness are the ones the
+   room was already mixed at — a wall that can be turned any brightness is a
+   different control and a worse one, since the glass is lit against it. At the
+   house hue nothing moves. */
+function applyRoom(){
+  const dark = isDark();
+  const h = cfg.bgHue == null ? 220 : cfg.bgHue;
+  const s = dark ? 16 : 9;
+  const st = document.documentElement.style;
+  st.setProperty("--ground", hslHex(h, s, dark ? 3.7 : 97));
+  st.setProperty("--ground-deep", hslHex(h, s, dark ? 2 : 92));
+}
+
 const isDark = () => {
   const t = document.documentElement.dataset.theme;
   if (t === "dark") return true;
