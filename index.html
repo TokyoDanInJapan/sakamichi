@@ -875,13 +875,26 @@ function glassSilhouette(fromY){
    instead — which is what clamping innerHalfAt does — lets a high pour sit
    over the glass as a slab with square shoulders, wider than the glass it
    came out of. */
-function headClip(ctx, domeH){
+/* grow: how far past the inner wall to carry the cut, in canvas pixels.
+
+   The foam sheet is blurred and re-thresholded after it is drawn, and a blur
+   rounds a corner by pulling it inward. Cut dead on the wall, the head had
+   nothing outside the wall to lose, so the rounding came out of the head
+   itself: down the flat of the side it still reached the glass, but at the two
+   corners — where the crown turns down onto the lip, and where the head meets
+   the beer — it stood some three pixels back, which is the dark hairline
+   between the head and the glass beside the rim. Carried out past the wall,
+   what the blur rounds off is the part that was going to be trimmed anyway,
+   and the silhouette against the glass is set by the clip on the element,
+   which cuts after the filter and follows the wall's own curve. */
+function headClip(ctx, domeH, grow){
+  grow = grow || 0;
   const steps = 20;
-  const ihwTop = innerHalfAt(G.inTop);
+  const ihwTop = innerHalfAt(G.inTop) + grow;
   ctx.beginPath();
   for (let i = 0; i <= steps; i++){
     const y = lerp(G.inTop, G.inBottom, i / steps);
-    const x = G.cx - innerHalfAt(y);
+    const x = G.cx - innerHalfAt(y) - grow;
     if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
   }
   /* Across the floor on the floor's own arc, not on a chord. The bottom of a
@@ -892,8 +905,8 @@ function headClip(ctx, domeH){
      across the glass, which is the one shape a glass with elliptical walls
      cannot show. Walked by angle so the two ends, where the ellipse turns
      hardest, are not joined across by a straight line either. */
-  const ihwF = innerHalfAt(G.inBottom);
-  const iryF = ihwF * ryAt(G.inBottom);
+  const ihwF = innerHalfAt(G.inBottom) + grow;
+  const iryF = innerHalfAt(G.inBottom) * ryAt(G.inBottom) + grow;
   const fSteps = 40;
   for (let i = 0; i <= fSteps; i++){
     const u = -Math.cos(Math.PI * i / fSteps);
@@ -901,7 +914,7 @@ function headClip(ctx, domeH){
   }
   for (let i = steps; i >= 0; i--){
     const y = lerp(G.inTop, G.inBottom, i / steps);
-    ctx.lineTo(G.cx + innerHalfAt(y), y);
+    ctx.lineTo(G.cx + innerHalfAt(y) + grow, y);
   }
   /* Over the lip the head is crowned rather than domed. A dome centred on the
      glass has its full height only over the middle and none at all at the
@@ -1608,7 +1621,10 @@ function drawFoam(){
 
   /* The head is held by the glass, but may dome a little over the rim */
   ctxF.save();
-  headClip(ctxF, band * 0.55);
+  /* carried past the wall by what the element's own clip already over-reaches
+     by, so the two agree on where the head ends, and the blur between them has
+     material to round off that nobody was going to see */
+  headClip(ctxF, band * 0.55, 2 / FOAM_SCALE);
   ctxF.clip();
 
   ctxF.fillStyle = pal.foam;
