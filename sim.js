@@ -785,6 +785,13 @@ const RIBBON_RATE = 0.45;      /* at a full collar, about one every two seconds 
 const WEEP_OVER = 0.45;
 /* and how long it takes to dry off the glass once nothing is feeding it */
 const WEEP_DRY = 2.6;
+/* and how long it takes to come back once it is being fed again. Quicker than
+   drying — it is being wetted rather than left alone — but not instant, which
+   is what it was: read as a fact about the pour, the weep was simply on again
+   the moment the glass was full enough, so a hem halfway through fading came
+   back to full strength between two frames. That is the flash. Foam does not
+   reappear; it is fed, and being fed takes as long as it takes. */
+const WEEP_WET = 0.7;
 const ease = s => (s = clamp(s, 0, 1), s * s * (3 - 2 * s));
 /* how far the foam has got over the ring of the lip */
 const weepOver = () => ease(creep / WEEP_OVER);
@@ -1512,7 +1519,7 @@ function updateDrops(dt){
   const k = Math.min(1, dt * 0.25);
   if (want > 0.01){
     if (weepAlive === 0) rollDrape();     /* a new weep hangs its own way */
-    weepAlive = 1;
+    weepAlive = Math.min(1, weepAlive + dt / WEEP_WET);
     /* Gained at the pace of the pour and lost at the pace it dries. A glass
        filled to the lip wears a collar directly; one whose head has dipped
        under the lip for a moment does not lose it between two frames, because
