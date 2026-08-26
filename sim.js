@@ -1229,6 +1229,45 @@ function addFoam(x, r){
   });
 }
 
+/* What has left the glass, painted on a sheet of its own.
+
+   The sheet lies over everything the glass stands beside, so a splash passes
+   in front of the card rather than behind it. It cannot simply be a matter of
+   stacking the whole picture over the card instead: both renderers lay the
+   room and the bar down across the entire frame, so the picture is opaque and
+   putting it over the card hides the card altogether.
+
+   Only what is coming towards the eye. A drop thrown to the back of the glass
+   belongs behind the glass, and is painted there with everything else.
+
+   The two colours are handed in because the renderers hold their palettes
+   differently — one in the colours a canvas understands, the other in numbers
+   for a shader. */
+function paintSplash(ctx, foamCol, beerCol){
+  ctx.clearRect(0, 0, W, H);
+  for (const d of drops){
+    if ((d.near || 0) < 0) continue;
+    const dr = d.r * dropScale(d);
+    ctx.beginPath();
+    ctx.ellipse(d.x, d.y, dr, dr * (1 + clamp(Math.abs(d.vy) / (900 * G.scale), 0, 0.6)), 0, 0, TAU);
+    ctx.fillStyle = d.foamy ? foamCol : beerCol;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(d.x - dr * 0.3, d.y - dr * 0.4, dr * 0.3, 0, TAU);
+    ctx.fillStyle = "rgba(255,255,255,.6)";
+    ctx.fill();
+  }
+  for (const m of mist){
+    if ((m.near || 0) < 0) continue;
+    ctx.globalAlpha = clamp(m.life, 0, 1) * 0.5;
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, m.r, 0, TAU);
+    ctx.fillStyle = foamCol;
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
 function burstDrops(x, y, n){
   for (let i = 0; i < n; i++){
     drops.push({

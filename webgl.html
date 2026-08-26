@@ -331,6 +331,8 @@ body[data-chrome="off"] .beer{opacity:0}
 @media (prefers-reduced-motion:reduce){ .beer-turn{transition:none} }
 /* On a narrow page the glass takes the middle back and there is no room beside it */
 @media (max-width:900px){ .beer{display:none} }
+/* The splashes lie over the card, and over nothing else that matters */
+.splash{position:fixed;inset:0;z-index:4;pointer-events:none}
 </style>
 </head>
 <body>
@@ -353,6 +355,7 @@ body[data-chrome="off"] .beer{opacity:0}
   </p>
 </header>
 
+<canvas class="splash" aria-hidden="true"></canvas>
 <div class="beer" aria-label="Beer of the moment">
   <div class="beer-turn">
     <img class="beer-face" alt="" decoding="async">
@@ -518,6 +521,8 @@ const PALETTE_KEYS = ["hue", "richness", "clarity", "bubbleSize", "carbonation"]
 const stage = document.getElementById("stage");
 const canvas = document.getElementById("gl");
 const gl = canvas.getContext("webgl2", {alpha:false, antialias:false, depth:false, stencil:false, powerPreference:"high-performance"});
+const cvS = document.querySelector(".splash");
+const ctxS = cvS.getContext("2d");
 
 if (!gl){
   document.body.dataset.gl = "off";
@@ -2080,6 +2085,10 @@ function resize(){
 
   canvas.width  = Math.round(W * dpr);
   canvas.height = Math.round(H * dpr);
+  /* the splash sheet is drawn in page pixels, over the card */
+  cvS.width  = Math.round(W * dpr);
+  cvS.height = Math.round(H * dpr);
+  ctxS.setTransform(dpr, 0, 0, dpr, 0, 0);
   makeField(canvas.width / FIELD_SCALE, canvas.height / FIELD_SCALE);
   makeScene(canvas.width, canvas.height);
 
@@ -2334,10 +2343,13 @@ function drawSprites(){
   };
   for (const b of bubbles) push(b.x, b.y, Math.max(1.2, b.r), Math.max(1.2, b.r), 0, 1);
   for (const d of drops){
+    /* the near ones go on the splash sheet, in front of the card */
+    if ((d.near || 0) >= 0) continue;
     const dr = d.r * dropScale(d);           /* nearer is bigger */
     push(d.x, d.y, Math.max(1.4, dr), Math.max(1.4, dr), 1, 1);
   }
-  for (const m of mist)    push(m.x, m.y, Math.max(1, m.r * 1.6), Math.max(1, m.r * 1.6), 2, clamp(m.life, 0, 1));
+  for (const m of mist){ if ((m.near || 0) >= 0) continue;
+    push(m.x, m.y, Math.max(1, m.r * 1.6), Math.max(1, m.r * 1.6), 2, clamp(m.life, 0, 1)); }
   for (const l of lace){
     const [lx, ly, c] = lacePos(l);
     /* edge-on at the sides, and the far wall is read through the whole glass */
@@ -2555,6 +2567,10 @@ function render(){
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 
   gl.bindVertexArray(null);
+
+  /* and the splashes on their own sheet, over the card */
+  const css = a => "rgb(" + a[0] * 255 + "," + a[1] * 255 + "," + a[2] * 255 + ")";
+  paintSplash(ctxS, css(pal.foam), css(pal.beerMid));
 }
 
 /* ================================================================== *

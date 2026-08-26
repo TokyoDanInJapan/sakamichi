@@ -308,6 +308,8 @@ body[data-chrome="off"] .beer{opacity:0}
 @media (prefers-reduced-motion:reduce){ .beer-turn{transition:none} }
 /* On a narrow page the glass takes the middle back and there is no room beside it */
 @media (max-width:900px){ .beer{display:none} }
+/* The splashes lie over the card, and over nothing else that matters */
+.splash{position:fixed;inset:0;z-index:4;pointer-events:none}
 </style>
 </head>
 <body>
@@ -336,6 +338,7 @@ body[data-chrome="off"] .beer{opacity:0}
   </p>
 </header>
 
+<canvas class="splash" aria-hidden="true"></canvas>
 <div class="beer" aria-label="Beer of the moment">
   <div class="beer-turn">
     <img class="beer-face" alt="" decoding="async">
@@ -510,6 +513,8 @@ const cvD = document.getElementById("detail");
 const ctxL = cvL.getContext("2d");
 const ctxF = cvF.getContext("2d");
 const ctxD = cvD.getContext("2d");
+const cvS = document.querySelector(".splash");
+const ctxS = cvS.getContext("2d");
 
 /* The head is drawn at less than full resolution: the goo filter blurs it
    into one body anyway, so the detail would be thrown away. Its edge is
@@ -524,7 +529,7 @@ function resize(){
   H = Math.max(1, r.height);
   dpr = Math.min(window.devicePixelRatio || 1, 2) * quality;
 
-  for (const [cv, ctx, scale] of [[cvL,ctxL,1],[cvF,ctxF,FOAM_SCALE],[cvD,ctxD,1]]){
+  for (const [cv, ctx, scale] of [[cvL,ctxL,1],[cvF,ctxF,FOAM_SCALE],[cvD,ctxD,1],[cvS,ctxS,1]]){
     const s = dpr * scale;
     cv.width  = Math.round(W * s);
     cv.height = Math.round(H * s);
@@ -2435,10 +2440,10 @@ function drawDetail(){
     ctxD.globalAlpha = 1;
   }
 
-  /* What came off the near lip goes over the glass. What came off the far lip
-     went over it too, and was painted there before this — see paintDrops. */
-  paintDrops(d => (d.near || 0) >= 0);
-  paintMist(m => (m.near || 0) >= 0);
+  /* What came off the far lip went over the glass and was painted above. What
+     came off the near lip goes on the splash sheet instead, which lies over
+     the card standing beside the glass — see paintSplash. */
+  paintSplash(ctxS, pal.foam, pal.beerMid);
   ctxD.globalAlpha = 1;
 }
 
