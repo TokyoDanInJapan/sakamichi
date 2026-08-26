@@ -1870,7 +1870,13 @@ void main(){
        lip is and hangs down the outside from it — it is not a lid.
 
        Cut a hair inside the bore rather than on it, so the collar laps over
-       the head instead of meeting it exactly. Where the two are supposed to
+       the head instead of meeting it exactly — but only a hair. At eight
+       pixels of glass the lap read as a band of foam standing inside the rim
+       rather than a ring lying on it, which is not what a collar looks like;
+       the canvas cuts at the bore itself and never had it. Two and a half
+       closes the join just as well: measured at the shoulders, where the
+       trouble was, it leaves the same handful of dark pixels the wide lap did,
+       and fewer than no lap at all. Where the two are supposed to
        meet is at the wall just under the lip, and that is the one place
        neither quite reaches: the head's crown comes down to the rim's plane
        there, and the mouth is cut out of the collar right up to the same
@@ -1878,7 +1884,7 @@ void main(){
        side of the rim — the dark comma. The canvas closes it by accident,
        its blobs being blurred out past the head's own top; here it is closed
        on purpose. */
-    float inset = 8.0 * uScale;
+    float inset = 2.5 * uScale;
     float mrx = max(2.0, halfAt(rimCy()) - GWALL - inset);
     vec2 m = vec2((px.x - GCX) / mrx,
                   (px.y - rimCy()) / max(1.0, rimRy() * 0.94 - inset));
