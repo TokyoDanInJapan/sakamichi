@@ -1219,23 +1219,13 @@ void main(){
   float mt     = clamp(up / max(1.0, rry), 0.0, 1.0);
   float ringHw = ihLip * sqrt(max(0.0, 1.0 - mt * mt));
   float capHw  = max(domeHw, ringHw);
-  /* And the side is carried a little past the inner wall, the way the canvas
-     head is. What settles the hem here is a threshold on a blurred field and a
-     fillet where the head's top turns onto the wall, and both take something
-     off the edge: about three pixels up at the top of the head, where the
-     fillet bites hardest, tapering to under one further down. Cut dead on the
-     wall that came out of the head itself, and showed as a dark line between
-     the foam and the glass, widest at the top — a head that does not follow
-     the bore, which is the one thing a head in a glass certainly does.
-
-     Carried out, the hem lands on the wall and what stands past it goes under
-     the glass, which is drawn over the foam. Never further than the wall is
-     thick, so it cannot reach the outside of the glass and show there. Only
-     the wall is carried: the cap is foam standing in air above the lip, with
-     no glass to hold it and nothing covering it, and widening that would just
-     make the crown fatter. */
-  float wallOut = min(3.0 * uScale, GWALL);
-  float dWall = smin(innerHalfAt(px.y) + wallOut - abs(px.x - GCX),
+  /* The side is the inner wall itself, with nothing added. Carried out past
+     it to make up for what the hem's own threshold takes off the edge, the
+     head came out wider than the beer standing under it, and the two met in a
+     step at the waterline — where what a glass shows is one unbroken line up
+     the wall, foam and beer alike against the same bore. Whatever the hem
+     loses, it has to lose it on the same line the beer ends on. */
+  float dWall = smin(innerHalfAt(px.y) - abs(px.x - GCX),
                      capHw - abs(px.x - GCX), 10.0 * uScale);
   /* The bottom of a glass is a disc, and a head with almost no beer left under
      it comes to rest on that disc: what stops it down there is the near half of
