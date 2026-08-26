@@ -183,10 +183,19 @@ h1 .thin{
 /* ------------------------------------------------------------------ *
  * Control panel
  * ------------------------------------------------------------------ */
-.panel-toggle{
+/* The two corner buttons sit in one row rather than each pinning itself to
+   the corner, so the left one lands beside the right one whatever either of
+   them says. */
+.corner{
   position:fixed;right:clamp(16px,2.4vw,28px);
   bottom:max(clamp(16px,2.4vw,28px),env(safe-area-inset-bottom));
-  z-index:6;display:inline-flex;align-items:center;gap:10px;
+  z-index:6;display:flex;gap:8px;align-items:stretch;
+}
+body[data-panel="open"] .corner{display:none}
+/* nothing to hold when there is no card to hold it on */
+@media (max-width:900px){ #beerHold{display:none} }
+.panel-toggle{
+  display:inline-flex;align-items:center;gap:10px;
   font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
   font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;
   padding:12px 16px;border-radius:2px;
@@ -195,7 +204,9 @@ h1 .thin{
   box-shadow:var(--shadow);cursor:pointer;
 }
 .panel-toggle svg{display:block}
-body[data-panel="open"] .panel-toggle{display:none}
+.panel-toggle[aria-pressed="true"]{
+  background:var(--btn-bg);color:var(--btn-fg);border-color:var(--btn-bg);
+}
 
 .panel{
   position:fixed;right:clamp(16px,2.4vw,28px);
@@ -384,12 +395,21 @@ body[data-chrome="off"] .beer{opacity:0}
   </p>
 </aside>
 
+<div class="corner">
+<button class="panel-toggle" id="beerHold" aria-pressed="false"
+        title="Keep this beer in the glass instead of letting the card turn on">
+  <svg width="13" height="13" viewBox="0 0 13 13" fill="currentColor" aria-hidden="true">
+    <rect x="2.4" y="1.5" width="2.9" height="10"/><rect x="7.7" y="1.5" width="2.9" height="10"/>
+  </svg>
+  <span id="beerHoldLabel">Hold</span>
+</button>
 <button class="panel-toggle" id="panelOpen" aria-expanded="false" aria-controls="panel">
   <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true">
     <path d="M0 3.5h13M0 9.5h13"/><circle cx="4.5" cy="3.5" r="1.8" fill="var(--panel)"/><circle cx="9" cy="9.5" r="1.8" fill="var(--panel)"/>
   </svg>
   Tune
 </button>
+</div>
 
 <section class="panel" id="panel" aria-label="Beer controls">
   <div class="panel-head">
@@ -2900,9 +2920,23 @@ const BEER_EVERY = 5000, BEER_TURN = 1150;
 
        The card still turns when pushed, in either case. */
     const auto = () => {
-      if (document.hidden || document.body.dataset.panel === "open") return;
+      if (cfg.hold || document.hidden || document.body.dataset.panel === "open") return;
       step(BEER_TURN);
     };
+    /* Hold keeps the beer that is in the glass. It stops the card coming round
+       on its own, the same way the tuning panel and a hidden tab do — and, the
+       same way, a push still turns it. Holding is about the card not changing
+       under you; it is not a lock against your own hand. */
+    {
+      const btn = document.getElementById("beerHold");
+      const lab = document.getElementById("beerHoldLabel");
+      const sync = () => {
+        btn.setAttribute("aria-pressed", String(!!cfg.hold));
+        lab.textContent = cfg.hold ? "Held" : "Hold";
+      };
+      btn.addEventListener("click", () => { cfg.hold = !cfg.hold; sync(); save(); idle(); });
+      sync();
+    }
     let timer = setInterval(auto, BEER_EVERY);
     const idle = () => { clearInterval(timer); timer = setInterval(auto, BEER_EVERY); };
     document.addEventListener("visibilitychange", () => { if (!document.hidden && !spinning) idle(); });
