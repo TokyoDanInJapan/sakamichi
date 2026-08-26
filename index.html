@@ -276,6 +276,38 @@ body[data-chrome="off"] .panel-toggle{opacity:0;pointer-events:none}
   }
   .masthead{max-width:100%}
 }
+/* The beer of the moment, standing beside the glass and turning on its own
+   axis. A card rather than a picture: it is artwork with a front and a back,
+   and it shows a new one each time it comes round. */
+.beer{
+  position:fixed;z-index:2;pointer-events:none;
+  /* a third in from the right, as the glass is a third in from the left */
+  left:66.7%;top:50%;transform:translate(-50%,-50%);margin-top:2vh;
+  width:clamp(188px,24vw,362px);
+  perspective:1100px;
+}
+.beer-turn{
+  width:100%;aspect-ratio:1;
+  transform-style:preserve-3d;
+  transition:transform 1.15s cubic-bezier(.55,.06,.2,1);
+  will-change:transform;
+}
+/* Two faces, as a card has. The one coming round is loaded and waiting out of
+   sight, so the turn shows it rather than swapping a picture in mid-air —
+   which is what flickered, the image being replaced under the eye. */
+.beer-face{
+  position:absolute;inset:0;
+  width:100%;height:100%;display:block;object-fit:contain;
+  border-radius:3px;
+  box-shadow:0 24px 50px -28px rgba(0,0,0,.9);
+  backface-visibility:hidden;
+}
+.beer-face.back{transform:rotateY(180deg)}
+body[data-chrome="off"] .beer{opacity:0}
+.beer{transition:opacity .35s ease}
+@media (prefers-reduced-motion:reduce){ .beer-turn{transition:none} }
+/* On a narrow page the glass takes the middle back and there is no room beside it */
+@media (max-width:900px){ .beer{display:none} }
 </style>
 </head>
 <body>
@@ -303,6 +335,13 @@ body[data-chrome="off"] .panel-toggle{opacity:0;pointer-events:none}
     <span>Est. 2019</span><span>Tachikawa · Tokyo</span>
   </p>
 </header>
+
+<div class="beer" aria-label="Beer of the moment">
+  <div class="beer-turn">
+    <img class="beer-face" alt="" decoding="async">
+    <img class="beer-face back" alt="" decoding="async">
+  </div>
+</div>
 
 <aside class="info" aria-label="Taprooms">
   <p>
@@ -2641,7 +2680,41 @@ if (reduceMotion.matches){
 
 renderAll();
 requestAnimationFrame(frame);
-})();
+
+/* ================================================================== *
+ * The beer of the moment
+ * ================================================================== *
+ * It turns half a revolution every few seconds and comes back a different
+ * beer. The swap happens at the halfway point, where the card is edge on and
+ * there is nothing of it to see — turn it any other way and the label changes
+ * in front of you. Every other turn leaves the card back to front, so the
+ * artwork is mirrored back the way it was read.
+ */
+const BEERS = ["anniversary-ipa-2026", "calico-cats-meow", "dr-krush", "fruit-fool", "hunters-mark-dip-hop-ipa", "miami-weisse", "mount-crushmore", "mr-bones", "mr-bones-raspberry", "new-year-pilsner-2026", "no-rest-for-the-wicked-2026", "oast-house-ale", "passion-project", "passion-project-v02", "praxis", "razcherry-sour", "seize-the-means-red-ipa", "shibasaki-session", "shirasagi-white-ipa", "skysaw", "sommergold-weisse", "sumomo-mo-momo-mo-momo-no-hazy", "tachikawa-helles", "tachikawa-hop-city", "tama-monoale-simcoe", "tamas-chocolate-organe-porter", "tanabata-pale-ale", "telefunk", "this-is-a-hazy-ipa", "tricerahops", "watling-esb", "wolly-mammoth-dipa", "yozakura!"];
+const BEER_EVERY = 5000, BEER_TURN = 1150;
+{
+  const card = document.querySelector(".beer-turn");
+  const faces = [document.querySelector(".beer-face"),
+                 document.querySelector(".beer-face.back")];
+  if (card && faces[0] && faces[1] && BEERS.length){
+    const show = (el, k) => { el.src = "beers/" + encodeURIComponent(BEERS[k]) + ".jpg"; };
+    let turn = 0;
+    let i = Math.floor(Math.random() * BEERS.length);
+    let next = (i + 1) % BEERS.length;
+    show(faces[0], i);
+    show(faces[1], next);          /* already loaded, and facing away */
+    setInterval(() => {
+      turn += 180;
+      card.style.transform = "rotateY(" + turn + "deg)";
+      i = next;
+      next = (next + 1) % BEERS.length;
+      /* the face that has just gone out of sight takes the one after next, and
+         has the whole wait to fetch it */
+      const away = faces[((turn / 180) + 1) % 2];
+      setTimeout(() => show(away, next), BEER_TURN);
+    }, BEER_EVERY);
+  }
+}})();
 </script>
 </body>
 </html>

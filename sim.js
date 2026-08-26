@@ -56,7 +56,10 @@ function layoutGlass(){
   G.h = gh;
   G.topHalf = topHalf;
   G.botHalf = topHalf * 0.68;
-  G.cx = W / 2;
+  /* Off centre, to leave the beer of the moment its own room at the right.
+     Only where there is room to give: on a narrow screen the card is not shown
+     and the glass stands in the middle of the page as it always did. */
+  G.cx = W * (compact ? 0.5 : 1 / 3);
   G.bottom = H * bottomAt;
   G.top = G.bottom - gh;
   G.wall = Math.max(2.5, topHalf * 0.045);
@@ -1684,7 +1687,11 @@ function logoRect(){
   const lh = Math.min(H * 0.8, (W * 0.92) / LOGO_ASPECT, hY - gap - 8);
   const lw = lh * LOGO_ASPECT;
   const p = lw * LOGO_PAD;
-  return [G.cx - lw / 2 - p, hY - gap - lh - p, lw + 2 * p, lh + 2 * p];
+  /* Centred on the page, not on the glass. The mark is painted on the wall
+     behind the bar and the wall does not move when the glass is set down
+     somewhere else — so the glass slides across it and the pour refracts
+     whatever part of it happens to stand behind. */
+  return [W / 2 - lw / 2 - p, hY - gap - lh - p, lw + 2 * p, lh + 2 * p];
 }
 
 
