@@ -457,7 +457,8 @@ const SPECS = [
   {key:"richness",   label:"Richness",    min:0,   max:100, step:1, unit:"",   group:null},
   {key:"beerAlpha",  label:"Beer opacity",min:0,   max:200, step:5, unit:"%",  group:null},
   {key:"bgHue",      label:"Room hue",    min:0,   max:360, step:1, unit:"°",  group:null},
-  {key:"roomHex",    label:"Room colour", type:"hex", unit:"", group:null}
+  {key:"roomHex",    label:"Room colour", type:"hex", unit:"", group:null},
+  {key:"auraHex",    label:"Aura colour", type:"hex", unit:"", group:null}
 ];
 
 const HOUSE = {
@@ -465,7 +466,7 @@ const HOUSE = {
   carbonation:100, bubbleSize:100, bubbleBreak:100, headDepth:100,
   foamChurn:100, weep:100, weepAlpha:100,
   glassSize:100, glassLine:100, reflect:100, condensation:70, dewSize:100, hue:40, richness:46,
-  beerAlpha:100, bgHue:220, beerHex:null, roomHex:null
+  beerAlpha:100, bgHue:220, beerHex:null, roomHex:null, auraHex:null
 };
 
 /* A style is the whole recipe, not a colour and a hint. Choosing one sets
@@ -683,6 +684,7 @@ function buildPalette(){
      a colour given outright carries the head, the glow and the light in the
      base with it rather than repainting the body alone. */
   const {h, sat, lTop, lBot} = beerTone();
+  const au = auraTone();
   pal = {
     dark,
     ground: (getComputedStyle(document.documentElement).getPropertyValue("--ground") || (dark ? "#08090b" : "#f6f7f8")).trim(),
@@ -691,8 +693,10 @@ function buildPalette(){
     beerBot: `hsl(${h - 7} ${sat - 8}% ${lBot}%)`,
     beerDeep:`hsl(${h - 10} ${sat - 12}% ${Math.max(16, lBot - 10)}%)`,
     surface: `hsl(${h + 8} ${sat}% ${Math.min(88, lTop + 12)}%)`,
-    glow:    `hsla(${h - 3} 88% 54% / ${dark ? 0.20 : 0.13})`,
-    pool:    `hsla(${h} 90% 56% / ${dark ? 0.30 : 0.18})`,
+    /* the light it throws — see auraTone. Given no colour of its own these are
+       the beer's, mixed exactly as they were before. */
+    glow:    `hsla(${au.h} ${au.s}% ${au.l}% / ${dark ? 0.20 : 0.13})`,
+    pool:    `hsla(${au.h + 3} ${Math.min(100, au.s + 2)}% ${Math.min(100, au.l + 2)}% / ${dark ? 0.30 : 0.18})`,
     baseBeer:`hsla(${h + 2} 82% 52% / .55)`,
     /* the thick base is lit through by the pour but is still glass, so it is
        cooled away from the beer's own colour */

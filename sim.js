@@ -1793,6 +1793,18 @@ function applyRoom(){
 
 /* What the swatch beside the room's box shows: the colour the room actually
    is, hex or no hex, so the picker opens where the room already stands. */
+/* The aura: the light the glass throws, on the wall behind it and pooled on
+   the bar around its foot. It follows the beer unless it is given a colour of
+   its own — a pint does light a room its own colour, but a bar has lamps of
+   its own and they need not agree with what is in the glass. */
+function auraTone(){
+  const c = hexHsl(cfg.auraHex);
+  if (c) return {h: c.h, s: c.s, l: c.l, own: true};
+  const t = beerTone();
+  return {h: t.h - 3, s: 88, l: 54, own: false};
+}
+const auraSwatch = () => { const a = auraTone(); return hslHex(a.h, a.s, a.l); };
+
 const roomSwatch = () => {
   const c = hexHsl(cfg.roomHex);
   if (c) return c.hex;
@@ -1910,7 +1922,8 @@ function readout(s){
    say, empty it and the slider has it back. The box shows what its own thing
    is currently mixed at, whichever of the two is deciding. */
 const HEX_OVER = {beerHex:"hue", roomHex:"bgHue"};
-const HEX_SWATCH = {beerHex: () => beerSwatch(), roomHex: () => roomSwatch()};
+const HEX_SWATCH = {beerHex: () => beerSwatch(), roomHex: () => roomSwatch(),
+                    auraHex: () => auraSwatch()};
 
 /* Give it back to the slider, box and swatch with it */
 function clearHex(key){
