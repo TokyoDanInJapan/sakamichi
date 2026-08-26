@@ -1820,6 +1820,106 @@ const isDark = () => {
 };
 
 /* ================================================================== *
+ * Pouring a particular beer
+ * ================================================================== *
+ * Every beer on the card has an entry in beers.json saying how it is poured,
+ * in the same numbers the tuning panel works in. When one comes round the
+ * glass is moved to those numbers rather than snapped to them: a pint does not
+ * change colour between two frames, and the turn of the card is long enough to
+ * carry the change under it.
+ */
+let BEER_TUNING = null;
+let tune = null;
+
+/* Loaded rather than built in, so the recipes can be edited without going near
+   the renderers. A page opened straight off the disk cannot read a file beside
+   it — the browser calls that another origin — so the glass keeps whatever it
+   is set to and says so once, rather than failing quietly. */
+function loadTuning(){
+  fetch("beers.json")
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(j => {
+      BEER_TUNING = j;
+      /* the card was already turning while this was on its way, so whatever is
+         facing the room now gets poured */
+      if (pourWanted) pour(pourWanted, POUR_MS);
+    })
+    .catch(() => {
+      console.info("beers.json was not readable, so every beer is poured with " +
+                   "whatever the glass is already set to. Serve the folder — " +
+                   "python3 -m http.server — and each one gets its own.");
+    });
+}
+
+const TUNE_HEX = ["beerHex", "roomHex", "auraHex"];
+const POUR_MS = 1400;              /* a shade longer than the card's half turn */
+let pourWanted = null;
+
+/* Pour a named beer into the glass. Called each time a face comes round, and
+   remembered, because the first face is up before the file has arrived. */
+function pour(name, ms){
+  pourWanted = name;
+  const s = tuningFor(name);
+  if (s) tuneTo(s, ms == null ? POUR_MS : ms);
+}
+
+/* The settings for one beer: what it says, over what the file calls default */
+function tuningFor(name){
+  if (!BEER_TUNING) return null;
+  const d = BEER_TUNING.default || {};
+  const b = (BEER_TUNING.beers || {})[name];
+  if (!b || b.useDefault) return Object.assign({}, d);
+  return Object.assign({}, d, b);
+}
+
+const mixHex = (a, b, k) => {
+  const A = hexHsl(a), B = hexHsl(b);
+  if (!A || !B) return B ? B.hex : (A ? A.hex : null);
+  const ch = i => Math.round(clamp((A.rgb[i] + (B.rgb[i] - A.rgb[i]) * k) * 255, 0, 255));
+  return "#" + [0, 1, 2].map(i => ch(i).toString(16).padStart(2, "0")).join("");
+};
+
+/* Start moving to a beer. Numbers are walked; colours are mixed across, which
+   is why the one being left has to be read as a colour and not as a setting —
+   a glass with no hex set is still some colour, and it is that colour the new
+   one comes out of. */
+function tuneTo(target, ms){
+  if (!target) return;
+  const from = {}, to = {}, hexFrom = {}, hexTo = {};
+  for (const k in target){
+    if (TUNE_HEX.indexOf(k) >= 0){
+      if (!hexHsl(target[k])) continue;
+      hexFrom[k] = k === "beerHex" ? beerSwatch() : k === "roomHex" ? roomSwatch() : auraSwatch();
+      hexTo[k] = target[k];
+    } else if (typeof target[k] === "number" && typeof cfg[k] !== "undefined"){
+      from[k] = Number(cfg[k]);
+      to[k] = target[k];
+    }
+  }
+  cfg.preset = null;
+  tune = {from, to, hexFrom, hexTo, t: 0, ms: Math.max(1, ms)};
+}
+
+function tuneStep(dt){
+  if (!tune) return;
+  tune.t = Math.min(1, tune.t + dt * 1000 / tune.ms);
+  const k = tune.t * tune.t * (3 - 2 * tune.t);
+  for (const key in tune.to) cfg[key] = tune.from[key] + (tune.to[key] - tune.from[key]) * k;
+  for (const key in tune.hexTo) cfg[key] = mixHex(tune.hexFrom[key], tune.hexTo[key], k);
+  const done = tune.t >= 1;
+  if (done){
+    for (const key in tune.to) cfg[key] = tune.to[key];
+    for (const key in tune.hexTo) cfg[key] = tune.hexTo[key];
+    tune = null;
+  }
+  /* the panel is only worth moving if somebody is looking at it, but when it
+     is open the sliders should travel with the glass rather than jump at the
+     end */
+  if (done || document.body.dataset.panel === "open") syncInputs(true);
+  else paletteHook();
+}
+
+/* ================================================================== *
  * Controls
  * ================================================================== */
 const slidersEl = document.getElementById("sliders");
@@ -1934,14 +2034,17 @@ function clearHex(key){
   if (s) readout(s);
 }
 
-function syncInputs(){
+/* keep: move the panel to match the settings without writing them down. The
+   card turning is not the viewer's choice, and it must not quietly replace the
+   tuning they set themselves and expect to find next time. */
+function syncInputs(keep){
   for (const s of SPECS){
     if (inputs[s.key]) inputs[s.key].value = cfg[s.key] == null ? "" : cfg[s.key];
     readout(s);
   }
   paletteHook();
   chipsHook();
-  save();
+  if (!keep) save();
 }
 
 const panelOpen = document.getElementById("panelOpen");

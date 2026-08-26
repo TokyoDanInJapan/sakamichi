@@ -2502,6 +2502,10 @@ function frame(now){
      real seconds: it is watching the machine, not the beer. */
   const dt = real * (cfg.pace / 100);
 
+  /* real seconds, not paced ones: the change of beer belongs to the card
+     turning beside the glass, not to how fast the beer is running */
+  if (tune){ tuneStep(real); if (!cfg.running) renderAll(); }
+
   if (!cfg.running){
     if (level < targetLevel() - 0.0005){
       updateLevel(Math.min(dt, 0.05));
@@ -2633,6 +2637,7 @@ paletteHook = buildPalette;
 chipsHook = syncChips;
 resizeHook = resize;
 buildSliders();
+loadTuning();
 applyTheme();
 applyGoo();
 setPanel(params.get("panel") === "1");
@@ -2736,6 +2741,7 @@ const BEER_EVERY = 5000, BEER_TURN = 1150;
     let next = (Math.floor(Math.random() * BEERS.length) + 1) % BEERS.length;
     show(faces[0], (next - 1 + BEERS.length) % BEERS.length);
     show(faces[1], next);          /* already loaded, and facing away */
+    pour(BEERS[(next - 1 + BEERS.length) % BEERS.length]);
 
     /* One half turn: the face coming round is already the next beer, and the
        one going out of sight is given the one after it, to have loaded by the
@@ -2744,6 +2750,7 @@ const BEER_EVERY = 5000, BEER_TURN = 1150;
       card.style.transitionDuration = ms + "ms";
       turn += 180;
       card.style.transform = "rotateY(" + turn + "deg)";
+      pour(BEERS[next], ms + 250);   /* the beer arriving is the one now coming round */
       next = (next + 1) % BEERS.length;
       const away = faces[((turn / 180) + 1) % 2];
       setTimeout(() => show(away, next), ms);
@@ -2792,6 +2799,9 @@ const BEER_EVERY = 5000, BEER_TURN = 1150;
           while (crossed < done){
             crossed++;
             turn += 180;
+            /* short, because another face is close behind — except the last,
+               which is the beer that stays and can take its time arriving */
+            pour(BEERS[next], crossed === SPIN_HALVES ? POUR_MS : 450);
             next = (next + 1) % BEERS.length;
             show(faces[((turn / 180) + 1) % 2], next);
           }

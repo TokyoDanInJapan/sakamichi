@@ -1,0 +1,209 @@
+{
+  "_readme": [
+    "How each beer is poured. The card beside the glass turns every few seconds,",
+    "and when a beer comes round the glass is tuned to its entry here.",
+    "",
+    "Every value is one of the sliders in the tuning panel and means exactly what",
+    "the slider means. An entry lists only what differs from 'default' below.",
+    "",
+    "'useDefault': true means nobody has poured this one yet. Five have been, read",
+    "off photographs in samples/beers, and those carry 'pouredFrom'. Replace a",
+    "useDefault entry with real values whenever there is a glass to look at.",
+    "",
+    "clarity and caustics are read by the shader version only; the canvas version",
+    "ignores them."
+  ],
+  "default": {
+    "beerHex": "#d78f1e",
+    "richness": 46,
+    "beerAlpha": 140,
+    "carbonation": 100,
+    "bubbleSize": 100,
+    "bubbleBreak": 100,
+    "headDepth": 100,
+    "foamChurn": 100,
+    "weep": 100,
+    "waveSpeed": 46,
+    "viscosity": 40,
+    "condensation": 70,
+    "dewSize": 100,
+    "clarity": 70,
+    "caustics": 100
+  },
+  "beers": {
+    "anniversary-ipa-2026": {
+      "beerHex": "#e0bb52",
+      "richness": 45,
+      "beerAlpha": 185,
+      "carbonation": 80,
+      "bubbleSize": 100,
+      "bubbleBreak": 90,
+      "headDepth": 95,
+      "foamChurn": 85,
+      "weep": 90,
+      "waveSpeed": 44,
+      "viscosity": 50,
+      "condensation": 85,
+      "dewSize": 100,
+      "clarity": 10,
+      "caustics": 30,
+      "pouredFrom": "samples/beers"
+    },
+    "calico-cats-meow": {
+      "useDefault": true
+    },
+    "dr-krush": {
+      "useDefault": true
+    },
+    "fruit-fool": {
+      "useDefault": true
+    },
+    "hunters-mark-dip-hop-ipa": {
+      "useDefault": true
+    },
+    "miami-weisse": {
+      "useDefault": true
+    },
+    "mount-crushmore": {
+      "useDefault": true
+    },
+    "mr-bones": {
+      "beerHex": "#2b1710",
+      "richness": 96,
+      "beerAlpha": 200,
+      "carbonation": 50,
+      "bubbleSize": 140,
+      "bubbleBreak": 60,
+      "headDepth": 70,
+      "foamChurn": 45,
+      "weep": 70,
+      "waveSpeed": 30,
+      "viscosity": 78,
+      "condensation": 40,
+      "dewSize": 115,
+      "clarity": 10,
+      "caustics": 18,
+      "pouredFrom": "samples/beers"
+    },
+    "mr-bones-raspberry": {
+      "useDefault": true
+    },
+    "new-year-pilsner-2026": {
+      "useDefault": true
+    },
+    "no-rest-for-the-wicked-2026": {
+      "useDefault": true
+    },
+    "oast-house-ale": {
+      "useDefault": true
+    },
+    "passion-project": {
+      "useDefault": true
+    },
+    "passion-project-v02": {
+      "useDefault": true
+    },
+    "praxis": {
+      "useDefault": true
+    },
+    "razcherry-sour": {
+      "useDefault": true
+    },
+    "seize-the-means-red-ipa": {
+      "beerHex": "#9c3d10",
+      "richness": 76,
+      "beerAlpha": 170,
+      "carbonation": 75,
+      "bubbleSize": 115,
+      "bubbleBreak": 85,
+      "headDepth": 70,
+      "foamChurn": 70,
+      "weep": 75,
+      "waveSpeed": 38,
+      "viscosity": 58,
+      "condensation": 55,
+      "dewSize": 105,
+      "clarity": 62,
+      "caustics": 85,
+      "pouredFrom": "samples/beers"
+    },
+    "shibasaki-session": {
+      "beerHex": "#d99a22",
+      "richness": 34,
+      "beerAlpha": 130,
+      "carbonation": 120,
+      "bubbleSize": 85,
+      "bubbleBreak": 115,
+      "headDepth": 110,
+      "foamChurn": 110,
+      "weep": 100,
+      "waveSpeed": 52,
+      "viscosity": 30,
+      "condensation": 100,
+      "dewSize": 95,
+      "clarity": 82,
+      "caustics": 130,
+      "pouredFrom": "samples/beers"
+    },
+    "shirasagi-white-ipa": {
+      "useDefault": true
+    },
+    "skysaw": {
+      "useDefault": true
+    },
+    "sommergold-weisse": {
+      "useDefault": true
+    },
+    "sumomo-mo-momo-mo-momo-no-hazy": {
+      "useDefault": true
+    },
+    "tachikawa-helles": {
+      "useDefault": true
+    },
+    "tachikawa-hop-city": {
+      "useDefault": true
+    },
+    "tama-monoale-simcoe": {
+      "useDefault": true
+    },
+    "tamas-chocolate-organe-porter": {
+      "beerHex": "#28150c",
+      "richness": 100,
+      "beerAlpha": 200,
+      "carbonation": 45,
+      "bubbleSize": 150,
+      "bubbleBreak": 55,
+      "headDepth": 120,
+      "foamChurn": 42,
+      "weep": 85,
+      "waveSpeed": 28,
+      "viscosity": 84,
+      "condensation": 35,
+      "dewSize": 120,
+      "clarity": 8,
+      "caustics": 14,
+      "pouredFrom": "samples/beers"
+    },
+    "tanabata-pale-ale": {
+      "useDefault": true
+    },
+    "telefunk": {
+      "useDefault": true
+    },
+    "this-is-a-hazy-ipa": {
+      "useDefault": true
+    },
+    "tricerahops": {
+      "useDefault": true
+    },
+    "watling-esb": {
+      "useDefault": true
+    },
+    "wolly-mammoth-dipa": {
+      "useDefault": true
+    },
+    "yozakura!": {
+      "useDefault": true
+    }
+  }
+}

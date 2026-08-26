@@ -2623,6 +2623,10 @@ function frame(now){
   last = now;
   if (dt > 0.25) dt = 0.25;
 
+  /* the change of beer belongs to the card turning beside the glass, and
+     goes on whether or not the beer itself is moving */
+  if (tune){ tuneStep(dt); if (!cfg.running) render(); }
+
   if (!cfg.running){
     if (level < targetLevel() - 0.0005){
       updateLevel(Math.min(dt, 0.05));
@@ -2749,6 +2753,7 @@ paletteHook = buildPalette;
 chipsHook = syncChips;
 resizeHook = resize;
 buildSliders();
+loadTuning();
 applyTheme();
 setPanel(params.get("panel") === "1");
 syncChips();
@@ -2851,6 +2856,7 @@ const BEER_EVERY = 5000, BEER_TURN = 1150;
     let next = (Math.floor(Math.random() * BEERS.length) + 1) % BEERS.length;
     show(faces[0], (next - 1 + BEERS.length) % BEERS.length);
     show(faces[1], next);          /* already loaded, and facing away */
+    pour(BEERS[(next - 1 + BEERS.length) % BEERS.length]);
 
     /* One half turn: the face coming round is already the next beer, and the
        one going out of sight is given the one after it, to have loaded by the
@@ -2859,6 +2865,7 @@ const BEER_EVERY = 5000, BEER_TURN = 1150;
       card.style.transitionDuration = ms + "ms";
       turn += 180;
       card.style.transform = "rotateY(" + turn + "deg)";
+      pour(BEERS[next], ms + 250);   /* the beer arriving is the one now coming round */
       next = (next + 1) % BEERS.length;
       const away = faces[((turn / 180) + 1) % 2];
       setTimeout(() => show(away, next), ms);
@@ -2907,6 +2914,9 @@ const BEER_EVERY = 5000, BEER_TURN = 1150;
           while (crossed < done){
             crossed++;
             turn += 180;
+            /* short, because another face is close behind — except the last,
+               which is the beer that stays and can take its time arriving */
+            pour(BEERS[next], crossed === SPIN_HALVES ? POUR_MS : 450);
             next = (next + 1) % BEERS.length;
             show(faces[((turn / 180) + 1) % 2], next);
           }
