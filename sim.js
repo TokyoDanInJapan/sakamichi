@@ -270,6 +270,27 @@ function headTopAt(x){
    asked to be, and the glass makes room by holding less beer. */
 const headBand = () => (G.topHalf * 2) * (0.05 + 0.14 * cfg.headDepth / 100);
 
+/* How far the head is standing above the lip at its highest — the crown over
+   the mouth is sized to this, so it closes where the foam actually ends. Read
+   from the head's own top across the glass and from the blobs riding on it,
+   since either may be the highest thing there. */
+function headCrest(){
+  if (!N || !hArr) return 0;
+  const lip = G.top + G.topHalf * G.ryTop;
+  const band = headBand();
+  let crest = 0;
+  for (let i = 0; i < N; i++){
+    const x = colX(i);
+    crest = Math.max(crest, lip - (surfaceAt(x) - ellipseDy(x) - band));
+  }
+  for (const f of foam){
+    const y = surfaceAt(f.x) - ellipseDy(f.x) * 0.4 + f.oy - f.r;
+    crest = Math.max(crest, lip - y);
+  }
+  /* a little headroom, so the crown does not shave the topmost fleck of it */
+  return Math.max(0, crest + 10 * G.scale);
+}
+
 /* ================================================================== *
  * Surface physics — shallow water across the glass
  * ================================================================== *

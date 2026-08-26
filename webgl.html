@@ -1052,6 +1052,7 @@ ${GLSL_GLASS}
 ${GLSL_NOISE}
 uniform sampler2D uField;
 uniform float uTime, uRelief, uGloss, uBandPx, uCoarse, uScale;
+uniform float uCrest;        // how far the head stands above the lip, at its highest
 uniform vec2  uLightDir;
 uniform vec3  uFoam, uFoamShade, uFoamWet, uBeerTint;
 out vec4 frag;
@@ -1111,9 +1112,20 @@ void main(){
      top that made a tall head read as a paper dome rather than foam. */
   float ihLip = innerHalfAt(lipCy);
   float up    = max(0.0, lipCy - px.y);
-  float lean  = ihLip * 0.44 * smoothstep(0.0, 80.0 * uScale, up);
+  /* Above the lip there is no glass, and what stands there is a crown of foam
+     sitting on the mouth: as wide as the mouth where it leaves the rim, and
+     closing to nothing at its own top. Drawn in on a lean that ran out
+     instead, the head narrowed to a waist a rim's depth up and then went
+     straight to a flat top, which reads as a funnel rather than a dome.
+
+     The dome is sized to how far the head is actually standing proud, so it
+     closes exactly where the foam ends rather than at some height of its own —
+     a shallow head gets a shallow crown and a proud one a tall one. */
+  float crest = max(uCrest, 1.0);
+  float ct    = clamp(up / crest, 0.0, 1.0);
+  float capHw = ihLip * sqrt(max(0.0, 1.0 - ct * ct));
   float dWall = smin(innerHalfAt(px.y) - abs(px.x - GCX),
-                     (ihLip - lean) - abs(px.x - GCX), 10.0 * uScale);
+                     capHw - abs(px.x - GCX), 10.0 * uScale);
   /* The bottom of a glass is a disc, and a head with almost no beer left under
      it comes to rest on that disc: what stops it down there is the near half of
      the floor's ellipse, the same curve the beer is stopped on. Stopped on the
@@ -2420,6 +2432,7 @@ function render(){
     gl.uniform1f(progFoam.u.uRelief, cfg.relief / 100);
     gl.uniform1f(progFoam.u.uGloss, cfg.gloss / 100);
     gl.uniform1f(progFoam.u.uBandPx, headBand());
+    gl.uniform1f(progFoam.u.uCrest, headCrest());
     gl.uniform1f(progFoam.u.uScale, G.scale);
     gl.uniform2f(progFoam.u.uLightDir, Math.cos(a), -Math.sin(a));
     gl.uniform1f(progFoam.u.uCoarse, pal.foamCoarse);
