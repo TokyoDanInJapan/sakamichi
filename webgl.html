@@ -1219,14 +1219,31 @@ void main(){
   float mt     = clamp(up / max(1.0, rry), 0.0, 1.0);
   float ringHw = ihLip * sqrt(max(0.0, 1.0 - mt * mt));
   float capHw  = max(domeHw, ringHw);
-  /* The side is the inner wall itself, with nothing added. Carried out past
-     it to make up for what the hem's own threshold takes off the edge, the
-     head came out wider than the beer standing under it, and the two met in a
-     step at the waterline — where what a glass shows is one unbroken line up
-     the wall, foam and beer alike against the same bore. Whatever the hem
-     loses, it has to lose it on the same line the beer ends on. */
+  /* The side is the inner wall itself, with nothing added. Carried out past it
+     to make up for what the hem's own threshold takes off the edge, the head
+     came out wider than the beer standing under it and the two met in a step
+     at the waterline — where a glass shows one unbroken line up the wall, foam
+     and beer alike against the same bore. Whatever the hem loses, it has to
+     lose on the line the beer ends on.
+
+     And below the lip the cap is not a bound at all. What stands above the
+     mouth is a cap of foam; what stands below it is held by the glass, and the
+     glass is a cone. Left at the mouth's own width all the way down — a
+     straight line beside a wall that is narrowing away from it — the fillet
+     went on rounding the head against a bound that was not there, and let go
+     only once the bore had narrowed by the fillet's own width, which on a full
+     glass is most of the head. Two pixels off it at the lip, tapering down:
+     the head standing off the glass, worst exactly where the glass is widest.
+     That is the head failing to follow the bore, and it was the cone being
+     filleted against a straight line that did it.
+
+     Given up below the lip, the head sits on the cone itself the whole way
+     down — nought off it, not a fraction. The fillet stays, and small, for the
+     one place it is wanted: the rim, where the wall climbing out and the cap
+     turning in meet at a point that wants rounding rather than a spike. */
+  float capB  = capHw + max(0.0, px.y - lipCy) * 4.0;
   float dWall = smin(innerHalfAt(px.y) - abs(px.x - GCX),
-                     capHw - abs(px.x - GCX), 10.0 * uScale);
+                     capB - abs(px.x - GCX), 3.0 * uScale);
   /* The bottom of a glass is a disc, and a head with almost no beer left under
      it comes to rest on that disc: what stops it down there is the near half of
      the floor's ellipse, the same curve the beer is stopped on. Stopped on the
