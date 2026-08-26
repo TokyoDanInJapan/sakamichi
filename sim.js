@@ -277,7 +277,7 @@ const headBand = () => (G.topHalf * 2) * (0.05 + 0.14 * cfg.headDepth / 100);
    the mouth is sized to this, so it closes where the foam actually ends. Read
    from the head's own top across the glass and from the blobs riding on it,
    since either may be the highest thing there. */
-function headCrest(){
+function crestRaw(){
   if (!N || !hArr) return 0;
   const lip = G.top + G.topHalf * G.ryTop;
   const band = headBand();
@@ -293,6 +293,31 @@ function headCrest(){
   /* a little headroom, so the crown does not shave the topmost fleck of it */
   return Math.max(0, crest + 10 * G.scale);
 }
+
+/* Followed, not read. The number above is a max over every fleck of foam, and
+   a max over a few dozen wobbling things is not a smooth quantity: it belongs
+   to whichever fleck happens to be highest this frame and hands over to
+   another the moment that one settles.
+
+   That would not matter if the crown were slack in it, but it is not. The
+   crown closes as sqrt(1 - (up/crest)^2), and near its own top that curve is
+   almost vertical — so two tenths of a pixel of jitter in the crest moves the
+   crown's edge by a couple of pixels, every frame. Measured on a brimful
+   glass the crest wandered over six tenths of a pixel with steps of two
+   tenths, and the head shook at the rate the topmost fleck changed hands.
+   None of it showed below about nine tenths full, where no fleck stands above
+   the lip and the crest is a constant — which is why it was a full glass that
+   shook.
+
+   The crown is the shape of a body of foam, not the position of its topmost
+   bubble. Up quickly, because foam thrown over a lip does arrive at once, and
+   down slowly, because a head settles rather than drops. */
+let crestNow = 0;
+function stepCrest(dt){
+  const want = crestRaw();
+  crestNow += (want - crestNow) * Math.min(1, dt * (want > crestNow ? 6 : 2));
+}
+const headCrest = () => crestNow;
 
 /* ================================================================== *
  * Surface physics — shallow water across the glass
@@ -1396,6 +1421,7 @@ function updateBubbles(dt){
 }
 
 function updateFoam(dt){
+  stepCrest(dt);
   const depth = cfg.headDepth / 100;
   const churn = cfg.foamChurn / 100;
   /* Malt and alcohol thin the bubble walls: a bock head dies faster than a pilsner's */
