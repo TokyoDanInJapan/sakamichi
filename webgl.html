@@ -647,7 +647,7 @@ vec2 conePoint(float h, float th){
   return vec2(GCX + hw * sin(th), h + ryAt(h) * hw * cos(th));
 }
 
-float heightAt(float x){
+float heightRow(float x, int row){
   float last = max(1.0, uCols - 1.0);
   float t = (x - (GCX - uSpanHw)) / (2.0 * uSpanHw) * last;
   /* Past the ends the surface goes on rather than stopping. The span is the
@@ -663,11 +663,15 @@ float heightAt(float x){
      outside the glass cannot run away with the slope. */
   float i0 = clamp(floor(t), 0.0, last - 1.0);
   float f  = clamp(t - i0, -4.0, 5.0);
-  float a = texelFetch(uHeight, ivec2(int(i0), 0), 0).r;
-  float b = texelFetch(uHeight, ivec2(int(i0) + 1, 0), 0).r;
+  float a = texelFetch(uHeight, ivec2(int(i0), row), 0).r;
+  float b = texelFetch(uHeight, ivec2(int(i0) + 1, row), 0).r;
   return mix(a, b, f);
 }
+float heightAt(float x){ return heightRow(x, 0); }
+/* and the head's own raft, on row 1 */
+float headHeightAt(float x){ return heightRow(x, 1); }
 float surfaceAt(float x){ return uRestY + heightAt(x); }
+float headSurfaceAt(float x){ return uRestY + headHeightAt(x); }
 float slopeAt(float x){ return (heightAt(x + 3.0) - heightAt(x - 3.0)) / 6.0; }
 float ellipseDy(float x){
   float t = (x - GCX) / uSpanHw;
@@ -1164,7 +1168,7 @@ float headTopAt(float x, float lipCy, float rry, float bandPx){
   float disc  = sqrt(max(0.0, 1.0 - cu * cu));
   float mound = sqrt(max(0.0, 1.0 - pow(abs(cu), 6.0)));
   float cap   = lipCy - rry * 0.55 * mound - rry * disc;
-  return max(surfaceAt(x) - ellipseDy(x) - bandPx, cap);
+  return max(headSurfaceAt(x) - ellipseDy(x) - bandPx, cap);
 }
 
 void main(){
@@ -2051,7 +2055,7 @@ const spriteVAO = instancedVAO(progSprite, spriteBuf, 24, [["aInst", 4, 0], ["aM
 const HEIGHT_TEX_W = 512;
 const heightTex = gl.createTexture();
 gl.bindTexture(gl.TEXTURE_2D, heightTex);
-gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, HEIGHT_TEX_W, 1, 0, gl.RED, gl.FLOAT, null);
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, HEIGHT_TEX_W, 2, 0, gl.RED, gl.FLOAT, null);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -2176,7 +2180,7 @@ function resize(){
              || Math.abs(G.bottom - wasBot) > 0.01;
 
   const span = innerHalfAt(G.inTop) * 2;
-  const nWas = N, hWas = hArr, uWas = uArr;
+  const nWas = N, hWas = hArr, uWas = uArr, headWas = headArr;
   N = clamp(Math.round(span / 5), 32, Math.min(220, HEIGHT_TEX_W));
   hArr = new Float32Array(N);
   /* Velocity and flux live on the faces between the columns, not on the
@@ -2200,6 +2204,10 @@ function resize(){
   };
   carry(hWas, nWas, hArr, N);
   carry(uWas, Math.max(1, nWas - 1), uArr, Math.max(1, N - 1));
+  /* the head's raft is resampled with the beer, or it would come back level
+     under a surface that is not */
+  headArr = new Float32Array(N);
+  if (headWas) carry(headWas, nWas, headArr, N); else headArr.set(hArr);
   maxAmp = Math.min(G.inH * 0.30, G.topHalf * 1.1);
 
   capBubbles = clamp(Math.round(G.topHalf * G.inH / 260), 60, isCoarse ? 220 : 380);
@@ -2350,10 +2358,15 @@ buildPalette();
  * ================================================================== */
 let clock = 0;
 
+/* Row 0 is the beer's surface; row 1 is the head's raft riding on it, which
+   follows the beer rather than copying it — see stepHeadSurface. They are the
+   same texture so the shader reads both the same way. */
 function uploadHeight(){
   for (let i = 0; i < N; i++) heightUpload[i] = hArr[i];
   gl.bindTexture(gl.TEXTURE_2D, heightTex);
   gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, N, 1, gl.RED, gl.FLOAT, heightUpload);
+  if (headArr) for (let i = 0; i < N; i++) heightUpload[i] = headArr[i];
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 1, N, 1, gl.RED, gl.FLOAT, heightUpload);
 }
 
 function setShared(prog, pixelScale){

@@ -585,7 +585,7 @@ function resize(){
   buildPaths();
 
   const span = innerHalfAt(G.inTop) * 2;
-  const nWas = N, hWas = hArr, uWas = uArr;
+  const nWas = N, hWas = hArr, uWas = uArr, headWas = headArr;
   N = clamp(Math.round(span / 5), 32, 220);
   hArr = new Float32Array(N);
   /* Velocity and flux live on the faces between the columns, not on the
@@ -609,6 +609,10 @@ function resize(){
   };
   carry(hWas, nWas, hArr, N);
   carry(uWas, Math.max(1, nWas - 1), uArr, Math.max(1, N - 1));
+  /* the head's raft is resampled with the beer, or it would come back level
+     under a surface that is not */
+  headArr = new Float32Array(N);
+  if (headWas) carry(headWas, nWas, headArr, N); else headArr.set(hArr);
   maxAmp = Math.min(G.inH * 0.30, G.topHalf * 1.1);
 
   capBubbles = clamp(Math.round(G.topHalf * G.inH / 260), 60, isCoarse ? 220 : 380);

@@ -92,6 +92,14 @@ const innerHalfAt = y => Math.max(1, halfAt(y) - G.wall);
 let level = 0;              /* 0 empty, 1 brim full */
 let poured = false;         /* true once it has first reached the fill line */
 let N = 0, hArr, uArr, fArr, maxAmp = 60;   /* surface, face velocities, face fluxes */
+/* And the head's own surface, which is the beer's followed rather than copied.
+   A head is a raft a finger thick, not a skin: it has weight and it holds
+   together, so it rides the swell the beer is on and ignores the pricking of
+   the bubbles coming up under it. Read straight off the beer — which is what
+   the head's top was — every bubble that broke poked the whole top of the head
+   as it went, dozens a second, and the head juddered at the rate the glass was
+   fizzing. The beer's own surface still takes every one of them; it should. */
+let headArr = null;
 let bubbles = [], foam = [], drops = [], mist = [], drips = [], sites = [], dew = [], lace = [];
 let capBubbles = 300, capFoam = 260, capDew = 90;
 
@@ -171,6 +179,66 @@ function colAtX(x){
 function surfaceAt(x){
   if (!N || !hArr) return restSurfaceY();
   return sampleU(colAtX(x));
+}
+
+/* the same reading, taken off the head's surface instead of the beer's */
+function headSurfaceAt(x){
+  if (!N || !headArr) return surfaceAt(x);
+  const u = colAtX(x);
+  const s = (clamp(u, -1, 1) + 1) * 0.5 * (N - 1);
+  const i = clamp(Math.floor(s), 0, N - 1), j = Math.min(N - 1, i + 1);
+  return restSurfaceY() + headArr[i] * (1 - (s - i)) + headArr[j] * (s - i);
+}
+
+/* What the raft leaves behind is decided by width, not by speed. A bubble
+   arrives as a dimple a finger across; a swirl tips the whole surface. So the
+   head's surface is the beer's smoothed sideways, over a span wide enough to
+   swallow a dimple and far narrower than the glass — and being a smoothing in
+   space rather than in time it has no memory, so a swirl reaches the head in
+   full and at once. Damped by time instead, as this first was, the head came
+   out calm but also slow: a first-order follow quick enough to leave the fizz
+   behind takes two thirds of a hard slosh with it, and a swirled head that
+   barely moves is its own fault. */
+let headKernel = null, headKernelN = 0, headBlend = null;
+/* how quickly the raft comes to the beer: barely, when it is all but there,
+   and all but at once when the beer has plainly moved out from under it */
+let HEAD_SLOW = 2.5, HEAD_FAST = 30;
+function stepHeadSurface(dt){
+  if (!N || !hArr) return;
+  if (!headArr || headArr.length !== N) headArr = new Float32Array(N);
+  if (headKernelN !== N){
+    /* about an eighth of the glass either side: several times a dimple's
+       width, and a small part of a slosh's */
+    const r = clamp(Math.round(N * 0.12), 2, 12);
+    headKernel = [];
+    for (let k = -r; k <= r; k++) headKernel.push(Math.exp(-2 * (k / r) * (k / r)));
+    const sum = headKernel.reduce((a, b) => a + b, 0);
+    headKernel = headKernel.map(w => w / sum);
+    headKernel.r = r;
+    headKernelN = N;
+  }
+  if (!headBlend || headBlend.length !== N){
+    headBlend = new Float32Array(N); headBlend.set(hArr); headArr.set(hArr); return;
+  }
+  const r = headKernel.r;
+  /* and it comes to the beer at a pace that depends on how far behind it is.
+     The two things it has to tell apart differ in size as much as in speed: a
+     bubble breaking moves the surface under the head by a fraction of a pixel,
+     a swirl moves it by tens. Followed at one rate there is no setting that
+     does both — slow enough to lose the fizz takes half the slosh with it, and
+     quick enough to keep the slosh keeps the fizz. Read as a distance instead,
+     the raft ignores what it is barely behind and goes with what it is plainly
+     behind, which is a raft of foam either way round. */
+  const near = HEAD_SLOW * dt, far = HEAD_FAST * dt;
+  const reach = 2.5 * G.scale;
+  for (let i = 0; i < N; i++){
+    let v = 0;
+    for (let j = -r; j <= r; j++) v += hArr[clamp(i + j, 0, N - 1)] * headKernel[j + r];
+    const d = v - headBlend[i];
+    const t = clamp(Math.abs(d) / reach, 0, 1);
+    headBlend[i] += d * Math.min(1, near + (far - near) * t * t);
+    headArr[i] = headBlend[i];
+  }
 }
 
 /* The camera. One eye level for the whole scene, fixed well above the frame:
@@ -256,7 +324,7 @@ function headCapY(u, extra){
    depth, held under that cap */
 function headTopAt(x){
   const u = clamp((x - G.cx) / Math.max(1, innerHalfAt(G.inTop)), -1, 1);
-  return Math.max(backY(x) - headBand(), headCapY(u, 0));
+  return Math.max(headSurfaceAt(x) - ellipseDy(x) - headBand(), headCapY(u, 0));
 }
 
 /* How deep the head is. It cannot be all of what it would like to be on a
@@ -284,7 +352,7 @@ function crestRaw(){
   let crest = 0;
   for (let i = 0; i < N; i++){
     const x = colX(i);
-    crest = Math.max(crest, lip - (surfaceAt(x) - ellipseDy(x) - band));
+    crest = Math.max(crest, lip - (headSurfaceAt(x) - ellipseDy(x) - band));
   }
   for (const f of foam){
     const y = surfaceAt(f.x) - ellipseDy(f.x) * 0.4 + f.oy - f.r;
@@ -1421,6 +1489,7 @@ function updateBubbles(dt){
 }
 
 function updateFoam(dt){
+  stepHeadSurface(dt);
   stepCrest(dt);
   const depth = cfg.headDepth / 100;
   const churn = cfg.foamChurn / 100;
