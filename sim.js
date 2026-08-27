@@ -950,6 +950,20 @@ let weepAlive = 0;
    three pixels up the glass and back down again, over and over, which is the
    judder. */
 let weepHem = 0, weepDrape = 0;
+/* How far the hem has run is held in pixels down the glass, so a glass that
+   changes size has to take it along. Everything else hanging on the outside —
+   the ribbons, the lacing, the beading — is let go when the glass moves,
+   because each of those is a thing at a place and there is no honest way to
+   move a list of them. This is not a list; it is one reach, and dropping it
+   would take a full weep off a glass that is only being looked at in a
+   different sized window. Left alone it was worse than either: carried across
+   unchanged, a hem measured on a desktop glass hung on a phone's, which is a
+   weep half the height of the glass it is on. */
+function carryWeep(k){
+  if (!(k > 0) || !isFinite(k) || Math.abs(k - 1) < 0.001) return;
+  weepHem *= k;
+  weepReach *= k;
+}
 /* The ratchet is kept as a bare fraction of the collar and turned into pixels
    fresh every frame. Held in pixels it also ratcheted against the beer itself:
    pour a stout after an IPA and the drape stayed at the depth the IPA had
