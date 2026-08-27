@@ -298,6 +298,10 @@ function ellipseDy(x){
   return ryAt(y) * hw * Math.sqrt(1 - u * u);
 }
 const frontY = x => surfaceAt(x) + ellipseDy(x);
+/* and the same arc taken off the head's raft — where the head ends, which is
+   not quite where the beer's own skin is. The beer keeps its ripple; the foam
+   sitting on it does not have to show it. */
+const headFrontY = x => headSurfaceAt(x) + ellipseDy(x);
 const backY  = x => surfaceAt(x) - ellipseDy(x);
 /* The highest the head may stand at a fraction of the way across the glass.
    Below the lip the glass holds it; above the lip there is nothing but its own

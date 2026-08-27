@@ -1047,9 +1047,15 @@ function headPath(ctx){
   ctx.moveTo(l - over, headTopAt(l));
   for (let i = 1; i < N; i++){ const x = colX(i); ctx.lineTo(x, headTopAt(x)); }
   ctx.lineTo(l + w + over, headTopAt(l + w));
-  ctx.lineTo(l + w + over, frontY(l + w) + 1);
-  for (let i = N - 1; i >= 0; i--){ const x = colX(i); ctx.lineTo(x, frontY(x) + 1); }
-  ctx.lineTo(l - over, frontY(l) + 1);
+  /* The underside rides the head's own raft, not the beer's skin. Cut on the
+     live surface it took every bubble that broke under it, so the waterline
+     jiggled the whole time the glass was fizzing — the same fault the top had,
+     at the other end of the head. What shows between the two, when the raft
+     sits above the beer's arc, is the surface disc, which is beer: there is no
+     gap to open. */
+  ctx.lineTo(l + w + over, headFrontY(l + w) + 1);
+  for (let i = N - 1; i >= 0; i--){ const x = colX(i); ctx.lineTo(x, headFrontY(x) + 1); }
+  ctx.lineTo(l - over, headFrontY(l) + 1);
   ctx.closePath();
 }
 
@@ -1682,7 +1688,7 @@ function drawFoam(){
     wet.addColorStop(0, pal.foamWet);
     wet.addColorStop(1, "transparent");
     ctxF.save();
-    ctxF.translate(0, frontY(x) + 1);
+    ctxF.translate(0, headFrontY(x) + 1);   /* the wet band sits on the same arc */
     ctxF.fillStyle = wet;
     ctxF.fillRect(x0, -soak, x1 - x0, soak);
     ctxF.restore();

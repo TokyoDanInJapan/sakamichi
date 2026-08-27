@@ -1015,8 +1015,9 @@ float bandShape(float x){
 void main(){
   vec2 px = fragPx();
   if (abs(px.x - GCX) > innerHalfAt(px.y) + 2.0){ frag = vec4(0.0); return; }
-  float back = surfaceAt(px.x) - ellipseDy(px.x);
-  float front = surfaceAt(px.x) + ellipseDy(px.x);
+  /* both edges of the head are the raft's, not the beer's — see headSurfaceAt */
+  float back = headSurfaceAt(px.x) - ellipseDy(px.x);
+  float front = headSurfaceAt(px.x) + ellipseDy(px.x);
   float b = uBand * bandShape(px.x);
   float dens = smoothstep(back - b - 2.5, back - b + 2.5, px.y)
              * (1.0 - smoothstep(front + 1.0, front + 7.0, px.y));
@@ -1360,7 +1361,7 @@ void main(){
      what that drew was an underside flatter than the surface beneath it: a
      head lying in the beer rather than on it. Cut on the arc, the head's
      underside is the ellipse exactly. */
-  float front = surfaceAt(px.x) + ellipseDy(px.x);
+  float front = headSurfaceAt(px.x) + ellipseDy(px.x);
   mask *= 1.0 - smoothstep(front - 0.8, front + 1.2, px.y);
   if (mask <= 0.001) discard;
 
@@ -1594,8 +1595,8 @@ void main(){
     float hdisc = sqrt(max(0.0, 1.0 - hcu * hcu));
     float hmnd  = sqrt(max(0.0, 1.0 - pow(abs(hcu), 6.0)));
     float hcap  = rimTanY - rimRy * 0.55 * hmnd - rimRy * hdisc;
-    headTop = max(surfaceAt(px.x) - ellipseDy(px.x) - uBandPx, hcap);
-    headBot = surfaceAt(px.x) + ellipseDy(px.x);
+    headTop = max(headSurfaceAt(px.x) - ellipseDy(px.x) - uBandPx, hcap);
+    headBot = headSurfaceAt(px.x) + ellipseDy(px.x);
     if (abs(px.x - GCX) <= innerHalfAt(max(px.y, rimTanY)))
       headCov = smoothstep(headTop - 1.0, headTop + 2.0, px.y)
               * (1.0 - smoothstep(headBot - 0.8, headBot + 1.2, px.y));
