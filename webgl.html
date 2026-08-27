@@ -440,12 +440,12 @@ body[data-chrome="off"] .beer{opacity:0}
    other. Not below 640 pixels of height, where taking that much bar off the
    glass leaves neither of them worth looking at. */
 @media (max-width:900px){ .beer{display:none} }
-@media (max-width:900px) and (orientation:portrait) and (min-height:640px){
+@media (max-width:900px) and (orientation:portrait){
   .beer{
     display:block;
     left:50%;
     width:var(--card-size,140px);
-    top:calc(var(--glass-bottom,60vh) + 11px + var(--card-size,140px) / 2);
+    top:calc((var(--glass-bottom,60vh) + var(--info-top,100vh)) / 2);
   }
 }
 /* On its side it goes into the corner the wordmark leaves, which is the only

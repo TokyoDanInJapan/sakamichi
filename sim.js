@@ -79,7 +79,12 @@ function cardRoom(){
   const el = document.querySelector(".beer");
   if (!el || getComputedStyle(el).display === "none") return 0;
   if (W >= COMPACT_BELOW || W > H) return 0;   /* beside the glass, not under it */
-  return Math.min(W * 0.42, 158) + 22;
+  /* Sized by the height as well as the width. Held to the width alone it was
+     too big a bite out of a short screen, which is why it used to be hidden
+     below 640 pixels of height altogether — and hidden is what it looked like
+     when the window was merely narrowed rather than made phone-shaped. It
+     shrinks now instead, and stays. */
+  return Math.min(W * 0.42, 158, H * 0.22) + 22;
 }
 /* and how far down the wordmark comes, where it stands over the glass */
 function typeRoom(leftEdge){
@@ -152,6 +157,10 @@ function layoutGlass(){
     const s = document.documentElement.style;
     s.setProperty("--glass-bottom", Math.round(bottom) + "px");
     s.setProperty("--card-size", Math.round(Math.max(0, under - 22)) + "px");
+    /* and where the taprooms begin, so the card can sit halfway between the
+       two rather than tucked under the glass with the slack all below it */
+    const ri = boxOf(".info");
+    s.setProperty("--info-top", Math.round(ri && ri.top > H * 0.4 ? ri.top : H) + "px");
   }
   G.wall = Math.max(2.5, topHalf * 0.045);
   G.baseH = gh * 0.06;
