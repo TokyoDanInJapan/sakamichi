@@ -175,6 +175,11 @@ h1 .thin{
 .info p{margin:0 0 clamp(10px,1.8vmin,18px)}
 .info b{display:block;font-weight:600;letter-spacing:.18em;font-size:10px;color:var(--ink-soft)}
 .info span{display:block}
+/* Each opening is its own element rather than a line of text with a middot
+   typed into it, so a pair can be shown as one line or as two without the
+   words being written out twice. Run together here, where there is width. */
+.info .d{display:inline}
+.info .d + .d::before{content:" · "}
 .info a{color:var(--ink-soft);text-decoration:none;border-bottom:1px solid var(--hair);margin-left:1.1em}
 .info a:first-child{margin-left:0}
 .info a:hover{color:var(--ink);border-color:var(--ink)}
@@ -207,6 +212,14 @@ h1 .thin{
   /* an equal share of what is left after the gap — at 50% each they and the
      gap came to more than the width and wrapped back into a stack */
   .info p{margin:0;flex:1 1 0;min-width:0}
+  /* Which station and which exit is something to know on the way, not
+     something to read on a phone while standing outside: what a small screen
+     wants is the taproom's name and when it is open. So the address goes, and
+     the openings come apart onto a row each, which is how a list of times
+     reads when the column is narrow. */
+  .info .where{display:none}
+  .info .d{display:block}
+  .info .d + .d::before{content:none}
   .info b{display:block;font-size:inherit}
   .info span{display:block}
   .info .social{flex:1 0 100%;max-width:none;margin-top:7px}
@@ -448,15 +461,15 @@ body[data-chrome="off"] .beer{opacity:0}
 <aside class="info" aria-label="Taprooms">
   <p>
     <b>Sakamichi Taproom</b>
-    <span>Tachikawa Stn &middot; South exit</span>
-    <span>Mon&ndash;Thu 12:00&ndash;21:00</span>
-    <span>Fri&ndash;Sun 12:00&ndash;22:00</span>
+    <span class="where">Tachikawa Stn &middot; South exit</span>
+    <span><span class="d">Mon&ndash;Thu 12:00&ndash;21:00</span></span>
+    <span><span class="d">Fri&ndash;Sun 12:00&ndash;22:00</span></span>
   </p>
   <p>
     <b>Sakamichi North</b>
-    <span>Tachikawa Stn &middot; North exit</span>
-    <span>Mon&ndash;Thu 15:00&ndash;23:00 &middot; Fri &ndash;24:00</span>
-    <span>Sat 12:00&ndash;24:00 &middot; Sun 12:00&ndash;23:00</span>
+    <span class="where">Tachikawa Stn &middot; North exit</span>
+    <span><span class="d">Mon&ndash;Thu 15:00&ndash;23:00</span><span class="d">Fri &ndash;24:00</span></span>
+    <span><span class="d">Sat 12:00&ndash;24:00</span><span class="d">Sun 12:00&ndash;23:00</span></span>
   </p>
   <p class="social">
     <a href="https://www.instagram.com/sakamichibrewing/" target="_blank" rel="noopener">Instagram</a>
