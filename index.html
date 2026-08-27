@@ -174,7 +174,7 @@ h1 .thin{
 @media (max-width:900px){
   .info{
     top:auto;left:0;right:0;
-    bottom:calc(clamp(16px,2.4vw,28px) + 54px + env(safe-area-inset-bottom));
+    bottom:calc(clamp(16px,2.4vw,28px) + env(safe-area-inset-bottom));
     display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-start;
     gap:4px clamp(12px,5vw,44px);
     text-align:center;
@@ -246,6 +246,14 @@ h1 .thin{
 body[data-panel="open"] .corner{display:none}
 /* nothing to hold when there is no card to hold it on */
 @media (max-width:900px){ #beerHold{display:none} }
+/* And no tuning at all on a phone. The panel is a workbench — thirty sliders
+   wanting a pointer, a wide screen and time to play — not part of the poster,
+   and on a small screen it is the poster that the page is for. With the tune
+   button gone the corner has nothing left in it, so the corner goes with it and
+   the taprooms take back the band it was standing in. Hidden rather than
+   removed: ?panel=1 still opens it, and its own close button still shuts it,
+   for anyone who came looking. */
+@media (max-width:900px){ .corner{display:none} }
 .panel-toggle{
   display:inline-flex;align-items:center;gap:10px;
   font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
