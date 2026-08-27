@@ -800,19 +800,27 @@ function buildPaths(){
    width straight up above the lip, where the head is allowed to dome but not to
    grow wider than the glass it came out of.
 
-   Cut on the wall itself it took the head's edge with it. The canvas is coarser
-   than the screen, so once stretched up its edge is not a step but a ramp a
-   couple of those coarse pixels wide, and the clip removes the outer half of
-   that ramp rather than landing on it — leaving the head standing back from the
-   glass by about as much, a hairline of bar top showing between the two where
-   the beer below sat flush. So the cut is carried out past the wall by the
-   width of that ramp, far enough that what it trims is the transparent tail
-   rather than the edge, and near enough that the goo still cannot climb the
-   glass. Measured against the wall: the head lands within half a pixel of where
-   the beer does, where before it stood two and a half back. */
+   It cuts on the wall itself, with nothing added.
+
+   That was not always safe. Cut on the wall while the head was also drawn to
+   the wall, the clip took the outer half of the blur's ramp rather than
+   landing on it, and the head stood back from the glass by about as much — a
+   hairline of bar top between the two where the beer below sat flush. The cut
+   was carried out past the wall to get clear of the ramp, which fixed the
+   hairline and left the head standing some four pixels wider than the bore it
+   was poured into.
+
+   Both were the same mistake, made at different ends: the ramp has to fall
+   somewhere, and the only place it can fall harmlessly is outside the wall.
+   So the head is drawn out past the wall instead — see the grow in headClip —
+   and the cut comes back to the wall itself, where it lands on foam that is
+   already solid. The blur eats material that was going to be trimmed anyway,
+   the clip lands on a hard edge, and the head ends where the glass does.
+   Measured against the wall with the glass off: four pixels proud before, half
+   a pixel now, which is the antialiasing of the cut. */
 function clipFoamToGlass(){
   const steps = 20;
-  const soft = 2 / FOAM_SCALE;
+  const soft = 0;
   const ihTop = innerHalfAt(G.inTop) + soft;
   /* In shares of the box rather than in pixels of it. This is a CSS clip on the
      element — it has to be, because it must cut after the goo filter rather
