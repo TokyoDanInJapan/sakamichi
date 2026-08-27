@@ -2296,6 +2296,8 @@ function resize(){
   const moved = Math.abs(G.top - wasTop) > 0.01
              || Math.abs(G.topHalf - wasHalf) > 0.01
              || Math.abs(G.bottom - wasBot) > 0.01;
+  /* the weep's reach is a length down the glass, so it comes along */
+  if (moved) carryWeep((G.bottom - G.top) / Math.max(1, wasBot - wasTop));
 
   const span = innerHalfAt(G.inTop) * 2;
   const nWas = N, hWas = hArr, uWas = uArr, headWas = headArr;
@@ -2958,10 +2960,26 @@ let resizeTimer = 0;
    stack runs from Futura PT to whatever the machine has. Written as one, the
    second line overhung the first by most of a letter.
 
-   So it is measured. The first line's ink ends one letter-space short of its
-   own advance, since tracking is added after the last letter as well as
-   between; the second line needs its width shared out between its letters, of
-   which there is one fewer gap than letters. */
+   So it is measured — and then checked, which is the part that was missing.
+   Worked out in one pass from the two natural widths, the answer was only ever
+   as good as the moment it was taken in: a font arriving late, or a media
+   query that had not applied yet, left a tracking that had been correct for
+   metrics nobody has any more, and nothing ever went back to look. That is how
+   the second line came to sit thirteen pixels wide of the first on a phone
+   while matching to the pixel on a desktop.
+
+   So it is walked in instead. Set the tracking, measure what that actually
+   produced, and close whatever gap is left; three passes is more than enough
+   for a correction that gets an order of magnitude smaller each time, and it
+   is right whatever changed underneath it, because it is reading the result
+   rather than predicting it.
+
+   Both lines are measured as ink — the painted width, which is the advance
+   less the tracking that follows the last letter, since tracking is added
+   after the final letter as well as between. That trailing space is empty and
+   the eye does not line up on it. And it is the text's own width, not the
+   block's: a block line fills the column it is in, and measuring that would
+   only ever hand back the column. */
 function fitWordmark(){
   const h1 = document.querySelector(".masthead h1");
   if (!h1) return;
@@ -2971,20 +2989,20 @@ function fitWordmark(){
   const n = thin.textContent.trim().length;
   if (n < 2) return;
 
-  const r = document.createRange();
-  r.selectNodeContents(h1);
-  r.setEnd(thin, 0);
-  const markW = r.getBoundingClientRect().width;
+  const inkOf = (node, whole) => {
+    const r = document.createRange();
+    if (whole) r.selectNodeContents(node); else r.selectNode(node);
+    return r.getBoundingClientRect().width;
+  };
   const own = parseFloat(getComputedStyle(h1).letterSpacing) || 0;
-  const target = markW - own;
 
-  thin.style.letterSpacing = "0px";
-  const tr = document.createRange();
-  tr.selectNodeContents(thin);
-  /* the text's own width, not the block's: a block line fills the column it is
-     in, and measuring that would only ever hand back the column */
-  const bare = tr.getBoundingClientRect().width;
-  thin.style.letterSpacing = ((target - bare) / (n - 1)).toFixed(3) + "px";
+  for (let pass = 0; pass < 3; pass++){
+    const target = inkOf(mark, false) - own;
+    const spacing = parseFloat(thin.style.letterSpacing) || 0;
+    const err = target - (inkOf(thin, true) - spacing);
+    if (Math.abs(err) < 0.25) break;
+    thin.style.letterSpacing = (spacing + err / (n - 1)).toFixed(3) + "px";
+  }
 }
 
 const restage = () => {
