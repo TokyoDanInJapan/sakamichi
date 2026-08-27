@@ -178,7 +178,69 @@ h1 .thin{
 .info a{color:var(--ink-soft);text-decoration:none;border-bottom:1px solid var(--hair);margin-left:1.1em}
 .info a:first-child{margin-left:0}
 .info a:hover{color:var(--ink);border-color:var(--ink)}
-@media (max-width:900px){.info{display:none}}
+/* Small screens do not get less of the brewery. Above 900 the taprooms sit in
+   the top right corner, which the wordmark leaves free. Below that there is no
+   such corner — the wordmark has the width to itself — so they move into what
+   the glass leaves empty instead: the bar top beneath it on an upright screen,
+   and the right-hand side on one turned on its side, where the glass is short
+   and the width is going spare. They used to be deleted outright, which left a
+   brewery's page with no address on it on the screens most people read it on.
+
+   Folded up as they move: the taproom's name and its lines run together with
+   middots rather than each taking a line of its own, so two taprooms and the
+   links come to four or five lines instead of eleven. */
+@media (max-width:900px){
+  .info{
+    top:auto;left:0;right:0;
+    bottom:calc(clamp(16px,2.4vw,28px) + 54px + env(safe-area-inset-bottom));
+    display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-start;
+    gap:4px clamp(12px,5vw,44px);
+    text-align:center;
+    padding:0 clamp(10px,3vw,28px);
+    font-size:clamp(8px,2.4vw,9.5px);line-height:1.85;
+  }
+  /* The two taprooms stand side by side rather than one above the other. They
+     are a pair of addresses and they read as a pair, and across the foot of a
+     phone the width is the room there is — stacked they ran down into the
+     glass and left the two halves of the screen unbalanced. Each keeps its own
+     lines within its column, the way it does in the corner on a wide screen. */
+  /* an equal share of what is left after the gap — at 50% each they and the
+     gap came to more than the width and wrapped back into a stack */
+  .info p{margin:0;flex:1 1 0;min-width:0}
+  .info b{display:block;font-size:inherit}
+  .info span{display:block}
+  .info .social{flex:1 0 100%;max-width:none;margin-top:7px}
+  .info a{margin:0 .5em}
+}
+/* Turned on its side there is no bar top to spare — the glass has taken the
+   height — but there is width, so they go back to the corner they came from. */
+@media (max-width:900px) and (orientation:landscape){
+  .info{
+    display:block;                     /* a column again, not a pair */
+    top:0;bottom:auto;left:auto;right:0;
+    width:min(44vw,320px);text-align:right;
+    padding:clamp(12px,2.6vw,24px);
+    padding-top:max(clamp(12px,2.6vw,24px),env(safe-area-inset-top));
+  }
+  .info p{flex:none;min-width:0;margin:0 0 clamp(8px,1.6vh,16px)}
+  .info .social{margin-top:0}
+}
+
+/* A finger is not a mouse: the corner buttons and the panel's chips are given
+   the room to be hit rather than aimed at. */
+@media (pointer:coarse){
+  .panel-toggle{padding:15px 18px}
+  .chip{padding:11px 14px}
+}
+
+/* Very little height — a small phone lying on its side. The wordmark gives
+   some of itself back, or there is nowhere left for the glass to stand: at
+   568 by 320 it came down past the rim by fourteen pixels. */
+@media (max-height:430px){
+  .masthead{padding:clamp(10px,2.4vmin,20px)}
+  h1{font-size:clamp(1.3rem,min(6vw,8.5vh),2.6rem)}
+  .eyebrow{margin-top:clamp(8px,1.6vw,14px);font-size:9px}
+}
 
 /* ------------------------------------------------------------------ *
  * Control panel
@@ -316,8 +378,17 @@ body[data-chrome="off"] .panel-toggle{opacity:0;pointer-events:none}
 .beer{
   position:fixed;z-index:2;cursor:pointer;
   /* a third in from the right, as the glass is a third in from the left */
-  left:66.7%;top:50%;transform:translate(-50%,-50%);margin-top:2vh;
-  width:clamp(188px,24vw,362px);
+  left:66.7%;transform:translate(-50%,-50%);
+  /* Centred in the band the taprooms and the buttons leave, rather than on the
+     page. Centred on the page it rode up under the taprooms wherever the screen
+     was short — 84 pixels of the card across the links at 901 by 600 — because
+     half the page is higher up the shorter the page is, while the taprooms are
+     the same few lines whatever. Sized to that band too, so it can never grow
+     into it. --info-bottom is measured and handed over by layoutGlass. */
+  --band-top:calc(var(--info-bottom,0px) + 18px);
+  --band-bot:calc(100vh - 96px);
+  top:calc((var(--band-top) + var(--band-bot)) / 2);
+  width:min(clamp(188px,24vw,362px),calc(var(--band-bot) - var(--band-top) - 16px));
   perspective:1100px;
 }
 .beer-turn{

@@ -40,28 +40,101 @@ const G = {
   ryTop:0.13, scale:1
 };
 
+/* The width at which the glass steps aside and the card comes in beside it.
+   These are one decision made in two places — the number here and the 900 in
+   each page's media queries — and they have to agree. They did not: the card
+   appeared at 900 and the glass only moved over at 1100, so for two hundred
+   pixels of width the two stood in the same place and the card lay across the
+   glass, by as much as 55 pixels at 1024. */
+const COMPACT_BELOW = 900;
+/* What the page's own type has already taken, so the glass can be given the
+   rest rather than a fraction that hopes for the best. Both are read off the
+   elements as they actually lay out, which is the only honest source: how much
+   room the taprooms need depends on how many lines they wrap to at this width,
+   and that is not a number anyone can name in advance.
+
+   Neither reading depends on the glass, so there is no circle here: the
+   wordmark is pinned to the top left and the taprooms to whichever edge their
+   media query puts them at, and both are placed before this runs. */
+function boxOf(sel){
+  const el = document.querySelector(sel);
+  if (!el) return null;
+  const st = getComputedStyle(el);
+  if (st.display === "none" || st.visibility === "hidden") return null;
+  const r = el.getBoundingClientRect();
+  return r.width > 0 && r.height > 0 ? r : null;
+}
+/* the band along the bottom the taprooms are standing in, when they are down
+   there rather than up in a corner */
+function barRoom(){
+  const r = boxOf(".info");
+  if (!r || r.top < H * 0.4) return 0;      /* up in a corner: not in the way */
+  return Math.max(0, H - r.top + 14);
+}
+/* and how far down the wordmark comes, where it stands over the glass */
+function typeRoom(leftEdge){
+  const r = boxOf(".masthead");
+  if (!r || r.right <= leftEdge) return 0;  /* clear of it sideways */
+  return r.bottom + 12;
+}
+
 function layoutGlass(){
-  const compact = W < 1100;
-  const bottomAt = compact ? 0.68 : 0.84;      /* where the glass stands */
-  const nominal  = compact ? 0.46 : 0.58;      /* its height at the house size */
+  const compact = W < COMPACT_BELOW;
+  /* The card beside the glass is told where the taprooms end, so it can sit in
+     the band between them and the corner buttons rather than across either. It
+     is a stylesheet's job to place it and a stylesheet cannot measure text, so
+     the one number it is missing is handed over. Nought when the taprooms are
+     not up in that corner, which is every width the card is hidden at anyway. */
+  {
+    const r = boxOf(".info");
+    document.documentElement.style.setProperty("--info-bottom",
+      (r && r.top < H * 0.4 ? Math.round(r.bottom) : 0) + "px");
+  }
+  /* On its side and short of height — a phone held landscape — the glass was
+     left standing at the same fraction it takes on a tall screen, which put it
+     small in the middle with a third of the picture empty bar beneath it.
+     There the height is what is scarce, so it takes more of it and stands
+     lower; and it moves off centre so the taprooms have a column at the right,
+     the way they do on a desktop. */
+  const lying = compact && H < 520 && W > H;
+  const nominal = lying ? 0.62 : compact ? 0.46 : 0.58;    /* its height */
+  G.cx = W * (lying ? 0.42 : compact ? 0.5 : 1 / 3);
+
+  /* Where it stands, less whatever the taprooms are using down there */
+  let bottom = Math.min(H * (lying ? 0.80 : compact ? 0.68 : 0.84), H - barRoom());
+  bottom = Math.max(bottom, H * 0.45);
+  const bottomAt = bottom / H;
   /* the camera that gives a house-sized glass the shape it should have here */
   camLens = nominal / (BASE_OPEN - RIM_OPEN);
   camEye  = BASE_OPEN * camLens - bottomAt;
+
+  const widthCap = W * (compact ? 0.34 : 0.30);
   const maxH = H * nominal * (cfg.glassSize / 100);
   let gh = clamp(maxH, 140, H * 0.80);
-  let topHalf = gh * 0.583 / 2;
-  const widthCap = W * (compact ? 0.34 : 0.30);
-  if (topHalf > widthCap){ topHalf = widthCap; gh = topHalf * 2 / 0.583; }
+  let topHalf = Math.min(gh * 0.583 / 2, widthCap);
+
+  /* and it does not stand where the wordmark is — but only if it is under the
+     wordmark at all. Asked against the widest the glass could ever be, a phone
+     on its side had its glass cut by a third to clear a wordmark standing two
+     hundred pixels clear of it. So the question is put to the edge the glass
+     would actually have, and if that edge is under the type the glass is
+     shortened and the edge asked again. Shortening only ever moves that edge
+     inward, so the second answer is the settled one. */
+  for (let pass = 0; pass < 2; pass++){
+    const room = typeRoom(G.cx - topHalf);
+    if (!room) break;
+    const fits = Math.max(140, bottom - room);
+    if (gh <= fits) break;
+    gh = fits;
+    topHalf = Math.min(gh * 0.583 / 2, widthCap);
+  }
+  if (topHalf >= widthCap){ topHalf = widthCap; gh = topHalf * 2 / 0.583; }
 
   G.h = gh;
   G.topHalf = topHalf;
   G.botHalf = topHalf * 0.68;
-  /* Off centre, to leave the beer of the moment its own room at the right.
-     Only where there is room to give: on a narrow screen the card is not shown
-     and the glass stands in the middle of the page as it always did. */
-  G.cx = W * (compact ? 0.5 : 1 / 3);
-  G.bottom = H * bottomAt;
-  G.top = G.bottom - gh;
+  G.bottom = bottom;
+  G.top = bottom - gh;
   G.wall = Math.max(2.5, topHalf * 0.045);
   G.baseH = gh * 0.06;
   /* The rim ellipse, resolved at the height its own tangent sits at */
