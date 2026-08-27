@@ -71,6 +71,16 @@ function barRoom(){
   if (!r || r.top < H * 0.4) return 0;      /* up in a corner: not in the way */
   return Math.max(0, H - r.top + 14);
 }
+/* and the bar in front of the glass where the card stands on an upright phone.
+   Its size is settled here rather than in the stylesheet, because the glass has
+   to give the room up before the card can be put in it, and only one of the two
+   can decide how much that is. The stylesheet is told the answer. */
+function cardRoom(){
+  const el = document.querySelector(".beer");
+  if (!el || getComputedStyle(el).display === "none") return 0;
+  if (W >= COMPACT_BELOW || W > H) return 0;   /* beside the glass, not under it */
+  return Math.min(W * 0.42, 158) + 22;
+}
 /* and how far down the wordmark comes, where it stands over the glass */
 function typeRoom(leftEdge){
   const r = boxOf(".masthead");
@@ -100,9 +110,11 @@ function layoutGlass(){
   const nominal = lying ? 0.62 : compact ? 0.46 : 0.58;    /* its height */
   G.cx = W * (lying ? 0.42 : compact ? 0.5 : 1 / 3);
 
-  /* Where it stands, less whatever the taprooms are using down there */
-  let bottom = Math.min(H * (lying ? 0.80 : compact ? 0.68 : 0.84), H - barRoom());
-  bottom = Math.max(bottom, H * 0.45);
+  /* Where it stands, less whatever the taprooms and the card are using below */
+  const under = cardRoom();
+  let bottom = Math.min(H * (lying ? 0.80 : compact ? 0.68 : 0.84),
+                        H - barRoom() - under);
+  bottom = Math.max(bottom, H * 0.40);
   const bottomAt = bottom / H;
   /* the camera that gives a house-sized glass the shape it should have here */
   camLens = nominal / (BASE_OPEN - RIM_OPEN);
@@ -135,6 +147,12 @@ function layoutGlass(){
   G.botHalf = topHalf * 0.68;
   G.bottom = bottom;
   G.top = bottom - gh;
+  /* what the stylesheet needs to stand the card on the bar in front of it */
+  {
+    const s = document.documentElement.style;
+    s.setProperty("--glass-bottom", Math.round(bottom) + "px");
+    s.setProperty("--card-size", Math.round(Math.max(0, under - 22)) + "px");
+  }
   G.wall = Math.max(2.5, topHalf * 0.045);
   G.baseH = gh * 0.06;
   /* The rim ellipse, resolved at the height its own tangent sits at */

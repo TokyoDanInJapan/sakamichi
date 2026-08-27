@@ -410,7 +410,32 @@ body[data-chrome="off"] .beer{opacity:0}
 .beer{transition:opacity .35s ease}
 @media (prefers-reduced-motion:reduce){ .beer-turn{transition:none} }
 /* On a narrow page the glass takes the middle back and there is no room beside it */
+/* The card comes to a phone too, standing on the bar in front of the glass
+   rather than beside it — there is no beside on a screen this narrow, but the
+   bar in front of it is doing nothing. The glass gives up the room first (see
+   cardRoom) and is told how much, so the two are not each guessing at the
+   other. Not below 640 pixels of height, where taking that much bar off the
+   glass leaves neither of them worth looking at. */
 @media (max-width:900px){ .beer{display:none} }
+@media (max-width:900px) and (orientation:portrait) and (min-height:640px){
+  .beer{
+    display:block;
+    left:50%;
+    width:var(--card-size,140px);
+    top:calc(var(--glass-bottom,60vh) + 11px + var(--card-size,140px) / 2);
+  }
+}
+/* On its side it goes into the corner the wordmark leaves, which is the only
+   room a landscape phone has going spare. */
+@media (max-width:900px) and (orientation:landscape){
+  .beer{
+    display:block;
+    left:clamp(12px,4vw,40px);top:auto;
+    bottom:clamp(12px,4vh,28px);
+    transform:none;
+    width:min(30vw,40vh);
+  }
+}
 /* The splashes lie over the card, and over nothing else that matters */
 .splash{position:fixed;inset:0;z-index:4;pointer-events:none}
 </style>
