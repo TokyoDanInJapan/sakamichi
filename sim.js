@@ -76,6 +76,15 @@ function cardShown(){
   const el = document.querySelector(".beer");
   return !!el && getComputedStyle(el).display !== "none";
 }
+/* How wide the glass may be before it reaches the card. Nought to do with the
+   glass, so there is no circle: the card is placed by the width of the screen
+   and the band the type leaves, both of which are settled before this runs. */
+const GLASS_CARD_GAP = 16;
+function capByCard(cx, fallback){
+  const r = boxOf(".beer");
+  if (!r || r.left <= cx) return fallback;      /* absent, or not to the right */
+  return Math.min(fallback, r.left - GLASS_CARD_GAP - cx);
+}
 /* and how far down the wordmark comes, where it stands over the glass */
 function typeRoom(leftEdge){
   const r = boxOf(".masthead");
@@ -91,9 +100,17 @@ function layoutGlass(){
      the one number it is missing is handed over. Nought when the taprooms are
      not up in that corner, which is every width the card is hidden at anyway. */
   {
-    const r = boxOf(".info");
-    document.documentElement.style.setProperty("--info-bottom",
-      (r && r.top < H * 0.4 ? Math.round(r.bottom) : 0) + "px");
+    const s = document.documentElement.style;
+    const ri = boxOf(".info"), rm = boxOf(".masthead");
+    s.setProperty("--info-bottom", (ri && ri.top < H * 0.4 ? Math.round(ri.bottom) : 0) + "px");
+    /* The band the card stands in, upright: under the wordmark and above the
+       taprooms. Both ends are measured, because both are text and neither is a
+       fraction of anything. Set before the glass is worked out rather than
+       after, because the glass is about to ask where the card ended up and the
+       card cannot answer until it has these. It can answer then: nothing about
+       where the card goes depends on the glass. */
+    s.setProperty("--mast-bottom", Math.round(rm ? rm.bottom : H * 0.22) + "px");
+    s.setProperty("--info-top", Math.round(ri && ri.top > H * 0.4 ? ri.top : H) + "px");
   }
   /* On its side and short of height — a phone held landscape — the glass was
      left standing at the same fraction it takes on a tall screen, which put it
@@ -119,7 +136,16 @@ function layoutGlass(){
   camLens = nominal / (BASE_OPEN - RIM_OPEN);
   camEye  = BASE_OPEN * camLens - bottomAt;
 
-  const widthCap = W * (beside ? 0.20 : compact ? 0.34 : 0.30);
+  /* And it never grows into the card. Which of the two gives way is not a
+     matter of taste: the gap between them is what the eye reads as two objects
+     rather than one, and the margins at the edges of the screen are not, so
+     the margins are what pays. Fractions alone put the two through each other
+     on a tall screen — the glass is grown from the height and the card is
+     placed by the width, so the taller the screen the further the glass
+     reaches across a card that has not moved. Measured at 1000 by 1400 they
+     overlapped by 23 pixels, at 1200 by 1920 by 68, at 1440 by 2560 by 124.
+     Taken from where the card actually starts, they cannot. */
+  const widthCap = Math.max(24, capByCard(G.cx, W * (beside ? 0.20 : compact ? 0.34 : 0.30)));
   const maxH = H * nominal * (cfg.glassSize / 100);
   let gh = clamp(maxH, 140, H * 0.80);
   let topHalf = Math.min(gh * 0.583 / 2, widthCap);
@@ -146,17 +172,6 @@ function layoutGlass(){
   G.botHalf = topHalf * 0.68;
   G.bottom = bottom;
   G.top = bottom - gh;
-  /* what the stylesheet needs to stand the card on the bar in front of it */
-  {
-    /* The band the card has to stand in, upright: under the wordmark and above
-       the taprooms. Both ends are measured, because both are text and neither
-       is a fraction of anything. */
-    const s = document.documentElement.style;
-    s.setProperty("--glass-bottom", Math.round(bottom) + "px");
-    const rm = boxOf(".masthead"), ri = boxOf(".info");
-    s.setProperty("--mast-bottom", Math.round(rm ? rm.bottom : H * 0.22) + "px");
-    s.setProperty("--info-top", Math.round(ri && ri.top > H * 0.4 ? ri.top : H) + "px");
-  }
   G.wall = Math.max(2.5, topHalf * 0.045);
   G.baseH = gh * 0.06;
   /* The rim ellipse, resolved at the height its own tangent sits at */
