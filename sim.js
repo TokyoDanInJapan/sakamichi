@@ -1881,12 +1881,19 @@ function addDew(r){
    therefore taken up to the new size with it. */
 let dewK = 1;
 const PUDDLE_MAX = 40;
-function addPuddle(x, r){
+/* Where the bead actually came down, not the height the glass stands at. The
+   foot of the glass is a disc seen at an angle, so a bead that ran down the
+   face nearest us reaches the bar in front of the glass and one that ran down
+   the side reaches it out level with the middle — they arrive all round the
+   base, not along a line across the back of it. Put on that line, which is
+   what G.bottom is, every mark fell inside the foot's own ellipse and was
+   clipped away by it; the only ones left were at the far left and right, where
+   the ellipse is too narrow to cover them. That is the whole of why the wet
+   only ever showed at the two sides. */
+function addPuddle(x, y, r){
   if (puddles.length >= PUDDLE_MAX) puddles.shift();
   const life = rand(9, 15);
-  puddles.push({x, y: G.bottom - 1,
-                r: r * 0.6, rt: r * rand(3.4, 5.0),
-                life, max: life});
+  puddles.push({x, y, r: r * 0.6, rt: r * rand(3.4, 5.0), life, max: life});
 }
 /* It spreads quickly and then holds, the way a drop of water on a bar does:
    it is spent as soon as it lands, and what happens after that is the room
@@ -1938,8 +1945,17 @@ function updateDew(dt){
         /* Off the bottom and onto the bar. Only what ran down the side facing
            us leaves a mark worth drawing — the far side's would be behind the
            glass, and a puddle that cannot be seen is a puddle nobody drew. */
-        const [px, , c] = dewPos(d);
-        if (c > -0.25) addPuddle(px, d.r);
+        /* Placed on the rim of the foot itself, at the angle the bead ran
+           down, rather than wherever it happened to be when it was taken off
+           the wall. It is let go a little above the bar — where the base
+           moulding starts and there is no more wall to hold it — so its own
+           position is short of the floor by that much, and marks made there
+           sat above the front of the foot instead of on it. */
+        const c = Math.cos(d.th);
+        if (c > -0.25){
+          addPuddle(G.cx + G.botHalf * Math.sin(d.th),
+                    G.bottom + baseBulge() * c, d.r);
+        }
         dew.splice(i, 1);
       }
     }
