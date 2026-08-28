@@ -211,6 +211,10 @@ let N = 0, hArr, uArr, fArr, maxAmp = 60;   /* surface, face velocities, face fl
    fizzing. The beer's own surface still takes every one of them; it should. */
 let headArr = null;
 let bubbles = [], foam = [], drops = [], mist = [], drips = [], sites = [], dew = [], lace = [];
+/* What a bead leaves behind when it has run the whole way down and off the
+   glass. A ribbon of foam already does this — it lands, spreads, and soaks in
+   — and water does the same thing; it is only clearer, and it goes sooner. */
+let puddles = [];
 let capBubbles = 300, capFoam = 260, capDew = 90;
 
 /* The fill line is the height the contents reach, and the contents are the
@@ -1522,6 +1526,38 @@ function addFoam(x, r){
    for a shader. */
 function paintSplash(ctx, foamCol, beerCol){
   ctx.clearRect(0, 0, W, H);
+  /* The wet the condensation leaves at the foot of the glass. Flattened the
+     way everything lying on the bar is flattened, and cut to everything the
+     glass's own footprint is not — it is on the bar, and the glass is standing
+     on the same bar in front of it. Painted before the spray, because a bead
+     in the air is nearer than a mark on the counter. */
+  if (puddles.length){
+    const hw = Math.max(1, G.botHalf), ry = Math.max(1, baseBulge());
+    const outside = new Path2D();
+    outside.rect(0, 0, W, H);
+    outside.ellipse(G.cx, G.bottom, hw, ry, 0, 0, TAU);
+    ctx.save();
+    ctx.clip(outside, "evenodd");
+    for (const p of puddles){
+      /* It holds while it is there and then goes over the last few seconds,
+         rather than thinning from the moment it lands */
+      const fade = clamp(p.life / 4, 0, 1);
+      const flat = Math.max(0.7, p.r * ry / hw);
+      ctx.globalAlpha = fade * 0.22;
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y, p.r, flat, 0, 0, TAU);
+      ctx.fillStyle = "rgba(255,255,255,1)";
+      ctx.fill();
+      /* a brighter line round the rim, which is what tells a wet patch from a
+         smudge: water on a counter catches the light at its edge */
+      ctx.globalAlpha = fade * 0.28;
+      ctx.lineWidth = Math.max(0.6, p.r * 0.10);
+      ctx.strokeStyle = "rgba(255,255,255,1)";
+      ctx.stroke();
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
   for (const d of drops){
     if ((d.near || 0) < 0) continue;
     const dr = d.r * dropScale(d);
@@ -1844,7 +1880,30 @@ function addDew(r){
    moved, and the slider would look dead. What is already on the glass is
    therefore taken up to the new size with it. */
 let dewK = 1;
+const PUDDLE_MAX = 40;
+function addPuddle(x, r){
+  if (puddles.length >= PUDDLE_MAX) puddles.shift();
+  const life = rand(9, 15);
+  puddles.push({x, y: G.bottom - 1,
+                r: r * 0.6, rt: r * rand(3.4, 5.0),
+                life, max: life});
+}
+/* It spreads quickly and then holds, the way a drop of water on a bar does:
+   it is spent as soon as it lands, and what happens after that is the room
+   taking it back rather than the drop doing anything. */
+function updatePuddles(dt){
+  for (let i = puddles.length - 1; i >= 0; i--){
+    const p = puddles[i];
+    p.r += (p.rt - p.r) * Math.min(1, dt * 2.2);
+    p.life -= dt;
+    if (p.life <= 0) puddles.splice(i, 1);
+  }
+}
+
 function updateDew(dt){
+  /* before the early return: a glass whose condensation has just been turned
+     off still has whatever ran off it a moment ago lying on the bar */
+  updatePuddles(dt);
   const amount = clamp(cfg.condensation / 100, 0, 2);
   if (!amount){ dew.length = 0; return; }
   const k = dewScale();
@@ -1875,7 +1934,14 @@ function updateDew(dt){
       d.vy = Math.min(d.vy + 70 * G.scale * dt, top);
       d.h += d.vy * dt;
       d.rt = Math.max(d.rt - dt * 0.8 * G.scale, 1.4 * px);
-      if (d.h > G.bottom - G.baseH * 0.8) dew.splice(i, 1);
+      if (d.h > G.bottom - G.baseH * 0.8){
+        /* Off the bottom and onto the bar. Only what ran down the side facing
+           us leaves a mark worth drawing — the far side's would be behind the
+           glass, and a puddle that cannot be seen is a puddle nobody drew. */
+        const [px, , c] = dewPos(d);
+        if (c > -0.25) addPuddle(px, d.r);
+        dew.splice(i, 1);
+      }
     }
   }
 
