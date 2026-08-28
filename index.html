@@ -185,11 +185,13 @@ h1 .thin{
 .info b a.place::after{content:"\2197";margin-left:.35em;font-size:.95em}
 .info a:first-child{margin-left:0}
 .info a:hover{color:var(--ink);border-color:var(--ink)}
-/* and the row of them stands off from the hours above it rather than running
-   on from them */
+/* and the row of them leads the corner rather than trailing it: they are what
+   somebody comes to this corner to use, and the addresses and the opening
+   times are what they read once they are here. The rule sits under them now,
+   holding them off what follows rather than off what went before. */
 .info .social{
-  margin-top:clamp(12px,2vmin,20px);padding-top:clamp(11px,1.8vmin,16px);
-  border-top:1px solid var(--hair-soft);
+  margin:0 0 clamp(12px,2vmin,20px);padding-bottom:clamp(11px,1.8vmin,16px);
+  border-bottom:1px solid var(--hair-soft);
 }
 /* Small screens do not get less of the brewery. Above 900 the taprooms sit in
    the top right corner, which the wordmark leaves free. Below that there is no
@@ -577,6 +579,14 @@ body[data-chrome="off"] .beer{opacity:0}
 </div>
 
 <aside class="info" aria-label="Taprooms">
+  <p class="social">
+    <a href="https://sakamichibrewing.bestbeerjapan.com/" target="_blank" rel="noopener">What&rsquo;s on</a>
+    <a href="https://untappd.com/w/sakamichi-brewing/461142" target="_blank" rel="noopener">Reviews</a>
+    <a href="https://www.instagram.com/sakamichibrewing/" target="_blank" rel="noopener">Instagram</a>
+    <a href="https://twitter.com/sakamichi_beer" target="_blank" rel="noopener">X</a>
+    <a href="https://www.facebook.com/SakamichiBrewing/" target="_blank" rel="noopener">Facebook</a>
+    <a href="https://www.sakamichibrewing.com/contact-form/" target="_blank" rel="noopener">Contact</a>
+  </p>
   <p>
     <b><a class="place" href="https://www.google.com/maps/search/Sakamichi+Brewing+Tachikawa+Shibasakicho+2-6-5" target="_blank" rel="noopener">Sakamichi Taproom</a></b>
     <span class="where">Tachikawa Stn &middot; South exit</span>
@@ -588,14 +598,6 @@ body[data-chrome="off"] .beer{opacity:0}
     <span class="where">Tachikawa Stn &middot; North exit</span>
     <span><span class="d">Mon&ndash;Thu 15:00&ndash;23:00</span><span class="d">Fri &ndash;24:00</span></span>
     <span><span class="d">Sat 12:00&ndash;24:00</span><span class="d">Sun 12:00&ndash;23:00</span></span>
-  </p>
-  <p class="social">
-    <a href="https://sakamichibrewing.bestbeerjapan.com/" target="_blank" rel="noopener">What&rsquo;s on</a>
-    <a href="https://untappd.com/w/sakamichi-brewing/461142" target="_blank" rel="noopener">Reviews</a>
-    <a href="https://www.instagram.com/sakamichibrewing/" target="_blank" rel="noopener">Instagram</a>
-    <a href="https://twitter.com/sakamichi_beer" target="_blank" rel="noopener">X</a>
-    <a href="https://www.facebook.com/SakamichiBrewing/" target="_blank" rel="noopener">Facebook</a>
-    <a href="https://www.sakamichibrewing.com/contact-form/" target="_blank" rel="noopener">Contact</a>
   </p>
 </aside>
 
