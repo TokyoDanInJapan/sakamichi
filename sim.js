@@ -1542,18 +1542,34 @@ function paintSplash(ctx, foamCol, beerCol){
       /* It holds while it is there and then goes over the last few seconds,
          rather than thinning from the moment it lands */
       const fade = clamp(p.life / 4, 0, 1);
-      const flat = Math.max(0.7, p.r * ry / hw);
-      ctx.globalAlpha = fade * 0.22;
+      const squash = Math.max(0.16, ry / hw);        /* the bar's own foreshortening */
+      /* Water is only the light it catches; beer and foam have a colour of
+         their own, and none of the three is opaque — what is on the counter is
+         a film, and the counter goes on showing through it. */
+      const col = p.kind === "beer" ? beerCol : p.kind === "foam" ? foamCol : "rgba(255,255,255,1)";
       ctx.beginPath();
-      ctx.ellipse(p.x, p.y, p.r, flat, 0, 0, TAU);
-      ctx.fillStyle = "rgba(255,255,255,1)";
+      const STEP = 16;
+      for (let k = 0; k <= STEP; k++){
+        const a = k / STEP * TAU;
+        const rr = p.r * (1 + p.a1 * Math.sin(a * 2 + p.p1) + p.a2 * Math.sin(a * 3 + p.p2));
+        const px2 = p.x + rr * Math.cos(a), py2 = p.y + rr * squash * Math.sin(a);
+        if (k) ctx.lineTo(px2, py2); else ctx.moveTo(px2, py2);
+      }
+      ctx.closePath();
+      ctx.globalAlpha = fade * (p.kind === "water" ? 0.13 : 0.20);
+      ctx.fillStyle = col;
       ctx.fill();
-      /* a brighter line round the rim, which is what tells a wet patch from a
-         smudge: water on a counter catches the light at its edge */
-      ctx.globalAlpha = fade * 0.28;
-      ctx.lineWidth = Math.max(0.6, p.r * 0.10);
-      ctx.strokeStyle = "rgba(255,255,255,1)";
-      ctx.stroke();
+      /* Water gets a line round its edge and the other two do not. Water is
+         only ever the light it catches, so without that line there is nothing
+         of it to see; beer and foam have a colour, and outlining them turned
+         each one into a small solid object — a bar strewn with coins rather
+         than a bar somebody has spilt on. */
+      if (p.kind === "water"){
+        ctx.globalAlpha = fade * 0.20;
+        ctx.lineWidth = Math.max(0.5, p.r * 0.07);
+        ctx.strokeStyle = "rgba(255,255,255,1)";
+        ctx.stroke();
+      }
     }
     ctx.restore();
     ctx.globalAlpha = 1;
@@ -1748,6 +1764,13 @@ function updateDrops(dt){
     if (d.y > bar){
       mist.push({x:d.x, y:bar, vx:rand(-30,30)*G.scale, vy:-rand(20,70)*G.scale,
                  r:d.r * dropScale(d) * 0.5, near:d.near, life:rand(.2,.5)});
+      /* and it leaves a mark where it landed. The spray off the impact goes in
+         a fraction of a second; what is actually on the counter afterwards did
+         not, until now — beer thrown out of a glass was landing on a bar that
+         stayed spotless. Placed at the point it came down, depth and all, since
+         bar already carries how far in front of the glass this one flew. */
+      if ((d.near || 0) >= 0)
+        addPuddle(d.x, bar, d.r * dropScale(d), d.foamy ? "foam" : "beer");
       drops.splice(i, 1);
     } else if (d.x < -40 || d.x > W + 40){
       drops.splice(i, 1);
@@ -1880,7 +1903,7 @@ function addDew(r){
    moved, and the slider would look dead. What is already on the glass is
    therefore taken up to the new size with it. */
 let dewK = 1;
-const PUDDLE_MAX = 40;
+const PUDDLE_MAX = 64;      /* a hard swirl throws a good many at once */
 /* Where the bead actually came down, not the height the glass stands at. The
    foot of the glass is a disc seen at an angle, so a bead that ran down the
    face nearest us reaches the bar in front of the glass and one that ran down
@@ -1890,10 +1913,18 @@ const PUDDLE_MAX = 40;
    clipped away by it; the only ones left were at the far left and right, where
    the ellipse is too narrow to cover them. That is the whole of why the wet
    only ever showed at the two sides. */
-function addPuddle(x, y, r){
+function addPuddle(x, y, r, kind){
   if (puddles.length >= PUDDLE_MAX) puddles.shift();
-  const life = rand(9, 15);
-  puddles.push({x, y, r: r * 0.6, rt: r * rand(3.4, 5.0), life, max: life});
+  /* Beer stays longer than water and foam longer again — one is a rinse
+     drying off a counter, the others are something somebody will have to wipe. */
+  const life = kind === "water" ? rand(9, 15) : kind === "beer" ? rand(14, 22) : rand(18, 26);
+  /* No two marks alike: a splash is not a disc. Two waves round its edge, at
+     its own phases, which is the same trick the collar's tongues use and for
+     the same reason — a ring of identical circles reads as stickers on a bar
+     rather than as something that was thrown there. */
+  puddles.push({x, y, kind, r: r * 0.6, rt: r * rand(2.6, 4.0), life, max: life,
+                p1: Math.random() * TAU, p2: Math.random() * TAU,
+                a1: rand(0.10, 0.22), a2: rand(0.05, 0.13)});
 }
 /* It spreads quickly and then holds, the way a drop of water on a bar does:
    it is spent as soon as it lands, and what happens after that is the room
@@ -1954,7 +1985,7 @@ function updateDew(dt){
         const c = Math.cos(d.th);
         if (c > -0.25){
           addPuddle(G.cx + G.botHalf * Math.sin(d.th),
-                    G.bottom + baseBulge() * c, d.r);
+                    G.bottom + baseBulge() * c, d.r, "water");
         }
         dew.splice(i, 1);
       }
