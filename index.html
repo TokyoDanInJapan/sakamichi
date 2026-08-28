@@ -164,18 +164,33 @@ h1 .thin{
    words being written out twice. Run together here, where there is width. */
 .info .d{display:inline}
 .info .d + .d::before{content:" · "}
-.info a{color:var(--ink-soft);text-decoration:none;border-bottom:1px solid var(--hair);margin-left:1.1em}
-/* A taproom's name is the way to it, so it goes to itself on a map. Carried on
-   the name rather than added beside it as another line: the corner keeps the
-   shape it has and gains nothing but an underline and a mark. */
-.info b a.place{
-  color:inherit;border-bottom:1px solid var(--hair-soft);margin-left:0;
-  letter-spacing:inherit;
+/* Links are the one thing in this corner that does something, so they are the
+   one thing that does not whisper. Everything else here is the house grey at
+   nine and a half point; these are a gold that holds in both themes — the same
+   one the focus ring uses — a point larger, and underlined solidly rather than
+   with a hairline. Left in the house grey with a hairline under them they were
+   indistinguishable from the opening times above, which is not a house style,
+   it is a page hiding what it is for. */
+.info a{
+  color:var(--focus);text-decoration:none;margin-left:1.4em;
+  border-bottom:1px solid currentColor;
+  font-size:10.5px;letter-spacing:.16em;
 }
-.info b a.place::after{content:"\2197";margin-left:.4em;opacity:.55;font-size:.9em}
-.info b a.place:hover{color:var(--ink);border-color:var(--ink)}
+/* A taproom's name is the way to it, so the name goes to itself on a map, in
+   the same gold as the rest of them and with the mark at full strength. */
+.info b a.place{
+  color:var(--focus);border-bottom:1px solid currentColor;margin-left:0;
+  letter-spacing:inherit;font-size:inherit;
+}
+.info b a.place::after{content:"\2197";margin-left:.35em;font-size:.95em}
 .info a:first-child{margin-left:0}
 .info a:hover{color:var(--ink);border-color:var(--ink)}
+/* and the row of them stands off from the hours above it rather than running
+   on from them */
+.info .social{
+  margin-top:clamp(12px,2vmin,20px);padding-top:clamp(11px,1.8vmin,16px);
+  border-top:1px solid var(--hair-soft);
+}
 /* Small screens do not get less of the brewery. Above 900 the taprooms sit in
    the top right corner, which the wordmark leaves free. Below that there is no
    such corner — the wordmark has the width to itself — so they move into what
