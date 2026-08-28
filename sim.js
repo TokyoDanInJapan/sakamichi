@@ -71,20 +71,10 @@ function barRoom(){
   if (!r || r.top < H * 0.4) return 0;      /* up in a corner: not in the way */
   return Math.max(0, H - r.top + 14);
 }
-/* and the bar in front of the glass where the card stands on an upright phone.
-   Its size is settled here rather than in the stylesheet, because the glass has
-   to give the room up before the card can be put in it, and only one of the two
-   can decide how much that is. The stylesheet is told the answer. */
-function cardRoom(){
+/* whether there is a card on the page at this size at all */
+function cardShown(){
   const el = document.querySelector(".beer");
-  if (!el || getComputedStyle(el).display === "none") return 0;
-  if (W >= COMPACT_BELOW || W > H) return 0;   /* beside the glass, not under it */
-  /* Sized by the height as well as the width. Held to the width alone it was
-     too big a bite out of a short screen, which is why it used to be hidden
-     below 640 pixels of height altogether — and hidden is what it looked like
-     when the window was merely narrowed rather than made phone-shaped. It
-     shrinks now instead, and stays. */
-  return Math.min(W * 0.42, 158, H * 0.22) + 22;
+  return !!el && getComputedStyle(el).display !== "none";
 }
 /* and how far down the wordmark comes, where it stands over the glass */
 function typeRoom(leftEdge){
@@ -112,20 +102,24 @@ function layoutGlass(){
      lower; and it moves off centre so the taprooms have a column at the right,
      the way they do on a desktop. */
   const lying = compact && H < 520 && W > H;
+  /* Upright, with a card to show, the glass stands to one side and the card
+     beside it — the desktop arrangement at a phone's scale. Under it was the
+     other way to fit two things on a narrow screen, and it read as a caption
+     rather than as a pair of things standing on a bar. Standing aside costs
+     the glass width, so it is held narrower here than it would be alone. */
+  const beside = compact && H >= W && cardShown();
   const nominal = lying ? 0.62 : compact ? 0.46 : 0.58;    /* its height */
-  G.cx = W * (lying ? 0.42 : compact ? 0.5 : 1 / 3);
+  G.cx = W * (lying ? 0.42 : beside ? 0.30 : compact ? 0.5 : 1 / 3);
 
-  /* Where it stands, less whatever the taprooms and the card are using below */
-  const under = cardRoom();
-  let bottom = Math.min(H * (lying ? 0.80 : compact ? 0.68 : 0.84),
-                        H - barRoom() - under);
+  /* Where it stands, less whatever the taprooms are using below it */
+  let bottom = Math.min(H * (lying ? 0.80 : compact ? 0.68 : 0.84), H - barRoom());
   bottom = Math.max(bottom, H * 0.40);
   const bottomAt = bottom / H;
   /* the camera that gives a house-sized glass the shape it should have here */
   camLens = nominal / (BASE_OPEN - RIM_OPEN);
   camEye  = BASE_OPEN * camLens - bottomAt;
 
-  const widthCap = W * (compact ? 0.34 : 0.30);
+  const widthCap = W * (beside ? 0.20 : compact ? 0.34 : 0.30);
   const maxH = H * nominal * (cfg.glassSize / 100);
   let gh = clamp(maxH, 140, H * 0.80);
   let topHalf = Math.min(gh * 0.583 / 2, widthCap);
@@ -154,12 +148,13 @@ function layoutGlass(){
   G.top = bottom - gh;
   /* what the stylesheet needs to stand the card on the bar in front of it */
   {
+    /* The band the card stands in, upright: under the wordmark and above the
+       taprooms. Both ends are measured, because both are text and neither is a
+       fraction of anything. */
     const s = document.documentElement.style;
     s.setProperty("--glass-bottom", Math.round(bottom) + "px");
-    s.setProperty("--card-size", Math.round(Math.max(0, under - 22)) + "px");
-    /* and where the taprooms begin, so the card can sit halfway between the
-       two rather than tucked under the glass with the slack all below it */
-    const ri = boxOf(".info");
+    const rm = boxOf(".masthead"), ri = boxOf(".info");
+    s.setProperty("--mast-bottom", Math.round(rm ? rm.bottom : H * 0.22) + "px");
     s.setProperty("--info-top", Math.round(ri && ri.top > H * 0.4 ? ri.top : H) + "px");
   }
   G.wall = Math.max(2.5, topHalf * 0.045);

@@ -420,9 +420,12 @@ body[data-chrome="off"] .beer{opacity:0}
 @media (max-width:900px) and (orientation:portrait){
   .beer{
     display:block;
-    left:50%;
-    width:var(--card-size,140px);
-    top:calc((var(--glass-bottom,60vh) + var(--info-top,100vh)) / 2);
+    /* beside the glass, as on a desktop: the glass a third in from the left,
+       the card a third in from the right, at a quarter less than it took when
+       it was standing on the bar in front */
+    left:72%;
+    top:calc((var(--mast-bottom,22vh) + var(--info-top,100vh)) / 2);
+    width:min(27vw,calc((var(--info-top,100vh) - var(--mast-bottom,22vh) - 28px) * 0.75));
   }
 }
 /* On its side it goes into the corner the wordmark leaves, which is the only
@@ -433,7 +436,7 @@ body[data-chrome="off"] .beer{opacity:0}
     left:clamp(12px,4vw,40px);top:auto;
     bottom:clamp(12px,4vh,28px);
     transform:none;
-    width:min(30vw,40vh);
+    width:min(22.5vw,30vh);
   }
 }
 /* The splashes lie over the card, and over nothing else that matters */
