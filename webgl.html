@@ -130,11 +130,18 @@ body[data-gl="off"] .panel-toggle,
   letter-spacing:.2em;
   text-transform:uppercase;
   color:var(--ink-soft);
-  display:flex;flex-wrap:wrap;gap:.55em 1.1em;
+  /* One line, never two: its size is fitted to the wordmark above it, so it is
+     made to fit rather than left to find its own way. Allowed to wrap it would
+     wrap under the growing, and a wrapped line measures as its first half —
+     which the fit then reads as far too narrow and grows again. */
+  display:flex;flex-wrap:nowrap;gap:1.1em;
   /* under the wordmark now, so the gap it keeps is above it */
   margin:clamp(14px,2.4vw,22px) 0 0;
 }
-.eyebrow span{display:inline-flex;gap:.7em;align-items:center}
+/* and neither half breaks inside itself. Left to shrink, the two halves wrapped
+   their own text as the size grew, so the line measured narrower the bigger it
+   got and the fit chased it upward until it ran out of room. */
+.eyebrow span{display:inline-flex;gap:.7em;align-items:center;flex:0 0 auto;white-space:nowrap}
 .eyebrow span::before{content:"";width:14px;height:1px;background:var(--hair)}
 .eyebrow span:first-child::before{display:none}
 h1{
@@ -444,8 +451,7 @@ body[data-chrome="off"] .beer{opacity:0}
   .beer{
     display:block;
     /* beside the glass, as on a desktop: the glass a third in from the left,
-       the card a third in from the right, at a quarter less than it took when
-       it was standing on the bar in front */
+       the card a third in from the right */
     left:72%;
     top:calc((var(--mast-bottom,22vh) + var(--info-top,100vh)) / 2);
     width:min(27vw,calc((var(--info-top,100vh) - var(--mast-bottom,22vh) - 28px) * 0.75));
@@ -2999,12 +3005,49 @@ function fitWordmark(){
   };
   const own = parseFloat(getComputedStyle(h1).letterSpacing) || 0;
 
+  let target = 0;
   for (let pass = 0; pass < 3; pass++){
-    const target = inkOf(mark, false) - own;
+    target = inkOf(mark, false) - own;
     const spacing = parseFloat(thin.style.letterSpacing) || 0;
     const err = target - (inkOf(thin, true) - spacing);
     if (Math.abs(err) < 0.25) break;
     thin.style.letterSpacing = (spacing + err / (n - 1)).toFixed(3) + "px";
+  }
+
+  /* And the line under it — EST. 2019, the town — is brought to the same width
+     as the two above it, so the three make one block with a straight right
+     edge instead of a stack that happens to be about as wide as itself. It
+     wanders a long way from that on its own: 39 pixels over on a phone, where
+     the wordmark has hit the floor of its clamp and stopped shrinking, and 33
+     under on a wide screen, where the wordmark has hit the ceiling.
+
+     Fitted by size rather than by tracking. Tracking is what does it for
+     BREWING because BREWING is one word being spread to fill a measure; this
+     line is already spread, and squeezing its tracking to fit a phone would
+     take out the very thing that makes it match the wordmark's manner. Width
+     is near enough linear in the size — the letter-spacing is in ems and only
+     the rule between the two halves is not — so one step lands close and the
+     passes after it close the rest. */
+  const eyebrow = document.querySelector(".masthead .eyebrow");
+  const parts = eyebrow ? eyebrow.querySelectorAll("span") : [];
+  if (!parts.length || !target) return;
+  /* The line's own extent, first mark to last — not the paragraph's box. The
+     paragraph is a block and fills the column it is in, so its width is the
+     column's answer and not the line's, and a size fitted against it chases a
+     number that does not move: it ran to the floor of its clamp on a phone and
+     to the ceiling on a desktop, both times leaving the line exactly as wide
+     as it started. The same trap the second line of the wordmark was in. */
+  const lineWidth = () => {
+    const a = parts[0].getBoundingClientRect();
+    const b = parts[parts.length - 1].getBoundingClientRect();
+    if (Math.abs(a.top - b.top) > 1) return 0;      /* wrapped: leave it alone */
+    return b.right - a.left;
+  };
+  for (let pass = 0; pass < 3; pass++){
+    const size = parseFloat(getComputedStyle(eyebrow).fontSize) || 0;
+    const w = lineWidth();
+    if (!(size > 0) || !(w > 0) || Math.abs(target - w) < 0.5) break;
+    eyebrow.style.fontSize = clamp(size * target / w, 6, 26).toFixed(2) + "px";
   }
 }
 

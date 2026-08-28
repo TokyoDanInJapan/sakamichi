@@ -103,10 +103,10 @@ function layoutGlass(){
      the way they do on a desktop. */
   const lying = compact && H < 520 && W > H;
   /* Upright, with a card to show, the glass stands to one side and the card
-     beside it — the desktop arrangement at a phone's scale. Under it was the
-     other way to fit two things on a narrow screen, and it read as a caption
-     rather than as a pair of things standing on a bar. Standing aside costs
-     the glass width, so it is held narrower here than it would be alone. */
+     beside it — the desktop arrangement, at a phone's scale. Under it was the
+     other way to fit the two on a narrow screen, and it read as a caption
+     rather than as a pair of things on a bar. Standing aside costs the glass
+     width, so it is held narrower here than it would be alone. */
   const beside = compact && H >= W && cardShown();
   const nominal = lying ? 0.62 : compact ? 0.46 : 0.58;    /* its height */
   G.cx = W * (lying ? 0.42 : beside ? 0.30 : compact ? 0.5 : 1 / 3);
@@ -148,9 +148,9 @@ function layoutGlass(){
   G.top = bottom - gh;
   /* what the stylesheet needs to stand the card on the bar in front of it */
   {
-    /* The band the card stands in, upright: under the wordmark and above the
-       taprooms. Both ends are measured, because both are text and neither is a
-       fraction of anything. */
+    /* The band the card has to stand in, upright: under the wordmark and above
+       the taprooms. Both ends are measured, because both are text and neither
+       is a fraction of anything. */
     const s = document.documentElement.style;
     s.setProperty("--glass-bottom", Math.round(bottom) + "px");
     const rm = boxOf(".masthead"), ri = boxOf(".info");
