@@ -469,7 +469,18 @@ body[data-chrome="off"] .beer{opacity:0}
   }
 }
 /* The splashes lie over the card, and over nothing else that matters */
-.splash{position:fixed;inset:0;z-index:4;pointer-events:none}
+/* The sheet the near splashes are painted on. It needs its display size given
+   to it: a canvas is a replaced element, so inset:0 pins its corner but does
+   not stretch it — with the width left to itself it is laid out at its own
+   backing size instead. The backing is the viewport times the device's pixel
+   ratio, so on a screen where that ratio is one the two happen to agree and
+   nobody notices. On a phone, where it is two or three, the sheet came out two
+   or three times the size of the window with its top left corner in the
+   corner: a splash thrown from the lip of the glass was drawn near the bottom
+   of the screen, because that is where the sheet had put that point. The
+   canvases inside .stage were never wrong, because they are given 100% there
+   and this one is not one of them. */
+.splash{position:fixed;inset:0;width:100%;height:100%;z-index:4;pointer-events:none}
 </style>
 </head>
 <body>
