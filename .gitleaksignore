@@ -1,0 +1,4 @@
+# gitleaks takes STORE_KEY, the name the shader page saves its settings under
+# in localStorage, for an API key. It is not a secret.
+33e1ccef2e1fbb3b580f47bd99cd5e98966d77fa:src/shader/recipe.js:generic-api-key:68
+32f9085d97dc829bd5803e16c2649d99fcd1d8c9:webgl.html:generic-api-key:441
