@@ -1,0 +1,4 @@
+/* The head's canvas, run through the goo filter that fuses its blobs */
+#foam{filter:url(#goo)}
+body[data-goo="off"] #foam{filter:none}
+.defs{position:absolute;width:0;height:0;overflow:hidden}

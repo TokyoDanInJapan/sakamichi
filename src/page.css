@@ -1,7 +1,8 @@
 /* ------------------------------------------------------------------ *
  * The page around the pour, shared by both renderers: tokens, the
  * masthead and the taprooms, the card, the tuning panel and the phone's
- * menu. What only one of them needs is kept in that page's own <style>.
+ * menu. What only one renderer needs is in its own style.css beside its
+ * recipe.js and render.js. build.mjs puts both into each page's <style>.
  * ------------------------------------------------------------------ */
 /* ------------------------------------------------------------------ *
  * Tokens. Light is the base; dark is redefined twice so that the

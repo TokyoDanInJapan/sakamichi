@@ -1,3 +1,5 @@
 # Reference photo, kept locally rather than in the repo
 glass.jpg
 samples/
+# The built site, made by node build.mjs
+dist/

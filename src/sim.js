@@ -1,9 +1,9 @@
 /* The pour itself — glass geometry, camera, wave equation, particles and
-   controls — shared verbatim by index.html (Canvas 2D) and webgl.html
-   (WebGL2). Each page defines its recipe (SPECS, HOUSE, PRESETS,
-   STORE_KEY, PALETTE_KEYS) before this file, and its renderer after it,
-   handing this file a redraw() to call when a control changes a paused
-   scene. */
+   controls — built into both index.html (Canvas 2D) and webgl.html
+   (WebGL2). Each renderer's recipe.js (SPECS, HOUSE, PRESETS, STORE_KEY,
+   PALETTE_KEYS) comes before this file in the page, and its render.js
+   after it, handing this file a redraw() to call when a control changes a
+   paused scene. */
 "use strict";
 
 /* The house mark (logo-no-name.svg), carried here rather than fetched so

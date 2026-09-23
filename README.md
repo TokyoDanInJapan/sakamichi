@@ -4,34 +4,51 @@ A splash page for a brewery. A pint glass stands in the middle of the page and
 pours itself. When it reaches the fill line it stops. Stir it hard enough to
 throw beer over the rim and the glass tops itself back up, slowly.
 
-Two renderings of the same pour, with no build step, no dependencies and no
-network requests:
+Two renderings of the same pour, with no dependencies and no network
+requests. Each is built into a single HTML file:
 
-| File          | What it is                                              |
+| Built page    | What it is                                              |
 | ------------- | ------------------------------------------------------- |
 | `index.html`  | Canvas 2D renderer — graphic and flat, runs anywhere    |
 | `webgl.html`  | WebGL2 renderer — optical and photographic              |
-| `sim.js`      | The pour itself, loaded by both                         |
-| `page.js`     | The wordmark, the beer card and the phone menu          |
-| `page.css`    | The styles both pages share                             |
+
+## Building
+
+`build.mjs` builds the site into `dist/`. It needs Node 18 or later and
+nothing else.
+
+```sh
+node build.mjs            # build once
+node build.mjs --watch    # build again whenever src/ or the beers change
+python3 -m http.server 8731 --directory dist
+```
+
+Vercel runs the same build (see `vercel.json`) and serves `dist/`. Do not
+edit `dist/`, because every build replaces it.
+
+The sources are in `src/`:
+
+| Source                 | What it is                                        |
+| ---------------------- | ------------------------------------------------- |
+| `page.html`            | The page, for both renderers                      |
+| `page.css`, `page.js`  | The page around the glass: styles, the wordmark, the beer card and the phone menu |
+| `sim.js`               | The pour itself                                   |
+| `bar-wood.js`          | The timber tile for the bar                       |
+| `canvas/`, `shader/`   | Each renderer's `recipe.js`, `render.js` and `style.css` |
+
+The build makes one page per renderer from `page.html`. It keeps the
+`<!-- @if canvas -->` or `<!-- @if shader -->` sections for that renderer,
+fills in the `{{title}}` and `{{description}}` from the list in `build.mjs`,
+and replaces each `<!-- @inline file -->` with that file. Comments that open
+with `<!--#` are left out. The label art in `beers/` and `beers.json` are
+copied in beside the pages.
 
 The simulation is identical in both because it is the same file: `sim.js`
 carries the glass geometry, camera, wave equation, particles and controls,
-and each page wraps its own renderer around it. Each page defines its recipe
-(`SPECS`, `HOUSE`, `PRESETS`, storage key) before loading it, hands it a
-`redraw()` and a few hooks at boot, and links to the other from the bottom of
-its control panel.
-
-`page.js` and `page.css` hold the page around the glass, which is the same in
-both. Each page keeps only its own rules in its `<style>` block and calls
-`startCard()` once its glass is running. The markup is still written out in
-each page, so a change to the copy has to be made in both.
-
-Open either file, or serve the folder:
-
-```sh
-python3 -m http.server 8731
-```
+and each renderer wraps its own drawing around it. Each renderer's
+`recipe.js` defines `SPECS`, `HOUSE`, `PRESETS` and the storage key, which
+`sim.js` reads. Each renderer's `render.js` hands `sim.js` a `redraw()` and a
+few hooks at boot, and calls `startCard()` once its glass is running.
 
 ## The pour
 
@@ -168,7 +185,7 @@ every slider key — `fill`, `refill`, `agitation`, `waveSpeed`, `viscosity`,
 ## Rebranding
 
 **Copy.** The name, tagline and buttons are plain markup in the `.masthead`
-and `.lower` blocks of both pages. The eyebrow, tagline, buttons and the taprooms block (top
+and `.lower` blocks of `src/page.html`. The eyebrow, tagline, buttons and the taprooms block (top
 right, hidden under 900px) carry the real details from sakamichibrewing.com —
 founded 2019 in Tachikawa, two taprooms by the station (south and north exits)
 with their opening hours, and the social links.
@@ -178,7 +195,7 @@ with their opening hours, and the social links.
 of SAKAMICHI, in the brand yellow (`--brand`) on dark and ink on light. The
 primary button and the favicon tile use the same yellow.
 
-**The mark on the wall** is `logo-no-name.svg`, carried in `sim.js` as the
+**The mark on the wall** is `logo-no-name.svg`, carried in `src/sim.js` as the
 `LOGO_SVG` string so neither page has to fetch it. To rebrand it, swap that
 string and its `LOGO_ASPECT`. `logoRect()` stands it one `pageMargin()` clear
 of the plane's edge, the same `clamp(20px, 3.6vmin, 48px)` gutter the CSS
@@ -188,8 +205,8 @@ instead of being cut off square at the bitmap's edge — this mark's bars run
 edge to edge, so keep that padding if you swap in your own.
 
 **Glass.** Proportions live in `layoutGlass()` — width is 0.583 of height and
-the base is 0.68 of the rim. Change `HOUSE` in the script to set the default
-recipe, and `PRESETS` for the style chips.
+the base is 0.68 of the rim. Change `HOUSE` in each renderer's `recipe.js`
+to set the default recipe, and `PRESETS` for the style chips.
 
 **Camera.** One camera serves the whole scene. Rather than fixing it outright,
 the glass is given the shape it ought to have — `RIM_OPEN` and `BASE_OPEN`,
