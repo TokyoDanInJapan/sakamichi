@@ -824,13 +824,42 @@ const ctxS = cvS.getContext("2d");
    know about. */
 const FOAM_SCALE = 0.7;
 
+/* Nor does the head's canvas cover the page. The goo filter is a blur over
+   every pixel of the element it is set on, and the head only ever shows
+   between the two walls — the element's clip below sees to that — so the
+   canvas is cut down to that strip, from the top of the page to the floor of
+   the glass, and a margin either side for the blur to draw on. Past the
+   margin the blur has nothing of the head's left to carry; the threshold after
+   it cannot tell the difference. Held in shares of the stage, like the clip,
+   and started on a whole pixel of the canvas so the wet band's snapping lands
+   on the same grid it did when the canvas started at the corner of the page. */
+const FOAM_MARGIN = 30;
+const foamBox = {x: 0, y: 0, w: 1, h: 1};
+function sizeFoam(){
+  const s = dpr * FOAM_SCALE;
+  const reach = innerHalfAt(G.inTop) + FOAM_MARGIN;
+  const x0 = Math.max(0, Math.floor((G.cx - reach) * s) / s);
+  const x1 = Math.min(W, Math.ceil((G.cx + reach) * s) / s);
+  const y1 = Math.min(H, Math.ceil((G.inBottom + innerHalfAt(G.inBottom) * ryAt(G.inBottom) + FOAM_MARGIN) * s) / s);
+  foamBox.x = x0; foamBox.y = 0;
+  foamBox.w = Math.max(1 / s, x1 - x0); foamBox.h = Math.max(1 / s, y1);
+  cvF.width = Math.round(foamBox.w * s);
+  cvF.height = Math.round(foamBox.h * s);
+  ctxF.setTransform(s, 0, 0, s, -foamBox.x * s, -foamBox.y * s);
+  const pc = v => (v * 100).toFixed(4) + "%";
+  cvF.style.left = pc(foamBox.x / W);
+  cvF.style.top = pc(foamBox.y / H);
+  cvF.style.width = pc(foamBox.w / W);
+  cvF.style.height = pc(foamBox.h / H);
+}
+
 function resize(){
   const r = stage.getBoundingClientRect();
   W = Math.max(1, r.width);
   H = Math.max(1, r.height);
   dpr = Math.min(window.devicePixelRatio || 1, 2) * quality;
 
-  for (const [cv, ctx, scale] of [[cvL,ctxL,1],[cvF,ctxF,FOAM_SCALE],[cvD,ctxD,1],[cvS,ctxS,1]]){
+  for (const [cv, ctx, scale] of [[cvL,ctxL,1],[cvD,ctxD,1],[cvS,ctxS,1]]){
     const s = dpr * scale;
     cv.width  = Math.round(W * s);
     cv.height = Math.round(H * s);
@@ -844,6 +873,7 @@ function resize(){
              || Math.abs(G.bottom - wasBot) > 0.01;
   /* the weep's reach is a length down the glass, so it comes along */
   if (moved) carryWeep((G.bottom - G.top) / Math.max(1, wasBot - wasTop));
+  sizeFoam();
   buildPaths();
 
   const span = innerHalfAt(G.inTop) * 2;
@@ -1101,7 +1131,7 @@ function clipFoamToGlass(){
      wherever those pixels now fall. Its bottom is a chord across the floor of
      the glass, so what that showed was a flat line ruled across the head with
      everything below it cut away. Shares of the box stretch with the box. */
-  const px = (x, y) => `${(x / Math.max(1, W) * 100).toFixed(3)}% ${(y / Math.max(1, H) * 100).toFixed(3)}%`;
+  const px = (x, y) => `${((x - foamBox.x) / foamBox.w * 100).toFixed(3)}% ${((y - foamBox.y) / foamBox.h * 100).toFixed(3)}%`;
   const pts = [px(G.cx - ihTop, 0)];
   for (let i = 0; i <= steps; i++){
     const y = lerp(G.inTop, G.inBottom, i / steps);
@@ -1556,8 +1586,8 @@ function drawBarTop(ctx){
       const t = y - G.bottom;
       const amp = Math.min(15 * G.scale, t * 0.10);
       const dx = (Math.sin(t * 0.055) * 0.7 + Math.sin(t * 0.021 + 1.9) * 0.55) * amp;
-      ctx.drawImage(REFL.mirror, 0, Math.round(y * dpr), REFL.mirror.width,
-                    Math.ceil(band * dpr), dx, y, W, band);
+      ctx.drawImage(REFL.mirror, 0, Math.round(y * dpr) - mirrorBox.y, REFL.mirror.width,
+                    Math.ceil(band * dpr), mirrorBox.x / dpr + dx, y, REFL.mirror.width / dpr, band);
     }
     ctx.globalAlpha = 1;
     ctx.restore();
@@ -1903,7 +1933,7 @@ function drawLiquid(){
 }
 
 function drawFoam(){
-  ctxF.clearRect(0, 0, W, H);
+  ctxF.clearRect(foamBox.x, foamBox.y, foamBox.w, foamBox.h);
   if (level <= 0.001) return;
   const band = headBand();
   if (band < 0.5 && !foam.length) return;
@@ -1993,10 +2023,23 @@ function drawFoam(){
    four fade together at the same height, as light in a room does. */
 const REFL = {cv:null, x:0, y:0, w:0, h:0, ver:-1};
 
-/* The sheet the bar's mirror is painted on before it is laid down in strips */
+/* The sheet the bar's mirror is painted on before it is laid down in strips.
+   Only as big as the reflection can be: the glass and what is in it, mirrored
+   about the foot — as wide as the glass and from the top of the base's front
+   arc, which mirrors to just above the foot, down to the bottom of the page —
+   with room past that for the blur to spread into. It is blurred with every
+   shape put on it, and a blur costs by the size of the sheet it runs on, so
+   a sheet the size of the page was most of the cost of drawing a frame.
+   Started on a whole device pixel so the strips read it on the same grid. */
 REFL.mirror = null;
+const MIRROR_PAD = 30;
+const mirrorBox = {x: 0, y: 0};
 function barMirror(){
-  const w = Math.round(W * dpr), h = Math.round(H * dpr);
+  const reach = G.topHalf + G.wall + MIRROR_PAD;
+  const bx = Math.max(0, Math.floor((G.cx - reach) * dpr));
+  const by = Math.max(0, Math.floor((G.bottom - baseBulge() - MIRROR_PAD) * dpr));
+  const w = Math.max(1, Math.min(Math.round(W * dpr), Math.ceil((G.cx + reach) * dpr)) - bx);
+  const h = Math.max(1, Math.round(H * dpr) - by);
   if (!REFL.mirror){
     REFL.mirror = document.createElement("canvas");
     REFL.mirrorCtx = REFL.mirror.getContext("2d");
@@ -2004,11 +2047,12 @@ function barMirror(){
   if (REFL.mirror.width !== w || REFL.mirror.height !== h){
     REFL.mirror.width = w; REFL.mirror.height = h;
   }
+  mirrorBox.x = bx; mirrorBox.y = by;
   const c = REFL.mirrorCtx;
-  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.setTransform(dpr, 0, 0, dpr, -bx, -by);
   c.filter = "none";
   c.globalAlpha = 1;
-  c.clearRect(0, 0, W, H);
+  c.clearRect(bx / dpr, by / dpr, w / dpr, h / dpr);
   return c;
 }
 function buildReflections(){
