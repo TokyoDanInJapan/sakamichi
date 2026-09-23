@@ -1,0 +1,16 @@
+# The site has no npm dependencies (build.mjs uses Node's standard library
+# only), so the actions in CI are the only thing to keep current.
+
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ['*']
+    commit-message:
+      prefix: 'Bump'
+    open-pull-requests-limit: 3
