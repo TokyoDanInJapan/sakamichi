@@ -332,6 +332,99 @@ body[data-menu="open"] .menu-toggle{display:none}
 }
 .menu-social a{color:var(--ink-soft);text-decoration:none;border-bottom:1px solid var(--hair)}
 
+/* ------------------------------------------------------------------ *
+ * Cards in place of the glass: company information and contact
+ * ------------------------------------------------------------------ */
+/* While one is open the glass goes (the renderers leave it out of the room,
+   so the counter and the mark stay), and so do the spray, the beer card and
+   the buttons that work them. The card stands where they were. */
+.splash,.corner{transition:opacity .35s ease,visibility .35s}
+body[data-sheet] .splash,
+body[data-sheet] .beer,
+body[data-sheet] .corner{opacity:0;visibility:hidden}
+@media (prefers-reduced-motion:reduce){ .splash,.corner{transition:none} }
+
+/* Centred in the band the wordmark and the taprooms leave, as the beer card
+   is, rather than on the page: centred on the page, a wide card stood across
+   the wordmark. Neither end takes more than 30% of the height, so a short
+   screen still leaves the card room, and what does not fit scrolls. */
+.sheet{
+  --sheet-top:min(calc(var(--mast-bottom,0px) + 16px),30vh);
+  --sheet-bot:min(calc(100vh - var(--info-top,100vh) + 16px),30vh);
+  top:var(--sheet-top);bottom:var(--sheet-bot);margin:auto;
+  width:min(440px,calc(100vw - 32px));
+  max-height:calc(100vh - var(--sheet-top) - var(--sheet-bot));
+  padding:0;border:1px solid var(--panel-line);border-radius:6px;
+  background:var(--panel);color:var(--ink);box-shadow:var(--shadow);
+  -webkit-backdrop-filter:blur(18px) saturate(1.2);backdrop-filter:blur(18px) saturate(1.2);
+  font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  overflow:auto;overscroll-behavior:contain;
+}
+/* The page stays in view round the card, and the card lights the room the
+   way the pour does: a warm glow behind it on the wall and the counter,
+   centred where the card stands in the band. */
+.sheet::backdrop{
+  --glow-y:calc((min(calc(var(--mast-bottom,0px) + 16px),30vh)
+                + 100vh - min(calc(100vh - var(--info-top,100vh) + 16px),30vh)) / 2);
+  --glow-a:.26;
+  background:radial-gradient(min(75vw,980px) min(65vh,680px) at 50% var(--glow-y),
+             rgba(255,196,64,var(--glow-a)), rgba(255,170,36,calc(var(--glow-a) * .4)) 45%,
+             transparent 74%);
+}
+/* On a dark room it is light added to the room, as the pour's glow is */
+:root[data-theme="dark"] .sheet::backdrop{--glow-a:.42;mix-blend-mode:screen}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) .sheet::backdrop{--glow-a:.42;mix-blend-mode:screen}
+}
+.sheet-card{padding:6px clamp(16px,4vw,26px) 18px}
+.sheet-head{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:12px 0 10px;border-bottom:1px solid var(--hair-soft);
+}
+.sheet h2{
+  margin:0;font-size:10.5px;font-weight:600;letter-spacing:.2em;
+  text-transform:uppercase;color:var(--ink-soft);
+}
+.sheet [lang="ja"]{letter-spacing:.06em;text-transform:none}
+.sheet h2 [lang="ja"]{margin-left:.6em;font-weight:400;color:var(--ink-faint)}
+.sheet dl{margin:0}
+.sheet dl > div{padding:12px 0;border-bottom:1px solid var(--hair-soft)}
+.sheet dl > div:last-child{border-bottom:0}
+.sheet dt{
+  font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-faint);
+}
+.sheet dt [lang="ja"]{margin-left:.6em}
+.sheet dd{margin:5px 0 0;font-size:12px;line-height:1.55;letter-spacing:.04em}
+.sheet dd [lang="ja"]{display:block;margin-top:2px;font-size:11px;color:var(--ink-soft)}
+/* A card with two things to say side by side is given the width for them:
+   the facts on the left and the brewery's own words on the right, one above
+   the other where there is no room for both. */
+.sheet.wide{width:min(960px,calc(100vw - 32px))}
+/* Stacked on a phone, the brewery's own words come first and the facts after
+   them; side by side, the facts are on the left */
+.sheet-cols{display:flex;flex-direction:column}
+.sheet-about{order:-1;padding:14px 0 4px;border-bottom:1px solid var(--hair-soft)}
+.sheet-about h3{
+  margin:0 0 10px;font-size:9.5px;font-weight:400;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--ink-faint);
+}
+.sheet-about p{margin:0 0 12px;font-size:12px;line-height:1.7;letter-spacing:.02em}
+.sheet-about p[lang="ja"]{font-size:11.5px;line-height:1.9;color:var(--ink-soft)}
+@media (min-width:760px){
+  .sheet-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:0 28px}
+  .sheet-about{order:0;padding:14px 0 4px 28px;border-bottom:0;border-left:1px solid var(--hair-soft)}
+}
+.sheet-lead{margin:14px 0 2px;font-size:12px;line-height:1.6;letter-spacing:.04em}
+/* the way out to the form: the one thing on the card that does something */
+.sheet-action{margin:16px 0 0;padding-top:16px;border-top:1px solid var(--hair-soft)}
+.sheet-action a{
+  display:inline-block;padding:12px 18px;border-radius:2px;
+  background:var(--brand);color:#0e1319;text-decoration:none;
+  font-size:10.5px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;
+}
+.sheet-action a::after{content:"\2197";margin-left:.5em}
+.sheet-action a:hover{filter:brightness(1.06)}
+
 /* And no tuning at all on a phone. The panel is a workbench — thirty sliders
    wanting a pointer, a wide screen and time to play — not part of the poster,
    and on a small screen it is the poster that the page is for. With the tune

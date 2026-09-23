@@ -22,10 +22,15 @@ let redraw = () => {}, paletteHook = () => {}, chipsHook = () => {}, resizeHook 
 
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
 if (reduceMotion.matches) cfg.running = false;
+/* Holding the card is for this visit only. It was saved with the rest, so a
+   hold pressed once froze the card on every visit after — and on a phone,
+   which has no Hold button to press again, for good. Nor is one read back
+   from a visit that saved it. */
+cfg.hold = false;
 
 const save = () => {
   clearTimeout(saveTimer); saveTimer = 0;
-  try{ localStorage.setItem(STORE_KEY, JSON.stringify(cfg)); }catch(e){}
+  try{ localStorage.setItem(STORE_KEY, JSON.stringify(cfg, (k, v) => k === "hold" ? undefined : v)); }catch(e){}
 };
 /* A slider being dragged changes many times a second and only its last place
    matters, so that is written a moment after it stops — and on the way out,
@@ -212,6 +217,9 @@ const innerHalfAt = y => Math.max(1, halfAt(y) - G.wall);
  * Contents: level is the fraction of the interior that holds beer
  * ------------------------------------------------------------------ */
 let level = 0;              /* 0 empty, 1 brim full */
+/* Set while a card stands in place of the glass: the renderers draw the room
+   and the counter as they are, and leave out the glass and everything in it */
+let glassAway = false;
 let poured = false;         /* true once it has first reached the fill line */
 let N = 0, hArr, uArr, fArr, maxAmp = 60;   /* surface, face velocities, face fluxes */
 /* And the head's own surface, which is the beer's followed rather than copied.
@@ -1766,6 +1774,15 @@ function updateFoam(dt){
   const hw = innerHalfAt(restSurfaceY());
   const target = Math.round(clamp(hw / 3.2, 14, capFoam) * (0.25 + depth * 0.95));
 
+  /* A head asked to be smaller lets go of the blobs it no longer needs, the
+     oldest first, over a second or so. Left to wear out on their own they
+     outlived the next beer and the one after it, so a sour poured after a
+     stout wore the stout's head. */
+  for (let i = 0, excess = foam.length - target; i < foam.length && excess > 0; i++, excess--){
+    const f = foam[i];
+    if (!f.leaving){ f.leaving = true; f.life = Math.min(f.life, rand(0.3, 1.2)); }
+  }
+
   let spawn = Math.min(8, target - foam.length);
   while (spawn-- > 0){
     /* placed by its share of the width the glass has where the head is riding,
@@ -2430,7 +2447,19 @@ let tune = null;
    the renderers. A page opened straight off the disk cannot read a file beside
    it — the browser calls that another origin — so the glass keeps whatever it
    is set to and says so once, rather than failing quietly. */
+/* The build carries the file in the page as well, so a page opened from the
+   disk pours each beer as its own too — read from there when it is there, and
+   fetched only when it is not. Opened from the disk without it, every beer
+   came out of the glass the same colour and the same beer. */
 function loadTuning(){
+  const carried = document.getElementById("beerTuning");
+  if (carried){
+    try {
+      BEER_TUNING = JSON.parse(carried.textContent);
+      if (pourWanted) pour(pourWanted, POUR_MS);
+      return;
+    } catch (e){ /* fall through to fetching it */ }
+  }
   fetch("beers.json")
     .then(r => r.ok ? r.json() : Promise.reject(r.status))
     .then(j => {

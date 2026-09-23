@@ -622,6 +622,27 @@ function drawBarTop(ctx){
   const wood = cfg.counter === "wood" ? barWood() : null;
   if (wood){
     ctx.drawImage(wood.cv, 0, wood.top, W, H - wood.top);
+    /* The shader's timber carries the wall reflected in it near the horizon,
+       sinking away over a quarter of the glass's height, and a milky veil
+       from the frost. Without them the canvas's timber was a good deal darker
+       than the shader's in the light and paler at the back in the dark. The
+       same measures as the shader's: the wall at 45% dark and 30% light, and
+       a veil of 3 or 9 levels, come in over the first sixty pixels. */
+    const k = pal.dark ? 0.45 : 0.30, run = G.h * 0.26;
+    const wall = ctx.createLinearGradient(0, hY, 0, H);
+    for (let i = 0; i <= 8; i++){
+      wall.addColorStop(i / 8, hexA(pal.ground, k * Math.exp(-(H - hY) * i / 8 / run)));
+    }
+    ctx.fillStyle = wall;
+    ctx.fillRect(0, hY, W, H - hY);
+    const v = pal.dark ? "3,3,4" : "9,9,10";
+    const veil = ctx.createLinearGradient(0, hY, 0, hY + 60);
+    veil.addColorStop(0, `rgba(${v},0)`);
+    veil.addColorStop(1, `rgba(${v},1)`);
+    ctx.globalCompositeOperation = "lighter";
+    ctx.fillStyle = veil;
+    ctx.fillRect(0, hY, W, H - hY);
+    ctx.globalCompositeOperation = "source-over";
   } else {
     const fadeR = ctx.createLinearGradient(0, hY, 0, hY + Math.max(140, G.h * 0.4));
     fadeR.addColorStop(0, hexA(pal.ground, 0.35));
@@ -630,7 +651,7 @@ function drawBarTop(ctx){
     ctx.fillRect(0, hY, W, H - hY);
   }
 
-  if (level > 0.001){
+  if (level > 0.001 && !glassAway){
     const syR = restSurfaceY();
     const bodyR = ctx.createLinearGradient(0, syR - maxAmp, 0, G.inBottom);
     bodyR.addColorStop(0,    pal.beerTop);
@@ -709,6 +730,34 @@ function drawBarTop(ctx){
     rc.fill();
     rc.restore();
 
+    /* And the whole reflection sinks into the bar as it runs away from the
+       foot, which is what reads as distance across the surface. It has to sink
+       slowly and go a long way. A thing held high in the glass has its image
+       far out across the bar — that is what a mirror does — and the head is
+       the highest thing there is in a pint. Sunk over a couple of hundred
+       pixels and then done with, the fade swallowed it: stir the beer and the
+       head tilts, the high side's image runs out past the end of the fade, and
+       that side of the head went missing from the reflection altogether while
+       the low side stayed. What was left read as a reflection with holes in
+       it. So the run is better than half as long again, and weighted so the
+       near half still sinks as fast as it used to — the far half is where the
+       head lives, and it is thin out there rather than gone. */
+    /* It is faded out of its own sheet rather than painted over with the
+       room's colour. Painted over, the polished bar hid it, being that colour
+       already, but the timber did not: the fade washed the wood out to the
+       room's colour towards the front, paler in the light and darker in the
+       dark, where the shader's counter keeps its grain the whole way down. */
+    rc.save();
+    rc.globalCompositeOperation = "destination-out";
+    const rFade = rc.createLinearGradient(0, G.bottom, 0, G.bottom + Math.max(300, G.h * 1.05));
+    rFade.addColorStop(0, "rgba(0,0,0,0)");
+    rFade.addColorStop(0.26, "rgba(0,0,0,.52)");
+    rFade.addColorStop(0.58, "rgba(0,0,0,.82)");
+    rFade.addColorStop(1, "rgba(0,0,0,1)");
+    rc.fillStyle = rFade;
+    rc.fillRect(0, G.bottom, W, H - G.bottom);
+    rc.restore();
+
     /* Laid down the bar in strips, each carried sideways a little further than
        the last. The frost scatters what it returns, and the further across the
        surface the eye travels the more of it there is between: near the foot
@@ -738,38 +787,25 @@ function drawBarTop(ctx){
     ctx.globalAlpha = 1;
     ctx.restore();
 
-    /* ...and the whole reflection sinks into the bar as it runs away from the
-       foot, which is what reads as distance across the surface. It has to sink
-       slowly and go a long way. A thing held high in the glass has its image
-       far out across the bar — that is what a mirror does — and the head is
-       the highest thing there is in a pint. Sunk over a couple of hundred
-       pixels and then done with, the fade swallowed it: stir the beer and the
-       head tilts, the high side's image runs out past the end of the fade, and
-       that side of the head went missing from the reflection altogether while
-       the low side stayed. What was left read as a reflection with holes in
-       it. So the run is better than half as long again, and weighted so the
-       near half still sinks as fast as it used to — the far half is where the
-       head lives, and it is thin out there rather than gone. */
-    const rFade = ctx.createLinearGradient(0, G.bottom, 0, G.bottom + Math.max(300, G.h * 1.05));
-    rFade.addColorStop(0, hexA(pal.ground, 0));
-    rFade.addColorStop(0.26, hexA(pal.ground, 0.52));
-    rFade.addColorStop(0.58, hexA(pal.ground, 0.82));
-    rFade.addColorStop(1, hexA(pal.ground, 1));
-    ctx.fillStyle = rFade;
-    ctx.fillRect(0, G.bottom, W, H - G.bottom);
   }
 
   /* A plane, not a band: bright at the grazing horizon, falling toward the
      viewer, with frost streaks that spread apart as they approach */
+  /* Each ramp changes colour where it is clear, with a stop of either colour
+     there. A canvas gradient mixes the colours as well as the opacity, so run
+     straight from clear white to black it passes through a clear grey, and the
+     falling half of the bar came out paler instead of darker — a grey band
+     across the counter from the glass's foot down that the shader never had. */
   const tone = ctx.createLinearGradient(0, hY, 0, H);
   if (pal.dark){
-    tone.addColorStop(0, "rgba(255,255,255,.05)");
+    tone.addColorStop(0, "rgba(255,255,255,.01)");
     tone.addColorStop(0.35, "rgba(255,255,255,0)");
-    tone.addColorStop(1, "rgba(0,0,0,.34)");
+    tone.addColorStop(0.35, "rgba(0,0,0,0)");
+    tone.addColorStop(1, "rgba(0,0,0,.06)");
   } else {
-    tone.addColorStop(0, "rgba(255,255,255,.35)");
-    tone.addColorStop(0.4, "rgba(255,255,255,0)");
-    tone.addColorStop(1, "rgba(14,19,25,.08)");
+    tone.addColorStop(0, "rgba(255,255,255,.06)");
+    tone.addColorStop(0.4, "rgba(14,19,25,.02)");
+    tone.addColorStop(1, "rgba(14,19,25,.03)");
   }
   ctx.fillStyle = tone;
   ctx.fillRect(0, hY, W, H - hY);
@@ -797,6 +833,7 @@ function drawLiquid(){
   }
 
   drawBarTop(ctxL);
+  if (glassAway) return;          /* the room and the counter, and nothing on it */
   contactShadow(ctxL);
 
   if (level <= 0.001) return;
@@ -1082,7 +1119,7 @@ function drawLiquid(){
 
 function drawFoam(){
   ctxF.clearRect(foamBox.x, foamBox.y, foamBox.w, foamBox.h);
-  if (level <= 0.001) return;
+  if (level <= 0.001 || glassAway) return;
   const band = headBand();
   if (band < 0.5 && !foam.length) return;
 
@@ -1735,6 +1772,7 @@ function paintRibbons(ctx, wantFar){
 
 function drawDetail(){
   ctxD.clearRect(0, 0, W, H);
+  if (glassAway) return;
 
   /* Head texture, kept inside the glass */
   if (level > 0.001 && foam.length){

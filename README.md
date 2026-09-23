@@ -46,6 +46,9 @@ edit `dist/`, because each build replaces it.
 - It replaces each `<!-- @inline file -->` with that file, so each page is a
   single file.
 - It leaves out comments that start with `<!--#`.
+- It embeds `beers.json` in each page, so a page opened straight from disk
+  still pours each beer with its own settings. The file is also copied
+  beside the pages.
 
 Both renderers run the same simulation from `sim.js`. Each renderer's
 `recipe.js` defines its sliders (`SPECS`), default recipe (`HOUSE`), style
@@ -55,14 +58,38 @@ calls `startCard()` when the glass is ready.
 ## The beer card
 
 The card turns to a new beer every 5 seconds. Click it to spin it. **Hold**
-stops it turning on its own, and so does an open tuning panel.
+stops it turning on its own until the page is reloaded (it is not saved), and
+so does an open tuning panel or card.
 
 When a beer comes round, the glass moves to that beer's settings in
-`beers.json`. A beer with no entry there uses `default`. To add a beer:
+`beers.json`: its colour, carbonation, head and how it moves. The head's foam
+follows the new depth. A beer with no entry there uses `default`. To add a beer:
 
 1. Put its label in `beers/` as a 900 × 900 JPEG.
 2. Add its file name, without `.jpg`, to `BEERS` in `src/page.js`.
 3. Optionally, add an entry to `beers.json`. The keys are the slider keys.
+
+## Company and contact cards
+
+**Company** and **Contact** in the corner links, and the matching entries in
+the phone menu, open a card in place of the glass. While a card is open the
+renderers draw the room and the counter without the glass (the `glassAway`
+flag in `src/sim.js`), the beer card is hidden, and the card casts a warm glow
+on the room as the pour does. `#company` or `#contact` in the URL opens
+that card on load.
+
+- **Company information** gives the details from the brewery's
+  [会社概要 page](https://www.sakamichibrewing.com/%e4%bc%9a%e7%a4%be%e6%a6%82%e8%a6%81-company-information/),
+  which gives them only in Japanese. Each one is in English with the Japanese
+  beneath it.
+- **Contact** lists what the brewery's
+  [contact form](https://www.sakamichibrewing.com/contact-form/) asks for and
+  opens it in a new tab. Messages have to be sent from the brewery's site,
+  because its form takes a fresh anti-spam token on each visit.
+
+Both cards are `<dialog class="sheet">` elements in `src/page.html`. Update
+them if the brewery's pages change. To add a card, add another dialog with an
+id and give its links `data-opens` set to that id.
 
 ## Controls
 
@@ -94,8 +121,8 @@ panel and, in the canvas version, `goo=0`.
 
 ## Rebranding
 
-- **Copy.** The name, tagline, taproom hours and links are plain markup in
-  `src/page.html`.
+- **Copy.** The name, tagline, taproom hours, links and company details are
+  plain markup in `src/page.html`.
 - **Wordmark.** It uses a geometric sans stack (Futura or Century Gothic, no
   web font) in the brand yellow `--brand`. The script stretches BREWING to
   the width of SAKAMICHI.

@@ -292,6 +292,7 @@ void main(){
    painted on it. Read by the room pass and by the bake that keeps it. */
 const GLSL_WALL = `
 uniform float uDark;
+uniform float uGlassOn;       // 0 while a card stands in place of the glass
 uniform vec3  uGround;
 vec3 wallStill(vec2 px){
   vec3 col = uGround;
@@ -307,7 +308,7 @@ vec3 wallStill(vec2 px){
   float bendX = 1.0 - smoothstep(0.80, 1.0, abs(nxg));
   float bendY = smoothstep(GTOP - 1.0, GTOP + GTH * GRYK * 2.2, px.y)
               * (1.0 - smoothstep(GBOT - GBASE * 1.5, GBOT, px.y));
-  lp.x = GCX + nxg * ihHere * (1.0 - 0.16 * nxg * nxg * bendX * bendY);
+  lp.x = GCX + nxg * ihHere * (1.0 - 0.16 * nxg * nxg * bendX * bendY * uGlassOn);
   vec3 inkT = uDark > 0.5 ? vec3(0.72, 0.75, 0.78) : vec3(0.15, 0.18, 0.22);
   return mix(col, inkT, logoA(lp) * uLogoOn);
 }
@@ -468,8 +469,8 @@ void main(){
        last so the seam where glass meets floor survives the pooled light. */
     vec2 q = vec2((px.x - GCX) / bw, (px.y - baseCY) / max(ryB, 1.0));
     float rq = length(q);
-    col *= 1.0 - smoothstep(3.2, 1.0, rq) * (uDark > 0.5 ? 0.55 : 0.30);
-    col *= 1.0 - smoothstep(1.34, 1.0, rq) * (uDark > 0.5 ? 0.62 : 0.42);
+    col *= 1.0 - smoothstep(3.2, 1.0, rq) * (uDark > 0.5 ? 0.55 : 0.30) * uGlassOn;
+    col *= 1.0 - smoothstep(1.34, 1.0, rq) * (uDark > 0.5 ? 0.62 : 0.42) * uGlassOn;
   }
 
   /* The pour and everything it wears stand in front of all of it */
@@ -1626,7 +1627,7 @@ function makeRoom(w, h){
 function bakeRoom(lr){
   const key = [canvas.width, canvas.height, W, H, G.cx, G.top, G.bottom, G.topHalf, G.botHalf,
                G.wall, G.baseH, G.inTop, G.inBottom, G.ryTop, camEye, camLens,
-               pal.ground.join(","), pal.dark, logoReady, lr.join(",")].join("|");
+               pal.ground.join(","), pal.dark, logoReady, lr.join(","), glassAway].join("|");
   if (key === roomKey) return;
   roomKey = key;
   gl.bindFramebuffer(gl.FRAMEBUFFER, roomFBO);
@@ -1644,6 +1645,7 @@ function bakeRoom(lr){
   gl.uniform1f(progRoom.u.uLogoOn, logoReady ? 0.075 : 0);
   gl.uniform3fv(progRoom.u.uGround, pal.ground);
   gl.uniform1f(progRoom.u.uDark, pal.dark ? 1 : 0);
+  gl.uniform1f(progRoom.u.uGlassOn, glassAway ? 0 : 1);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
 
@@ -1994,7 +1996,7 @@ const floorLow = () => G.inBottom + ryAt(G.bottom) * innerHalfAt(G.inBottom);
 function render(){
   if (!hArr || !gl || contextLost) return;
   uploadHeight();
-  drawField();
+  const lr = logoRect();
 
   /* Pass A: the dressed pour, alone, into the scene texture */
   gl.bindFramebuffer(gl.FRAMEBUFFER, sceneFBO);
@@ -2003,111 +2005,118 @@ function render(){
   gl.clear(gl.COLOR_BUFFER_BIT);
   gl.disable(gl.BLEND);
 
-  /* What runs down the back of the glass goes on before the beer does, so the
-     pour stands in front of it and shows as much of it as it is clear enough
-     to show */
-  drawWeep(0);
+  /* Left empty while a card stands in place of the glass: the room below is
+     drawn as it is, with nothing on the counter and nothing to reflect */
+  if (!glassAway){
+    drawField();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, sceneFBO);
+    gl.viewport(0, 0, sceneW, sceneH);
 
-  gl.useProgram(progBeer.p);
-  gl.bindVertexArray(vaoEmpty);
-  gl.activeTexture(gl.TEXTURE0);
-  gl.bindTexture(gl.TEXTURE_2D, heightTex);
-  gl.activeTexture(gl.TEXTURE1);
-  gl.bindTexture(gl.TEXTURE_2D, fieldTex);
-  gl.activeTexture(gl.TEXTURE2);
-  gl.bindTexture(gl.TEXTURE_2D, logoTex);
-  setShared(progBeer, dpr);
-  gl.uniform1i(progBeer.u.uField, 1);
-  gl.uniform1i(progBeer.u.uLogo, 2);
-  const lr = logoRect();
-  gl.uniform4f(progBeer.u.uLogoRect, lr[0], lr[1], lr[2], lr[3]);
-  gl.uniform1f(progBeer.u.uLogoOn, logoReady ? 0.075 : 0);
-  gl.uniform1f(progBeer.u.uTime, clock);
-  gl.uniform1f(progBeer.u.uLevel, level);
-  gl.uniform1f(progBeer.u.uBeerA, beerAlpha());
-  gl.uniform1f(progBeer.u.uBeerSolid, beerSolid());
-  gl.uniform3fv(progBeer.u.uLightTint, pal.lightTint);
-  gl.uniform3fv(progBeer.u.uAbsorb, pal.absorb);
-  gl.uniform1f(progBeer.u.uCaustics, cfg.caustics / 100 * 0.55);
-  gl.uniform1f(progBeer.u.uHaze, 1 - cfg.clarity / 100);
-  /* Composited rather than written, because it is no longer the first thing
-     into the sheet: what runs down the back of the glass is already there, and
-     the pour goes over it. Its own output is premultiplied, so the blend must
-     not multiply by alpha again — and over an empty sheet this is the same
-     write it always was. */
-  gl.enable(gl.BLEND);
-  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-  /* the shader leaves nothing outside the walls, above the top of the glass or
-     below its floor */
-  scissorPx(G.cx - G.topHalf - 2, G.top - 2, G.cx + G.topHalf + 2, floorLow() + 4);
-  gl.drawArrays(gl.TRIANGLES, 0, 3);
-  gl.disable(gl.SCISSOR_TEST);
+    /* What runs down the back of the glass goes on before the beer does, so the
+       pour stands in front of it and shows as much of it as it is clear enough
+       to show */
+    drawWeep(0);
 
-  /* Bubbles and anything in the air */
-  drawSprites();
-
-  /* Head */
-  if (level > 0.002){
-    const a = cfg.lightAngle * Math.PI / 180;
-    gl.useProgram(progFoam.p);
+    gl.useProgram(progBeer.p);
     gl.bindVertexArray(vaoEmpty);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, heightTex);
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, fieldTex);
-    setShared(progFoam, dpr);
-    gl.uniform1i(progFoam.u.uField, 1);
-    gl.uniform1f(progFoam.u.uTime, clock);
-    gl.uniform1f(progFoam.u.uRelief, cfg.relief / 100);
-    gl.uniform1f(progFoam.u.uGloss, cfg.gloss / 100);
-    gl.uniform1f(progFoam.u.uBandPx, headBand());
-    gl.uniform1f(progFoam.u.uCrest, headCrest());
-    gl.uniform1f(progFoam.u.uScale, G.scale);
-    gl.uniform2f(progFoam.u.uLightDir, Math.cos(a), -Math.sin(a));
-    gl.uniform1f(progFoam.u.uCoarse, pal.foamCoarse);
-    gl.uniform3fv(progFoam.u.uFoam, pal.foam);
-    gl.uniform3fv(progFoam.u.uFoamShade, pal.foamShade);
-    gl.uniform3fv(progFoam.u.uFoamWet, pal.foamWet);
-    gl.uniform3fv(progFoam.u.uBeerTint, pal.beerTint);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, logoTex);
+    setShared(progBeer, dpr);
+    gl.uniform1i(progBeer.u.uField, 1);
+    gl.uniform1i(progBeer.u.uLogo, 2);
+    gl.uniform4f(progBeer.u.uLogoRect, lr[0], lr[1], lr[2], lr[3]);
+    gl.uniform1f(progBeer.u.uLogoOn, logoReady ? 0.075 : 0);
+    gl.uniform1f(progBeer.u.uTime, clock);
+    gl.uniform1f(progBeer.u.uLevel, level);
+    gl.uniform1f(progBeer.u.uBeerA, beerAlpha());
+    gl.uniform1f(progBeer.u.uBeerSolid, beerSolid());
+    gl.uniform3fv(progBeer.u.uLightTint, pal.lightTint);
+    gl.uniform3fv(progBeer.u.uAbsorb, pal.absorb);
+    gl.uniform1f(progBeer.u.uCaustics, cfg.caustics / 100 * 0.55);
+    gl.uniform1f(progBeer.u.uHaze, 1 - cfg.clarity / 100);
+    /* Composited rather than written, because it is no longer the first thing
+       into the sheet: what runs down the back of the glass is already there, and
+       the pour goes over it. Its own output is premultiplied, so the blend must
+       not multiply by alpha again — and over an empty sheet this is the same
+       write it always was. */
     gl.enable(gl.BLEND);
-    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-    /* two pixels past the wall at most, and nothing below the floor; above,
-       the head may crown as high as it likes */
-    scissorPx(G.cx - G.topHalf - 3, 0, G.cx + G.topHalf + 3, floorLow() + 2);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    /* the shader leaves nothing outside the walls, above the top of the glass or
+       below its floor */
+    scissorPx(G.cx - G.topHalf - 2, G.top - 2, G.cx + G.topHalf + 2, floorLow() + 4);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.disable(gl.SCISSOR_TEST);
+
+    /* Bubbles and anything in the air */
+    drawSprites();
+
+    /* Head */
+    if (level > 0.002){
+      const a = cfg.lightAngle * Math.PI / 180;
+      gl.useProgram(progFoam.p);
+      gl.bindVertexArray(vaoEmpty);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, heightTex);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, fieldTex);
+      setShared(progFoam, dpr);
+      gl.uniform1i(progFoam.u.uField, 1);
+      gl.uniform1f(progFoam.u.uTime, clock);
+      gl.uniform1f(progFoam.u.uRelief, cfg.relief / 100);
+      gl.uniform1f(progFoam.u.uGloss, cfg.gloss / 100);
+      gl.uniform1f(progFoam.u.uBandPx, headBand());
+      gl.uniform1f(progFoam.u.uCrest, headCrest());
+      gl.uniform1f(progFoam.u.uScale, G.scale);
+      gl.uniform2f(progFoam.u.uLightDir, Math.cos(a), -Math.sin(a));
+      gl.uniform1f(progFoam.u.uCoarse, pal.foamCoarse);
+      gl.uniform3fv(progFoam.u.uFoam, pal.foam);
+      gl.uniform3fv(progFoam.u.uFoamShade, pal.foamShade);
+      gl.uniform3fv(progFoam.u.uFoamWet, pal.foamWet);
+      gl.uniform3fv(progFoam.u.uBeerTint, pal.beerTint);
+      gl.enable(gl.BLEND);
+      gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      /* two pixels past the wall at most, and nothing below the floor; above,
+         the head may crown as high as it likes */
+      scissorPx(G.cx - G.topHalf - 3, 0, G.cx + G.topHalf + 3, floorLow() + 2);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.disable(gl.SCISSOR_TEST);
+    }
+
+    /* The glass, in front */
+    gl.useProgram(progGlass.p);
+    gl.bindVertexArray(vaoEmpty);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, heightTex);
+    setShared(progGlass, dpr);
+    gl.uniform3fv(progGlass.u.uEdge, pal.glassEdge);
+    gl.uniform3fv(progGlass.u.uLight, pal.glassLight);
+    gl.uniform3fv(progGlass.u.uBeerGlow, pal.beerTint);
+    gl.uniform1f(progGlass.u.uDark, pal.dark ? 1 : 0);
+    gl.uniform1f(progGlass.u.uLightX, Math.cos(cfg.lightAngle * Math.PI / 180));
+    gl.uniform1f(progGlass.u.uLevel, level);
+    gl.uniform1f(progGlass.u.uBandPx, headBand());
+    gl.uniform1f(progGlass.u.uBeerSolid, beerSolid());
+    gl.uniform1f(progGlass.u.uLine, glassLine());
+    gl.enable(gl.BLEND);
+    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    /* between the rim and the front of the base, and no wider than the glass
+       with room for its lines */
+    scissorPx(G.cx - G.topHalf - 12, G.top - 2, G.cx + G.topHalf + 12,
+              G.bottom + ryAt(G.bottom) * G.botHalf + 2);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.disable(gl.SCISSOR_TEST);
+
+    /* The weep, in front of the glass and still inside the scene — so it is over
+       the lines the way the canvas paints it, and the bar has it to reflect.
+       Except for what runs down the back of the glass, which went on earlier,
+       before the beer: it is behind the pour and the pour decides how much of it
+       shows through. */
+    drawWeep(1);
   }
-
-  /* The glass, in front */
-  gl.useProgram(progGlass.p);
-  gl.bindVertexArray(vaoEmpty);
-  gl.activeTexture(gl.TEXTURE0);
-  gl.bindTexture(gl.TEXTURE_2D, heightTex);
-  setShared(progGlass, dpr);
-  gl.uniform3fv(progGlass.u.uEdge, pal.glassEdge);
-  gl.uniform3fv(progGlass.u.uLight, pal.glassLight);
-  gl.uniform3fv(progGlass.u.uBeerGlow, pal.beerTint);
-  gl.uniform1f(progGlass.u.uDark, pal.dark ? 1 : 0);
-  gl.uniform1f(progGlass.u.uLightX, Math.cos(cfg.lightAngle * Math.PI / 180));
-  gl.uniform1f(progGlass.u.uLevel, level);
-  gl.uniform1f(progGlass.u.uBandPx, headBand());
-  gl.uniform1f(progGlass.u.uBeerSolid, beerSolid());
-  gl.uniform1f(progGlass.u.uLine, glassLine());
-  gl.enable(gl.BLEND);
-  gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-  /* between the rim and the front of the base, and no wider than the glass
-     with room for its lines */
-  scissorPx(G.cx - G.topHalf - 12, G.top - 2, G.cx + G.topHalf + 12,
-            G.bottom + ryAt(G.bottom) * G.botHalf + 2);
-  gl.drawArrays(gl.TRIANGLES, 0, 3);
-  gl.disable(gl.SCISSOR_TEST);
-
-  /* The weep, in front of the glass and still inside the scene — so it is over
-     the lines the way the canvas paints it, and the bar has it to reflect.
-     Except for what runs down the back of the glass, which went on earlier,
-     before the beer: it is behind the pour and the pour decides how much of it
-     shows through. */
-  drawWeep(1);
 
   /* Pass B: the room — wall, bar and both reflections — with the scene
      texture composited in front */
@@ -2137,7 +2146,8 @@ function render(){
   gl.uniform1i(progCompose.u.uLogo, 2);
   gl.uniform4f(progCompose.u.uLogoRect, lr[0], lr[1], lr[2], lr[3]);
   gl.uniform1f(progCompose.u.uLogoOn, logoReady ? 0.075 : 0);
-  gl.uniform1f(progCompose.u.uLevel, level);
+  gl.uniform1f(progCompose.u.uLevel, glassAway ? 0 : level);   /* no pour, no light from it */
+  gl.uniform1f(progCompose.u.uGlassOn, glassAway ? 0 : 1);
   gl.uniform3fv(progCompose.u.uGround, pal.ground);
   gl.uniform3fv(progCompose.u.uGroundDeep, pal.groundDeep);
   gl.uniform3fv(progCompose.u.uAura, pal.aura);

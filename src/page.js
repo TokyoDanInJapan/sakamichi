@@ -109,11 +109,60 @@ function fitWordmark(){
  */
 const BEERS = ["anniversary-ipa-2026", "calico-cats-meow", "dr-krush", "fruit-fool", "hunters-mark-dip-hop-ipa", "miami-weisse", "mount-crushmore", "mr-bones", "mr-bones-raspberry", "new-year-pilsner-2026", "no-rest-for-the-wicked-2026", "oast-house-ale", "passion-project", "passion-project-v02", "praxis", "razcherry-sour", "seize-the-means-red-ipa", "shibasaki-session", "shirasagi-white-ipa", "skysaw", "sommergold-weisse", "sumomo-mo-momo-mo-momo-no-hazy", "tachikawa-helles", "tachikawa-hop-city", "tama-monoale-simcoe", "tamas-chocolate-organe-porter", "tanabata-pale-ale", "telefunk", "this-is-a-hazy-ipa", "tricerahops", "watling-esb", "wolly-mammoth-dipa", "yozakura!"];
 const BEER_EVERY = 5000, BEER_TURN = 1150;
+/* The cards that stand in place of the glass: company information and
+   contact. Each is a modal dialog, so it takes the focus, keeps it and gives
+   it back, and Esc closes it. While one is open the renderers leave the glass
+   out of the room, the page is marked with the card's name so the styles can
+   put the beer card away, and the beer card stops turning on its own. Anything with data-opens set to a card's id
+   opens that card, and so does a link to #id. */
+function startSheets(){
+  for (const dlg of document.querySelectorAll("dialog.sheet")){
+    if (typeof dlg.showModal !== "function") return;
+    /* and the focus goes back to whatever opened it, which a closing dialog
+       does not always manage by itself. Opened from the phone's menu, that
+       is a row in a menu that has since closed, so it goes to the menu's
+       button. */
+    let opener = null;
+    const open = () => {
+      if (dlg.open) return;
+      for (const other of document.querySelectorAll("dialog.sheet[open]")) other.close();
+      opener = document.activeElement;
+      document.body.dataset.sheet = dlg.id;
+      glassAway = true;
+      if (!cfg.running) redraw();
+      dlg.showModal();
+    };
+    dlg.addEventListener("close", () => {
+      if (document.body.dataset.sheet === dlg.id){
+        delete document.body.dataset.sheet;
+        glassAway = false;
+        if (!cfg.running) redraw();
+      }
+      if (opener && opener.isConnected && opener !== document.body) opener.focus();
+      if (opener && document.activeElement !== opener){
+        const menuBtn = document.getElementById("menuOpen");
+        if (menuBtn) menuBtn.focus();
+      }
+      opener = null;
+    });
+    dlg.querySelector(".sheet-close").addEventListener("click", () => dlg.close());
+    /* a click on the dialog itself, outside the card inside it, is a click
+       on the page around the card */
+    dlg.addEventListener("click", e => { if (e.target === dlg) dlg.close(); });
+    for (const a of document.querySelectorAll(`[data-opens="${dlg.id}"]`)){
+      a.addEventListener("click", e => { e.preventDefault(); open(); });
+    }
+    if (location.hash === "#" + dlg.id) open();
+  }
+}
+
 function startCard(){
   /* The phone's menu. Its own small thing rather than part of the tuning
      panel: one is what the brewery has to say and the other is a workbench,
      and only one of them belongs on a phone. It does not need the card, so it
      is set up whether or not the card is there. */
+  startSheets();
+
   const mBtn = document.getElementById("menuOpen");
   const mNav = document.getElementById("menu");
   const mCls = document.getElementById("menuClose");
@@ -129,6 +178,10 @@ function startCard(){
       if (open) mCls.focus(); else mBtn.focus();
     };
     mBtn.addEventListener("click", () => setMenu(true));
+    /* a card is not a link out, so the menu makes way for it */
+    for (const a of mNav.querySelectorAll("[data-opens]")){
+      a.addEventListener("click", () => setMenu(false, false));
+    }
     mCls.addEventListener("click", () => setMenu(false));
     document.addEventListener("keydown", e => {
       if (e.key === "Escape" && document.body.dataset.menu === "open") setMenu(false);
@@ -183,7 +236,8 @@ function startCard(){
 
        The card still turns when pushed, in either case. */
     const auto = () => {
-      if (cfg.hold || document.hidden || document.body.dataset.panel === "open") return;
+      if (cfg.hold || document.hidden || document.body.dataset.panel === "open"
+          || document.body.dataset.sheet) return;
       step(BEER_TURN);
     };
     /* Hold keeps the beer that is in the glass. It stops the card coming round

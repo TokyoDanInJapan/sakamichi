@@ -72,7 +72,8 @@
     <a href="https://www.instagram.com/sakamichibrewing/" target="_blank" rel="noopener">Instagram</a>
     <a href="https://twitter.com/sakamichi_beer" target="_blank" rel="noopener">X</a>
     <a href="https://www.facebook.com/SakamichiBrewing/" target="_blank" rel="noopener">Facebook</a>
-    <a href="https://www.sakamichibrewing.com/contact-form/" target="_blank" rel="noopener">Contact</a>
+    <a href="https://www.sakamichibrewing.com/contact-form/" data-opens="contact" aria-haspopup="dialog">Contact</a>
+    <a href="#company" data-opens="company" aria-haspopup="dialog">Company</a>
   </p>
   <p>
     <b><a class="place" href="https://www.google.com/maps/search/Sakamichi+Brewing+Tachikawa+Shibasakicho+2-6-5" target="_blank" rel="noopener">Sakamichi Taproom</a></b>
@@ -117,13 +118,86 @@
   <a class="menu-row" href="https://untappd.com/w/sakamichi-brewing/461142" target="_blank" rel="noopener">
     <b>Reviews</b><span>Every beer, on Untappd</span>
   </a>
+  <a class="menu-row" href="#company" data-opens="company" aria-haspopup="dialog">
+    <b>Company information</b><span>Sakamichi Brewing LLC &middot; 会社概要</span>
+  </a>
   <p class="menu-social">
     <a href="https://www.instagram.com/sakamichibrewing/" target="_blank" rel="noopener">Instagram</a>
     <a href="https://twitter.com/sakamichi_beer" target="_blank" rel="noopener">X</a>
     <a href="https://www.facebook.com/SakamichiBrewing/" target="_blank" rel="noopener">Facebook</a>
-    <a href="https://www.sakamichibrewing.com/contact-form/" target="_blank" rel="noopener">Contact</a>
+    <a href="https://www.sakamichibrewing.com/contact-form/" data-opens="contact" aria-haspopup="dialog">Contact</a>
   </p>
 </nav>
+
+<!-- Cards that stand in place of the glass and the beer card, which are put
+     away while one is open. Opened by anything with data-opens set to the
+     card's id, or by a link to #id. -->
+
+<!-- The brewery's company details, as its own 会社概要 page gives them. They
+     are only in Japanese there, so each one is given in English with the
+     Japanese beneath it. -->
+<dialog class="sheet wide" id="company" aria-labelledby="companyTitle">
+  <div class="sheet-card">
+    <div class="sheet-head">
+      <h2 id="companyTitle">Company information <span lang="ja">会社概要</span></h2>
+      <button class="menu-close sheet-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="sheet-cols">
+      <dl>
+        <div>
+          <dt>Company name <span lang="ja">会社名</span></dt>
+          <dd>Sakamichi Brewing LLC<span lang="ja">坂道ブルイング合同会社</span></dd>
+        </div>
+        <div>
+          <dt>Founded <span lang="ja">設立</span></dt>
+          <dd>October 2019<span lang="ja">2019年10月</span></dd>
+        </div>
+        <div>
+          <dt>Representative member <span lang="ja">代表社員</span></dt>
+          <dd>Matthew Boynton</dd>
+        </div>
+        <div>
+          <dt>Capital <span lang="ja">資本金</span></dt>
+          <dd>&yen;200,000<span lang="ja">20万円</span></dd>
+        </div>
+        <div>
+          <dt>Address <span lang="ja">所在地</span></dt>
+          <dd>Aoki Building #103, 2-6-5 Shibasakicho, Tachikawa, Tokyo 190-0023<span lang="ja">〒190-0023 東京都立川市柴崎町2丁目-6-5 青木ビルディング#103</span></dd>
+        </div>
+        <div>
+          <dt>Business <span lang="ja">事業内容</span></dt>
+          <dd>Brewing and selling beer and other alcoholic drinks<span lang="ja">酒類の製造及び販売</span></dd>
+        </div>
+      </dl>
+      <!-- The brewery's own words, as it wrote them in both languages -->
+      <div class="sheet-about">
+        <h3>About us</h3>
+        <p>At Sakamichi Brewing we recognise that the journey is just as important as the destination. We understand that before the first sip of delicious craft beer, there is a process that requires patience, craftsmanship, hard work, and attention to detail. We are dedicated to brewing the finest beer in western Tokyo with ecologically responsible brewing methods and locally sourced organic ingredients whenever possible. Our goal is to create a modern and welcoming space in Tachikawa where we can brew and serve a wide range of contemporary craft beer styles. With a line-up of beers ranging from classic styles to modern explorations of what beer can be, our goal is to make exciting and delicious beers perfect for any occasion.</p>
+        <p lang="ja">私達坂道ブリュワリーは、全てにおいて結果と同じくらい過程を大切に思っています。ビールも同じで、美味しい最初の一口に辿り着くまでに『根気』『技術(職人の技）』『努力』『こだわり』が必要と思っています。この西東京で美味しいビールを作るにあたり、エコ活動にも積極的に取り組み地元のオーガニック材料をできる限り使っていく予定です。立川のお店では、ビールの醸造と共にモダンでアットホームなお店作りを心がけ、現代の様々なビールをお楽しみ頂きたいと思っています。ラガーやエール等の身近なビールから、今までに無かった様な新しいビールまで、幅広い種類を取り揃えていきたいです。そして、ゆくゆくはどの様な場面にでも合う様なエキサイティングで美味しいビールを提供する事が坂道ブリュワリーの目標です。</p>
+      </div>
+    </div>
+  </div>
+</dialog>
+
+<!-- How to write to the brewery. Its form is on its own site, where it has to
+     be sent from, so the card says what the form asks for and opens it. -->
+<dialog class="sheet" id="contact" aria-labelledby="contactTitle">
+  <div class="sheet-card">
+    <div class="sheet-head">
+      <h2 id="contactTitle">Contact <span lang="ja">お問い合わせ</span></h2>
+      <button class="menu-close sheet-close" aria-label="Close">&times;</button>
+    </div>
+    <p class="sheet-lead">Write to the brewery through the contact form on sakamichibrewing.com. It asks for:</p>
+    <dl>
+      <div><dt>Name <span lang="ja">名前</span></dt><dd>Required</dd></div>
+      <div><dt>Name in katakana <span lang="ja">名前（カナ）</span></dt><dd>Optional</dd></div>
+      <div><dt>Business or store name <span lang="ja">企業名または店舗名</span></dt><dd>Optional</dd></div>
+      <div><dt>Email <span lang="ja">メール</span></dt><dd>Required</dd></div>
+      <div><dt>Message <span lang="ja">メッセージ</span></dt><dd>Required</dd></div>
+    </dl>
+    <p class="sheet-action"><a href="https://www.sakamichibrewing.com/contact-form/" target="_blank" rel="noopener">Open the contact form</a></p>
+  </div>
+</dialog>
 
 <div class="corner">
 <button class="panel-toggle" id="beerHold" aria-pressed="false"
@@ -200,6 +274,9 @@
   </div>
 </section>
 
+<script type="application/json" id="beerTuning">
+<!-- @inline ../beers.json -->
+</script>
 <script>
 <!-- @inline {{renderer}}/recipe.js -->
 </script>
