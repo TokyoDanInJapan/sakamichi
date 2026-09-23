@@ -6,7 +6,10 @@
    scene. */
 "use strict";
 
-/* Constants of the mark's artwork, shared by both renderers */
+/* The house mark (logo-no-name.svg), carried here rather than fetched so
+   neither page has to load it, and the constants of its artwork. Both
+   renderers rasterise it themselves — see logoRect for where it hangs. */
+const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1889.5428 1632.4294"><g transform="matrix(1.3333333,0,0,-1.3333333,-19.650821,2202.5766)" fill="#fff"><path d="M 123.29788,752.91372 412.78651,1306.2766 734.86356,966.86574 1003.6133,1496.6917 1330.9311,752.91372 H 740.4762 Z M 1431.8953,688.54037 1007.931,1651.9325 717.91485,1080.1818 396.70559,1418.6768 14.738226,688.54037 H 740.4762 Z"/><path d="M 14.738116,556.9782 H 1431.8942 v 64.37335 H 14.738116 Z"/><path d="M 14.738116,427.61037 H 1431.8942 v 64.37335 H 14.738116 Z"/></g></svg>`;
 const LOGO_ASPECT = 1889.5428 / 1632.4294;
 /* The mark's bars run the full width of its artwork, and the lowest one sits
    on the bottom edge — rasterising at exactly that size would cut its blur off
@@ -1579,7 +1582,14 @@ function addFoam(x, r){
    The two colours are handed in because the renderers hold their palettes
    differently — one in the colours a canvas understands, the other in numbers
    for a shader. */
+/* The sheet is the size of the page and most frames have nothing on it, so it
+   is only cleared when the last frame put something there. */
+let splashDirty = true;
 function paintSplash(ctx, foamCol, beerCol){
+  const seen = p => (p.near || 0) >= 0;
+  const any = puddles.length > 0 || drops.some(seen) || mist.some(seen);
+  if (!any && !splashDirty) return;
+  splashDirty = any;
   ctx.clearRect(0, 0, W, H);
   /* The wet the condensation leaves at the foot of the glass. Flattened the
      way everything lying on the bar is flattened, and cut to everything the
@@ -2214,6 +2224,123 @@ function logoRect(){
   return [W / 2 - lw / 2 - p, hY - gap - lh - p, lw + 2 * p, lh + 2 * p];
 }
 
+
+/* Lay the glass out again, and carry the weep with it: its reach is a length
+   down the glass. Says whether the glass itself changed size or place. */
+function relayout(){
+  const wasTop = G.top, wasHalf = G.topHalf, wasBot = G.bottom;
+  layoutGlass();
+  const moved = Math.abs(G.top - wasTop) > 0.01
+             || Math.abs(G.topHalf - wasHalf) > 0.01
+             || Math.abs(G.bottom - wasBot) > 0.01;
+  if (moved) carryWeep((G.bottom - G.top) / Math.max(1, wasBot - wasTop));
+  return moved;
+}
+
+/* A still page still shows a poured pint: with reduced motion asked for, the
+   glass is filled and dressed at once rather than poured */
+function settleStill(){
+  if (!reduceMotion.matches) return;
+  level = targetLevel();
+  poured = true;
+  const depth = cfg.headDepth / 100;
+  for (let i = 0; i < 140; i++) addFoam(G.cx + rand(-1, 1) * innerHalfAt(restSurfaceY()) * 0.95, foamRadius(depth));
+  for (let i = 0; i < 70; i++){
+    const y = rand(restSurfaceY() + 20, G.inBottom);
+    addBubble(G.cx + rand(-1, 1) * innerHalfAt(y) * 0.9, y, rand(0.6, 3.4));
+  }
+  const beads = Math.round(capDew * clamp(cfg.condensation / 100, 0, 2) * 0.7
+                          * clamp(level / 0.8, 0, 1));
+  for (let i = 0; i < beads; i++) addDew(rand(1.0, 3.2));
+}
+
+/* ------------------------------------------------------------------ *
+ * After a resize: the mesh and everything sized from the glass
+ * ------------------------------------------------------------------ *
+ * Both renderers call this once they have laid the glass out again. moved
+ * says whether the glass itself changed size or place; maxCols and maxFoam
+ * are the renderer's own ceilings on the columns and the blobs, for a
+ * renderer that has to fit them into a texture or a buffer. */
+function remesh(moved, maxCols = Infinity, maxFoam = Infinity){
+  const span = innerHalfAt(G.inTop) * 2;
+  const nWas = N, hWas = hArr, uWas = uArr, headWas = headArr;
+  N = clamp(Math.round(span / 5), 32, Math.min(220, maxCols));
+  hArr = new Float32Array(N);
+  /* Velocity and flux live on the faces between the columns, not on the
+     columns, so there is one fewer of each */
+  uArr = new Float32Array(Math.max(1, N - 1));
+  fArr = new Float32Array(Math.max(1, N - 1));
+  /* The pour is carried across rather than started again. A resize is not only
+     the window changing: the frame timer calls this when it drops the quality,
+     which can happen at any moment and for reasons the glass knows nothing
+     about. Handed a fresh mesh the beer went flat between one frame and the
+     next, which is a glass that resets itself while you are looking at it. The
+     surface and the flow are resampled onto whatever mesh the new size asks
+     for; the flux is not, being worked out afresh every step anyway. */
+  const carry = (src, m, dst, n) => {
+    if (!src || m < 2) return;
+    for (let i = 0; i < n; i++){
+      const t = n > 1 ? i / (n - 1) * (m - 1) : 0;
+      const a = clamp(Math.floor(t), 0, m - 1), b = Math.min(m - 1, a + 1);
+      dst[i] = src[a] + (src[b] - src[a]) * (t - a);
+    }
+  };
+  carry(hWas, nWas, hArr, N);
+  carry(uWas, Math.max(1, nWas - 1), uArr, Math.max(1, N - 1));
+  /* the head's raft is resampled with the beer, or it would come back level
+     under a surface that is not */
+  headArr = new Float32Array(N);
+  if (headWas) carry(headWas, nWas, headArr, N); else headArr.set(hArr);
+  maxAmp = Math.min(G.inH * 0.30, G.topHalf * 1.1);
+
+  capBubbles = clamp(Math.round(G.topHalf * G.inH / 260), 60, isCoarse ? 220 : 380);
+  capFoam    = clamp(Math.round(G.topHalf / 1.6), 40, Math.min(240, maxFoam));
+  capDew     = clamp(Math.round(G.topHalf * G.inH / 900), 30, 140);
+
+  /* Nucleation sites sit on the floor of the glass — over it, not along the
+     front edge of it. The floor is a disc, so a site has a place across the
+     glass and a place into it, and it was only ever given the first: every
+     bubble in the pour rose off the same line ruled across the bottom.
+     Scattered by the square root of a random radius, which is what keeps them
+     from crowding into the middle of a disc. */
+  const n = clamp(Math.round(G.topHalf / 26), 3, 12);
+  const floorHalf = innerHalfAt(G.inBottom - 4);
+  /* The sites are where they are. Scattered again on every resize, every
+     stream of bubbles in the glass jumped to a new part of the floor whenever
+     the frame timer dropped the quality — so they are kept and carried across
+     the size change, and only scattered afresh when the floor asks for a
+     different number of them. */
+  if (sites.length === n){
+    for (const s of sites){
+      s.u *= floorHalf / Math.max(1, s.half || floorHalf);
+      s.half = floorHalf;
+    }
+  } else {
+    sites = [];
+    for (let i = 0; i < n; i++){
+      const rr = Math.sqrt(Math.random()) * 0.86, th = Math.random() * TAU;
+      sites.push({
+        u: Math.cos(th) * rr * floorHalf,
+        v: Math.sin(th) * rr,              /* -1 at the back of the floor, +1 at the front */
+        half: floorHalf,
+        acc: Math.random(), rate: rand(1.4, 3.2), scale: rand(0.6, 1.5)
+      });
+    }
+  }
+
+  /* And the glass is only emptied when it has actually moved. Everything the
+     pour is wearing — its bubbles, its head, the beads on the outside, the
+     lacing and whatever is running down it — is held in pixels, so a glass
+     that changes size has to let them go. A glass that does not has no reason
+     to: the frame timer calls this to drop the quality, which changes what the
+     picture is drawn into and not where anything is, and clearing there took
+     the head and the condensation off a pint in the middle of a frame for no
+     reason anyone watching could see. */
+  if (moved){
+    bubbles.length = 0; foam.length = 0; drops.length = 0; mist.length = 0; drips.length = 0;
+    dew.length = 0; lace.length = 0; puddles.length = 0;
+  }
+}
 
 /* ================================================================== *
  * Palette

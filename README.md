@@ -12,6 +12,8 @@ network requests:
 | `index.html`  | Canvas 2D renderer — graphic and flat, runs anywhere    |
 | `webgl.html`  | WebGL2 renderer — optical and photographic              |
 | `sim.js`      | The pour itself, loaded by both                         |
+| `page.js`     | The wordmark, the beer card and the phone menu          |
+| `page.css`    | The styles both pages share                             |
 
 The simulation is identical in both because it is the same file: `sim.js`
 carries the glass geometry, camera, wave equation, particles and controls,
@@ -19,6 +21,11 @@ and each page wraps its own renderer around it. Each page defines its recipe
 (`SPECS`, `HOUSE`, `PRESETS`, storage key) before loading it, hands it a
 `redraw()` and a few hooks at boot, and links to the other from the bottom of
 its control panel.
+
+`page.js` and `page.css` hold the page around the glass, which is the same in
+both. Each page keeps only its own rules in its `<style>` block and calls
+`startCard()` once its glass is running. The markup is still written out in
+each page, so a change to the copy has to be made in both.
 
 Open either file, or serve the folder:
 
@@ -161,7 +168,7 @@ every slider key — `fill`, `refill`, `agitation`, `waveSpeed`, `viscosity`,
 ## Rebranding
 
 **Copy.** The name, tagline and buttons are plain markup in the `.masthead`
-and `.lower` blocks. The eyebrow, tagline, buttons and the taprooms block (top
+and `.lower` blocks of both pages. The eyebrow, tagline, buttons and the taprooms block (top
 right, hidden under 900px) carry the real details from sakamichibrewing.com —
 founded 2019 in Tachikawa, two taprooms by the station (south and north exits)
 with their opening hours, and the social links.
@@ -171,9 +178,9 @@ with their opening hours, and the social links.
 of SAKAMICHI, in the brand yellow (`--brand`) on dark and ink on light. The
 primary button and the favicon tile use the same yellow.
 
-**The mark on the wall** is `logo-no-name.svg`, embedded in each file as the
-`LOGO_SVG` string so the pages stay self-contained — swap that string (and its
-`LOGO_ASPECT`) to rebrand it. `logoRect()` stands it one `pageMargin()` clear
+**The mark on the wall** is `logo-no-name.svg`, carried in `sim.js` as the
+`LOGO_SVG` string so neither page has to fetch it. To rebrand it, swap that
+string and its `LOGO_ASPECT`. `logoRect()` stands it one `pageMargin()` clear
 of the plane's edge, the same `clamp(20px, 3.6vmin, 48px)` gutter the CSS
 holds the copy off the page edges with. It is rasterised out of focus, inset
 by `LOGO_PAD` in a larger bitmap so the blur fades out past the artwork
@@ -214,10 +221,20 @@ the shader's `horizonY`).
 - **Reduced motion.** With `prefers-reduced-motion`, the page paints one settled
   frame and stays still. The Motion toggle starts it.
 - **Performance.** The canvas version caps device pixel ratio at 2 and renders
-  the foam layer at 0.62 scale behind the blur; the shader version caps it at
+  the foam layer at 0.7 scale behind the blur; the shader version caps it at
   1.75 and renders the density field at half resolution. Particle counts scale
   with viewport area. If frames run long, either page drops resolution twice
   and never raises it again mid-session.
+- **Work kept small.** Anything that only changes with the layout or the
+  palette is drawn once and kept. In the canvas version that is the blurred
+  logo reflection and the timber. In the shader version it is the still part
+  of the room, in a texture that `FS_ROOM` paints. The canvas version sizes
+  its foam canvas and the bar's mirror to the glass rather than the page,
+  because their blurs cost by area. The shader version scissors the beer,
+  head, glass and weep passes to the box each one can draw in.
+- **Lost context.** If the GPU takes the WebGL context back, the shader
+  version stops drawing and reloads when the context returns. The settings
+  are saved, so the glass comes back as it was.
 - **Storage.** The two versions keep separate settings
   (`sakamichi-splash-v2` and `sakamichi-shader-v2`), so tuning one leaves the other
   alone.
