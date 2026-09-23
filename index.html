@@ -937,6 +937,10 @@ let logoWall = null, logoBeer = null;
 logoImg.onload = () => { buildLogoTints(); if (!cfg.running) renderAll(); };
 logoImg.src = "data:image/svg+xml;utf8," + encodeURIComponent(LOGO_SVG);
 
+/* Each blurred tint is a bitmap the size of the mark, so it is made once and
+   again only when its colour changes — the palette is rebuilt every frame
+   while a beer is being poured, and the tints do not change with the beer. */
+let logoWallTint = "";
 function buildLogoTints(){
   if (!logoImg.complete || !logoImg.naturalWidth) return;
   const make = tint => {
@@ -954,13 +958,17 @@ function buildLogoTints(){
     x.fillRect(0, 0, c.width, c.height);
     return c;
   };
-  logoWall = make(pal.dark ? "#b8bec4" : "#262c33");
-  logoBeer = make("#2b1a05");
+  const wallTint = pal.dark ? "#b8bec4" : "#262c33";
+  if (!logoWall || wallTint !== logoWallTint){
+    logoWall = make(wallTint);
+    logoWallTint = wallTint;
+  }
+  if (!logoBeer) logoBeer = make("#2b1a05");
 }
 
 let pal = {};
 function buildPalette(){
-  applyRoom();
+  const room = applyRoom();
   const dark = isDark();
   const r = cfg.richness / 100;
   /* Hue and the two ends of the body's gradient, from the sliders or from the
@@ -971,7 +979,7 @@ function buildPalette(){
   const au = auraTone();
   pal = {
     dark,
-    ground: (getComputedStyle(document.documentElement).getPropertyValue("--ground") || (dark ? "#08090b" : "#f6f7f8")).trim(),
+    ground: room.ground,
     beerTop: `hsl(${h + 4} ${sat}% ${lTop}%)`,
     beerMid: `hsl(${h + 2} ${sat}% ${(lTop + lBot) / 2}%)`,
     beerBot: `hsl(${h - 7} ${sat - 8}% ${lBot}%)`,

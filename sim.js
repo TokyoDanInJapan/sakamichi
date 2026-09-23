@@ -2157,26 +2157,36 @@ const mqDark = matchMedia("(prefers-color-scheme: dark)");
    Only the hue is given. The saturation and the lightness are the ones the
    room was already mixed at — a wall that can be turned any brightness is a
    different control and a worse one, since the glass is lit against it. At the
-   house hue nothing moves. */
+   house hue nothing moves.
+
+   It hands the two back as well, so the renderers take them from here rather
+   than reading them back off the page: that read makes the browser restyle
+   the whole document, and a beer being poured asks for the palette every
+   frame. For the same reason a variable is only written when it changes. */
+let roomSet = {ground: "", deep: ""};
 function applyRoom(){
   const dark = isDark();
-  const st = document.documentElement.style;
   const c = hexHsl(cfg.roomHex);
+  let ground, deep;
   if (c){
     /* Given a colour outright the room is that colour, and the ground under it
        a shade of the same — the two are one wall, the lit part and the part in
        shadow, and they have to stay the same colour or the bar stops belonging
        to the room behind it. The shade is the one the two were already mixed
        at, so a room given its own hue is lit the way the house room is. */
-    st.setProperty("--ground", c.hex);
-    st.setProperty("--ground-deep",
-                   hslHex(c.h, c.s, clamp(c.l * (dark ? 0.54 : 0.95), 0, 100)));
-    return;
+    ground = c.hex;
+    deep = hslHex(c.h, c.s, clamp(c.l * (dark ? 0.54 : 0.95), 0, 100));
+  } else {
+    const h = cfg.bgHue == null ? 220 : cfg.bgHue;
+    const s = dark ? 16 : 9;
+    ground = hslHex(h, s, dark ? 3.7 : 97);
+    deep = hslHex(h, s, dark ? 2 : 92);
   }
-  const h = cfg.bgHue == null ? 220 : cfg.bgHue;
-  const s = dark ? 16 : 9;
-  st.setProperty("--ground", hslHex(h, s, dark ? 3.7 : 97));
-  st.setProperty("--ground-deep", hslHex(h, s, dark ? 2 : 92));
+  const st = document.documentElement.style;
+  if (ground !== roomSet.ground) st.setProperty("--ground", ground);
+  if (deep !== roomSet.deep) st.setProperty("--ground-deep", deep);
+  roomSet = {ground, deep};
+  return roomSet;
 }
 
 /* What the swatch beside the room's box shows: the colour the room actually

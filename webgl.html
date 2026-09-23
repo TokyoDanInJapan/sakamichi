@@ -2546,7 +2546,7 @@ function hslToRgb(h, s, l){
 
 let pal = {};
 function buildPalette(){
-  applyRoom();
+  const room = applyRoom();
   const dark = isDark();
   const r = cfg.richness / 100;
   const clarity = cfg.clarity / 100;
@@ -2592,8 +2592,8 @@ function buildPalette(){
 
   pal = {
     dark,
-    ground: hexToRgb(getComputedStyle(document.documentElement).getPropertyValue("--ground") || (dark ? "#08090b" : "#f6f7f8")),
-    groundDeep: hexToRgb(getComputedStyle(document.documentElement).getPropertyValue("--ground-deep") || (dark ? "#040506" : "#e7eaec")),
+    ground: hexToRgb(room.ground),
+    groundDeep: hexToRgb(room.deep),
     lightTint,
     /* what it throws on the room: its own light, unless told otherwise */
     aura: (() => { const a = hexHsl(cfg.auraHex);
