@@ -1519,6 +1519,11 @@ void main(){
   float fxn  = clamp((px.x - GCX) / ihb, -1.0, 1.0);
   float pan  = GINBOT + uRyKs.y * ihb * sqrt(max(0.0, 1.0 - fxn * fxn));
   if (dWall < -2.0 || px.y > pan) discard;
+  /* and nothing below the near arc of the beer it floats on — see the cut on
+     that arc further down, which takes all of it. Asked here, before the taps
+     rather than after them, the whole body of the pour is spared them. */
+  float front = headSurfaceAt(px.x) + ellipseDy(px.x);
+  if (px.y >= front + 1.2) discard;
 
   /* A head is a body of foam, not a heap of blobs. The canvas fills its own
      outline and lets the texture play inside it; here the blobs alone said
@@ -1621,7 +1626,6 @@ void main(){
      what that drew was an underside flatter than the surface beneath it: a
      head lying in the beer rather than on it. Cut on the arc, the head's
      underside is the ellipse exactly. */
-  float front = headSurfaceAt(px.x) + ellipseDy(px.x);
   mask *= 1.0 - smoothstep(front - 0.8, front + 1.2, px.y);
   if (mask <= 0.001) discard;
 
@@ -2742,6 +2746,7 @@ function drawSprites(){
 }
 
 /* One weep, drawn in two halves — see uWeepPart. */
+const weepA = new Float32Array(24), weepB = new Float32Array(24), weepC = new Float32Array(24);
 function drawWeep(part){
   if (!(drips.length || (collar > 0.012 && creep > 0.004))) return;
   if (part < 0.5 && !drips.some(d => Math.cos(d.th) < 0)) return;
@@ -2766,7 +2771,7 @@ function drawWeep(part){
   const n = Math.min(6, drips.length);
   gl.uniform1i(progWeep.u.uRibN, n);
   if (n){
-    const A = new Float32Array(24), B = new Float32Array(24), C = new Float32Array(24);
+    const A = weepA, B = weepB, C = weepC;
     for (let i = 0; i < n; i++){
       const d = drips[i], o = i * 4;
       A[o] = d.th; A[o+1] = d.top; A[o+2] = d.h; A[o+3] = d.w;
@@ -2782,8 +2787,29 @@ function drawWeep(part){
      premultiplied colour, so the blend must not multiply by alpha again */
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  /* the shader's own bounds: the rim down to a puddle's reach, and no wider
+     than the glass and the same reach again */
+  const reach = Math.max(G.topHalf, G.botHalf) + 60;
+  scissorPx(G.cx - reach - 1, G.top - 3, G.cx + reach + 1, G.bottom + ryAt(G.bottom) * G.botHalf + 61);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.disable(gl.SCISSOR_TEST);
 }
+
+/* Hold a full-screen pass to the rectangle it can draw in, given in page
+   pixels. The passes below that only ever draw in and around the glass throw
+   away everything else themselves, but only after each pixel has been run far
+   enough to find that out — and the glass is a fifth of the screen. Each box
+   is the one its shader already rejects outside of, so nothing is drawn
+   differently; it is only no longer asked about the rest. */
+function scissorPx(x0, y0, x1, y1){
+  const fx0 = clamp(Math.floor(x0 * dpr), 0, sceneW), fx1 = clamp(Math.ceil(x1 * dpr), 0, sceneW);
+  const fy0 = clamp(Math.floor((H - y1) * dpr), 0, sceneH), fy1 = clamp(Math.ceil((H - y0) * dpr), 0, sceneH);
+  gl.enable(gl.SCISSOR_TEST);
+  gl.scissor(fx0, fy0, fx1 - fx0, fy1 - fy0);
+}
+/* The floor of the glass's interior, which is as low as the beer and the head
+   can reach: the near half of its ellipse dips below the interior bottom */
+const floorLow = () => G.inBottom + ryAt(G.bottom) * innerHalfAt(G.inBottom);
 
 function render(){
   if (!hArr || !gl) return;
@@ -2831,7 +2857,11 @@ function render(){
      write it always was. */
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  /* the shader leaves nothing outside the walls, above the top of the glass or
+     below its floor */
+  scissorPx(G.cx - G.topHalf - 2, G.top - 2, G.cx + G.topHalf + 2, floorLow() + 4);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.disable(gl.SCISSOR_TEST);
 
   /* Bubbles and anything in the air */
   drawSprites();
@@ -2861,7 +2891,11 @@ function render(){
     gl.uniform3fv(progFoam.u.uBeerTint, pal.beerTint);
     gl.enable(gl.BLEND);
     gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    /* two pixels past the wall at most, and nothing below the floor; above,
+       the head may crown as high as it likes */
+    scissorPx(G.cx - G.topHalf - 3, 0, G.cx + G.topHalf + 3, floorLow() + 2);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.disable(gl.SCISSOR_TEST);
   }
 
   /* The glass, in front */
@@ -2884,7 +2918,12 @@ function render(){
   gl.uniform1f(progGlass.u.uLine, glassLine());
   gl.enable(gl.BLEND);
   gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  /* between the rim and the front of the base, and no wider than the glass
+     with room for its lines */
+  scissorPx(G.cx - G.topHalf - 12, G.top - 2, G.cx + G.topHalf + 12,
+            G.bottom + ryAt(G.bottom) * G.botHalf + 2);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.disable(gl.SCISSOR_TEST);
 
   /* The weep, in front of the glass and still inside the scene — so it is over
      the lines the way the canvas paints it, and the bar has it to reflect.
