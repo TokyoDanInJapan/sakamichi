@@ -20,7 +20,16 @@ let redraw = () => {}, paletteHook = () => {}, chipsHook = () => {}, resizeHook 
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
 if (reduceMotion.matches) cfg.running = false;
 
-const save = () => { try{ localStorage.setItem(STORE_KEY, JSON.stringify(cfg)); }catch(e){} };
+const save = () => {
+  clearTimeout(saveTimer); saveTimer = 0;
+  try{ localStorage.setItem(STORE_KEY, JSON.stringify(cfg)); }catch(e){}
+};
+/* A slider being dragged changes many times a second and only its last place
+   matters, so that is written a moment after it stops — and on the way out,
+   if the page is left before then. */
+let saveTimer = 0;
+const saveSoon = () => { clearTimeout(saveTimer); saveTimer = setTimeout(save, 300); };
+addEventListener("pagehide", () => { if (saveTimer) save(); });
 
 const TAU = Math.PI * 2;
 const clamp = (v,a,b) => v < a ? a : v > b ? b : v;
@@ -388,17 +397,18 @@ const horizonY = () => G.bottom + baseBulge() - H * BAR_DEPTH;
    near wall drops lower and faces us square, the far wall rides higher, and
    towards the sides the wall turns edge-on and foreshortens what is stuck to
    it. Returns x, y, and the cosine that carries both of those. */
-function dewPos(d){
-  const hw = halfAt(d.h);
-  const c = Math.cos(d.th);
-  return [G.cx + hw * Math.sin(d.th), d.h + ryAt(d.h) * hw * c, c];
+/* Both hand back the same array, refilled: they are read a few hundred times a
+   frame and only ever destructured on the spot, so it is never held. */
+const wallPos = [0, 0, 0];
+function onWall(hw, h, th){
+  const c = Math.cos(th);
+  wallPos[0] = G.cx + hw * Math.sin(th);
+  wallPos[1] = h + ryAt(h) * hw * c;
+  wallPos[2] = c;
+  return wallPos;
 }
-
-function lacePos(l){
-  const hw = innerHalfAt(l.h);
-  const c = Math.cos(l.th);
-  return [G.cx + hw * Math.sin(l.th), l.h + ryAt(l.h) * hw * c, c];
-}
+const dewPos = d => onWall(halfAt(d.h), d.h, d.th);
+const lacePos = l => onWall(innerHalfAt(l.h), l.h, l.th);
 
 /* How far the surface ellipse bulges at this x, front and back. The bore is
    read at the height the beer has actually reached here, so the bulge follows
@@ -412,6 +422,19 @@ function ellipseDy(x){
   return ryAt(y) * hw * Math.sqrt(1 - u * u);
 }
 const frontY = x => surfaceAt(x) + ellipseDy(x);
+/* The same readings at a column, for whatever walks the columns. Asked by x
+   they first have to find which column stands there, which is most of their
+   cost, and a caller holding colX(i) already knows. */
+function colDy(i){
+  const u = colU(i);
+  if (Math.abs(u) >= 1) return 0;
+  const y = colY(i);
+  return ryAt(y) * innerHalfAt(y) * Math.sqrt(1 - u * u);
+}
+const colBackY = i => colY(i) - colDy(i);
+const colFrontY = i => colY(i) + colDy(i);
+const colHeadY = i => headArr ? restSurfaceY() + headArr[i] : colY(i);
+const colHeadFrontY = i => colHeadY(i) + colDy(i);
 /* and the same arc taken off the head's raft — where the head ends, which is
    not quite where the beer's own skin is. The beer keeps its ripple; the foam
    sitting on it does not have to show it. */
@@ -444,6 +467,10 @@ function headTopAt(x){
   const u = clamp((x - G.cx) / Math.max(1, innerHalfAt(G.inTop)), -1, 1);
   return Math.max(headSurfaceAt(x) - ellipseDy(x) - headBand(), headCapY(u, 0));
 }
+function colHeadTop(i){
+  const u = clamp((colX(i) - G.cx) / Math.max(1, innerHalfAt(G.inTop)), -1, 1);
+  return Math.max(colHeadY(i) - colDy(i) - headBand(), headCapY(u, 0));
+}
 
 /* How deep the head is. It cannot be all of what it would like to be on a
    glass filled to the lip: a head needs a glass to stand in, and one poured to
@@ -469,8 +496,7 @@ function crestRaw(){
   const band = headBand();
   let crest = 0;
   for (let i = 0; i < N; i++){
-    const x = colX(i);
-    crest = Math.max(crest, lip - (headSurfaceAt(x) - ellipseDy(x) - band));
+    crest = Math.max(crest, lip - (colHeadY(i) - colDy(i) - band));
   }
   for (const f of foam){
     const y = surfaceAt(f.x) - ellipseDy(f.x) * 0.4 + f.oy - f.r;
@@ -546,26 +572,42 @@ const sliceArea = u => {
    within a single wave rather than only between one fill and another.
    dxArr[k] is the gap between column k and the next, measured where they have
    actually ended up; boreArr[k] is the chord across the glass at that face. */
+/* It is asked for several times a substep, so what does not move with the
+   beer — each column's share of the unit circle and each face's chord across
+   it, which depend on the column count alone — is worked out once per count,
+   and each column's bore is read once a call rather than once per use. */
 let areaArr = null, dxArr = null, boreArr = null, gridN = 0;
+let sliceUnit = null, chordUnit = null, boreCol = null;
 function grid(){
   if (!areaArr || gridN !== N){
     areaArr = new Float32Array(N);
     dxArr = new Float32Array(Math.max(1, N - 1));
     boreArr = new Float32Array(Math.max(1, N - 1));
+    sliceUnit = new Float64Array(N);
+    chordUnit = new Float64Array(Math.max(1, N - 1));
+    boreCol = new Float64Array(N);
+    const du = 2 / (N - 1);
+    for (let i = 0; i < N; i++){
+      const u = colU(i);
+      const lo = Math.max(-1, u - du * 0.5), hi = Math.min(1, u + du * 0.5);
+      sliceUnit[i] = sliceArea(hi) - sliceArea(lo);
+    }
+    for (let k = 0; k < N - 1; k++){
+      const uF = colU(k) + du * 0.5;
+      chordUnit[k] = Math.sqrt(Math.max(0, 1 - uF * uF));
+    }
     gridN = N;
   }
-  const du = 2 / (N - 1);
   for (let i = 0; i < N; i++){
-    const R = Math.max(1, colR(i));
-    const u = colU(i);
-    const lo = Math.max(-1, u - du * 0.5), hi = Math.min(1, u + du * 0.5);
-    areaArr[i] = R * R * (sliceArea(hi) - sliceArea(lo));
+    const r = colR(i);
+    boreCol[i] = r;
+    const R = Math.max(1, r);
+    areaArr[i] = R * R * sliceUnit[i];
   }
   for (let k = 0; k < N - 1; k++){
-    dxArr[k] = Math.max(0.05, colX(k + 1) - colX(k));
-    const uF = colU(k) + du * 0.5;
-    const RF = Math.max(1, (colR(k) + colR(k + 1)) * 0.5);
-    boreArr[k] = 2 * RF * Math.sqrt(Math.max(0, 1 - uF * uF));
+    dxArr[k] = Math.max(0.05, (G.cx + colU(k + 1) * boreCol[k + 1]) - (G.cx + colU(k) * boreCol[k]));
+    const RF = Math.max(1, (boreCol[k] + boreCol[k + 1]) * 0.5);
+    boreArr[k] = 2 * RF * chordUnit[k];
   }
   return areaArr;
 }
@@ -747,11 +789,12 @@ function stepWaves(step){
        and the limiter is pulling it back from somewhere it should never have
        reached — which showed as a face still standing at 64 degrees against
        a limit of 58. */
-    breakCrests();
     /* The columns ride on the surface, so once it has moved they stand
        somewhere new — the mesh is re-measured before the next pass rather than
-       the whole substep being run against where they used to be. */
-    A = grid();
+       the whole substep being run against where they used to be. The limiter
+       measures it first thing, so it only wants measuring again if the limiter
+       itself moved some beer. */
+    if (breakCrests()) A = grid();
   }
   /* None of the above should be able to leave the numbers now. But a surface
      of NaN draws as nothing at all and poisons every frame after it, so it is
@@ -784,8 +827,9 @@ function stepWaves(step){
    into a wall — held here it keeps 95% of its swing. */
 const MAX_FACE = 1.2;
 function breakCrests(){
-  if (!N || !hArr) return;
+  if (!N || !hArr) return false;
   const A = grid();
+  let moved = false;
   /* A front steep over several columns has to be let down one column at a
      time, so the sweep is repeated until it finds nothing left to do */
   for (let pass = 0; pass < 8; pass++){
@@ -799,6 +843,7 @@ function breakCrests(){
       if (aL <= 1e-6 || aR <= 1e-6) continue;
       /* enough beer to bring the face back to the limit, and no more */
       const move = over / (1 / aL + 1 / aR);
+      moved = true;
       const crest = d > 0 ? i : i + 1;          /* the column standing higher */
       const trough = d > 0 ? i + 1 : i;
       hArr[crest] += move / (crest === i ? aL : aR);
@@ -809,6 +854,7 @@ function breakCrests(){
     }
     if (quiet) break;
   }
+  return moved;
 }
 
 /* Beer that climbs past the rim leaves the glass. It is not cut off flat
@@ -832,6 +878,14 @@ function breakCrests(){
  * down and lets only the fattest reach the bar.
  */
 const RIBBON_MAX = 6;
+
+/* Take out what a pass has marked spent, in one sweep, keeping the order.
+   Spliced out one at a time, every removal shuffled the rest of the list down. */
+function sweep(list){
+  let w = 0;
+  for (let r = 0; r < list.length; r++){ const p = list[r]; if (!p.gone) list[w++] = p; }
+  list.length = w;
+}
 
 /* How plainly the glass is drawn: the strokes that stand for its walls and its
    rim. They are the only thing saying a glass is there at all, so they are kept
@@ -1228,6 +1282,7 @@ function spillOverRim(dt){
   const hwRim = Math.max(1, innerHalfAt(rimY));
   for (let i = foam.length - 1; i >= 0; i--){
     const f = foam[i];
+    if (Math.abs(f.x - G.cx) <= hwRim * 0.62) continue;   /* the middle cannot fall */
     const fy = surfaceAt(f.x) - ellipseDy(f.x) * 0.4 + f.oy;
     /* Standing over the lip is not enough to go over it — the middle of a proud
        head has nowhere to fall to. It has to be out at the wall as well, which
@@ -1633,6 +1688,15 @@ function updateBubbles(dt){
     addBubble(G.cx + rand(-1, 1) * innerHalfAt(y) * 0.9, y, rand(0.5, 2.2));
   }
 
+  /* No bubble can meet the surface while it is further down than the lowest
+     the surface's front edge reaches anywhere, so most of them are spared
+     looking it up: the lowest column, and the deepest the ellipse there could
+     bulge — the bore is widest at the highest column. */
+  let yLo = -Infinity, yHi = Infinity;
+  if (N && hArr){
+    for (let i = 0; i < N; i++){ const y = colY(i); if (y > yLo) yLo = y; if (y < yHi) yHi = y; }
+    yLo += ryAt(yLo) * innerHalfAt(yHi) + 0.01;
+  }
   for (let i = bubbles.length - 1; i >= 0; i--){
     const b = bubbles[i];
     b.ph += dt * 3.4;
@@ -1646,6 +1710,7 @@ function updateBubbles(dt){
     if (b.x < G.cx - lim){ b.x = G.cx - lim; b.vx *= -0.4; }
     if (b.x > G.cx + lim){ b.x = G.cx + lim; b.vx *= -0.4; }
 
+    if (b.y - b.r * 0.6 > yLo && b.y >= G.inTop - 30) continue;
     const sy = frontY(b.x);
     if (b.y - b.r * 0.6 <= sy || b.y < G.inTop - 30){
       if (b.y - b.r <= sy){
@@ -1663,9 +1728,10 @@ function updateBubbles(dt){
           mist.push({x:b.x, y:sy, vx:rand(-24,24)*G.scale, vy:rand(-90,-25)*G.scale, r:rand(.6,1.4)*G.scale, life:rand(.3,.8)});
         }
       }
-      bubbles.splice(i, 1);
+      b.gone = true;
     }
   }
+  sweep(bubbles);
 }
 
 function updateFoam(dt){
@@ -1727,8 +1793,9 @@ function updateFoam(dt){
     if (f.x > G.cx + lim){ f.x = G.cx + lim; f.vx *= -0.5; }
 
     f.r -= dt * thinning * (churn * 0.5 + 0.7) * malt * G.scale;
-    if (f.r < 2.2 * G.scale || f.life < 0) foam.splice(i, 1);
+    if (f.r < 2.2 * G.scale || f.life < 0) f.gone = true;
   }
+  sweep(foam);
 }
 
 function updateDrops(dt){
@@ -1744,14 +1811,14 @@ function updateDrops(dt){
     if (d.dz){
       d.near += d.dz * dt;
       d.y += d.dz * ryAt(d.y) * Math.max(1, innerHalfAt(d.y)) * dt * 1.5;
-      if (d.near > 3.2){ drops.splice(i, 1); continue; }   /* past the eye */
+      if (d.near > 3.2){ d.gone = true; continue; }   /* past the eye */
     }
 
     const outsideGlass = Math.abs(d.x - G.cx) > innerHalfAt(d.y);
     if (!d.out && !outsideGlass && d.vy > 0 && d.y > frontY(d.x)){
       splash(d.x, 0.5 + d.r * 0.16 / G.scale, 18 + d.r * 4);
       if (d.foamy) addFoam(d.x, d.r * 2);
-      drops.splice(i, 1);
+      d.gone = true;
       continue;
     }
     /* The bar is a plane, so a drop lands lower down the picture the nearer to
@@ -1771,19 +1838,21 @@ function updateDrops(dt){
          bar already carries how far in front of the glass this one flew. */
       if ((d.near || 0) >= 0)
         addPuddle(d.x, bar, d.r * dropScale(d), d.foamy ? "foam" : "beer");
-      drops.splice(i, 1);
+      d.gone = true;
     } else if (d.x < -40 || d.x > W + 40){
-      drops.splice(i, 1);
+      d.gone = true;
     }
   }
+  sweep(drops);
   for (let i = mist.length - 1; i >= 0; i--){
     const m = mist[i];
     m.life -= dt;
     m.vy += 240 * G.scale * dt;
     m.x += m.vx * dt;
     m.y += m.vy * dt;
-    if (m.life <= 0) mist.splice(i, 1);
+    if (m.life <= 0) m.gone = true;
   }
+  sweep(mist);
   /* The strength follows the pour at once — it is a fact about how full the
      glass is — and the creep takes its time, four seconds or so from the lip
      to wherever the strength says it is going.
@@ -2106,8 +2175,9 @@ function updateLace(dt){
     const l = lace[i];
     const [lx] = lacePos(l);
     l.life -= dt * (l.h > surfaceAt(lx) + 1 ? 6 : 1);
-    if (l.life <= 0) lace.splice(i, 1);
+    if (l.life <= 0) l.gone = true;
   }
+  sweep(lace);
 }
 
 let idleAcc = 0;
@@ -2357,7 +2427,7 @@ function buildSliders(){
         paletteHook();
         if (cfg.preset){ cfg.preset = null; chipsHook(); }
         readout(s);
-        save();
+        saveSoon();
         if (!cfg.running) redraw();
       };
       text.addEventListener("input", () => {
@@ -2395,7 +2465,7 @@ function buildSliders(){
         chipsHook();
       }
       readout(s);
-      save();
+      saveSoon();
       if (!cfg.running) redraw();
     });
   }
@@ -2403,17 +2473,21 @@ function buildSliders(){
   SPECS.forEach(readout);
 }
 
+/* Called every frame while a beer is poured with the panel open, so the
+   elements are found once and nothing is written that has not changed. */
+const readoutEls = {};
 function readout(s){
-  const out = document.getElementById("out-" + s.key);
+  let el = readoutEls[s.key];
+  if (!el) el = readoutEls[s.key] = {out: document.getElementById("out-" + s.key),
+                                     sw: document.getElementById("sw-" + s.key)};
+  const out = el.out;
   if (!out) return;
+  const text = s.type === "hex" ? (cfg[s.key] ? "" : "auto") : cfg[s.key] + s.unit;
+  if (out.textContent !== text) out.textContent = text;
   if (s.type === "hex"){
-    out.textContent = cfg[s.key] ? "" : "auto";
-    const sw = document.getElementById("sw-" + s.key);
     const paint = HEX_SWATCH[s.key];
-    if (sw && paint) sw.value = paint();
-    return;
+    if (el.sw && paint){ const v = paint(); if (el.sw.value !== v) el.sw.value = v; }
   }
-  out.textContent = cfg[s.key] + s.unit;
 }
 
 /* Each colour box stands over a slider: set it and the slider has nothing to

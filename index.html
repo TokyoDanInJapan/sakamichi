@@ -1288,10 +1288,7 @@ function liquidPath(ctx){
   /* a Path2D takes the same moves and has no beginPath to start */
   if (ctx.beginPath) ctx.beginPath();
   ctx.moveTo(l - over, syL);
-  for (let i = 0; i < N; i++){
-    const x = colX(i);
-    ctx.lineTo(x, backY(x));
-  }
+  for (let i = 0; i < N; i++) ctx.lineTo(colX(i), colBackY(i));
   ctx.lineTo(l + w + over, syR);
   const steps = 18;
   for (let i = 0; i <= steps; i++){
@@ -1321,7 +1318,7 @@ function headPath(ctx){
      about — which is how the glass gets to ask what the head is covering. */
   if (ctx.beginPath) ctx.beginPath();
   ctx.moveTo(l - over, headTopAt(l));
-  for (let i = 1; i < N; i++){ const x = colX(i); ctx.lineTo(x, headTopAt(x)); }
+  for (let i = 1; i < N; i++) ctx.lineTo(colX(i), colHeadTop(i));
   ctx.lineTo(l + w + over, headTopAt(l + w));
   /* The underside rides the head's own raft, not the beer's skin. Cut on the
      live surface it took every bubble that broke under it, so the waterline
@@ -1330,7 +1327,7 @@ function headPath(ctx){
      sits above the beer's arc, is the surface disc, which is beer: there is no
      gap to open. */
   ctx.lineTo(l + w + over, headFrontY(l + w) + 1);
-  for (let i = N - 1; i >= 0; i--){ const x = colX(i); ctx.lineTo(x, headFrontY(x) + 1); }
+  for (let i = N - 1; i >= 0; i--) ctx.lineTo(colX(i), colHeadFrontY(i) + 1);
   ctx.lineTo(l - over, headFrontY(l) + 1);
   ctx.closePath();
 }
@@ -1756,10 +1753,10 @@ function drawLiquid(){
 
   ctxL.beginPath();
   ctxL.moveTo(l - sOver, backY(l));
-  for (let i = 0; i < N; i++){ const x = colX(i); ctxL.lineTo(x, backY(x)); }
+  for (let i = 0; i < N; i++) ctxL.lineTo(colX(i), colBackY(i));
   ctxL.lineTo(l + w + sOver, backY(l + w));
   ctxL.lineTo(l + w + sOver, frontY(l + w));
-  for (let i = N - 1; i >= 0; i--){ const x = colX(i); ctxL.lineTo(x, frontY(x)); }
+  for (let i = N - 1; i >= 0; i--) ctxL.lineTo(colX(i), colFrontY(i));
   ctxL.lineTo(l - sOver, frontY(l));
   ctxL.closePath();
   ctxL.fillStyle = pal.surface;
@@ -1785,8 +1782,8 @@ function drawLiquid(){
     ctxL.save();
     ctxL.beginPath();
     ctxL.moveTo(l, backY(l));
-    for (let i = 1; i < N; i++){ const x = colX(i); ctxL.lineTo(x, backY(x)); }
-    for (let i = N - 1; i >= 0; i--){ const x = colX(i); ctxL.lineTo(x, backY(x) + depth); }
+    for (let i = 1; i < N; i++) ctxL.lineTo(colX(i), colBackY(i));
+    for (let i = N - 1; i >= 0; i--) ctxL.lineTo(colX(i), colBackY(i) + depth);
     ctxL.closePath();
     ctxL.clip();
     /* Built once at the origin and carried to each column by the transform —
@@ -1802,7 +1799,7 @@ function drawLiquid(){
     const snap = v => Math.round(v * dpr) / dpr;
     for (let i = 0; i < N; i++){
       const x = colX(i);
-      const y = backY(x);
+      const y = colBackY(i);
       /* Each column reaches halfway to the neighbours it actually has, which is
          no longer the same gap on both sides: the mesh follows the beer up and
          down the cone, so it is wider where the pour stands high. */
@@ -1815,7 +1812,7 @@ function drawLiquid(){
          a rising wave leaves slivers of that line unpainted. The gradient holds
          its first stop above the origin, so the reach is filled at the band's
          own top weight, and the clip trims whatever of it is above water. */
-      const up = y - Math.min(y, backY(xPrev), backY(xNext));
+      const up = y - Math.min(y, colBackY(Math.max(0, i - 1)), colBackY(Math.min(N - 1, i + 1)));
       ctxL.save();
       ctxL.translate(0, y);
       ctxL.fillRect(x0, -up, x1 - x0, depth + up);
@@ -1965,12 +1962,12 @@ function drawFoam(){
     const x0 = i === 0 ? l - over : snap((xPrev + x) * 0.5);
     const x1 = i === N - 1 ? l + w + over : snap((x + xNext) * 0.5);
     if (x1 <= x0) continue;
-    const soak = clamp(ellipseDy(x) * 0.55, 7, 20) * G.scale;
+    const soak = clamp(colDy(i) * 0.55, 7, 20) * G.scale;
     const wet = ctxF.createLinearGradient(0, 0, 0, -soak);
     wet.addColorStop(0, pal.foamWet);
     wet.addColorStop(1, "transparent");
     ctxF.save();
-    ctxF.translate(0, headFrontY(x) + 1);   /* the wet band sits on the same arc */
+    ctxF.translate(0, colHeadFrontY(i) + 1);   /* the wet band sits on the same arc */
     ctxF.fillStyle = wet;
     ctxF.fillRect(x0, -soak, x1 - x0, soak);
     ctxF.restore();
