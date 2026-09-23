@@ -102,6 +102,10 @@ panel and, in the canvas version, `goo=0`.
 - **Logo on the wall.** This is `logo-no-name.svg`, stored as the `LOGO_SVG`
   string in `src/sim.js`. Replace the string and update `LOGO_ASPECT`. Keep the
   `LOGO_PAD` inset, which stops the blur being cut off at the bitmap's edge.
+- **Favicon.** It is an inline SVG in the `<link rel="icon">` tag in
+  `src/page.html`.
+- **Beers.** The labels are in `beers/`. The names are in `BEERS` in
+  `src/page.js` and in `beers.json`.
 - **Glass and recipe.** `layoutGlass()` in `src/sim.js` sets the proportions.
   `HOUSE` and `PRESETS` in each `recipe.js` set the default recipe and the
   presets.
@@ -146,3 +150,9 @@ If WebGL2 is not available, the page offers the canvas version.
   context returns. Saved settings bring the glass back as it was.
 - With `prefers-reduced-motion`, the page shows one settled frame. The Motion
   control starts it.
+
+## Licence
+
+The code is MIT licensed (see `LICENSE`). The Sakamichi Brewing name, logo,
+wordmark, beer names and label images are the property of Sakamichi Brewing
+and are not covered by that licence. `NOTICE` lists them.

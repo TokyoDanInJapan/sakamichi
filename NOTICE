@@ -1,0 +1,15 @@
+Sakamichi Brewing brand and beer assets
+
+The MIT License in LICENSE covers the code in this repository. It does not
+cover the Sakamichi Brewing brand or its beers. These remain the property of
+Sakamichi Brewing, and no licence to use them is granted:
+
+- The names "Sakamichi Brewing", "Sakamichi", "Sakamichi Taproom" and
+  "Sakamichi North", and the names of the beers
+- The Sakamichi logo and wordmark, including logo-no-name.svg,
+  full-logo.png, the LOGO_SVG string in src/sim.js and the favicon in
+  src/page.html
+- The beer label images in beers/
+
+To reuse the code for another brand, replace these with your own. The README
+section "Rebranding" lists where each one is used.
