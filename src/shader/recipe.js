@@ -62,7 +62,7 @@ const PRESETS = {
 
 const STORE_KEY = "sakamichi-shader-v2";
 const cfg = Object.assign({}, HOUSE, {tilt:false, theme:"auto", running:true,
-                                     counter:"polished", preset:"helles"});
+                                     counter:"wood", preset:"helles"});
 
 try{
   const saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null");

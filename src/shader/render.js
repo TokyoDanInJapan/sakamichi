@@ -206,6 +206,19 @@ void main(){
  * ------------------------------------------------------------------ */
 /* Pass A — the pour and nothing else, premultiplied over a clear ground, so
    the whole dressed glass ends up in one texture the reflection can sample */
+const GLSL_CONTACT = `
+/* Where the head's near edge meets the beer, as an offset from the level arc.
+   The line is not ruled: it wanders by less than a bubble and climbs the glass
+   a little at the wall. Fixed to the glass, in house px. The foam and the beer
+   under it both read it, so the shadow follows the edge. */
+float contactWander(vec2 px){
+  float wallGap = max(0.0, innerHalfAt(px.y) - abs(px.x - GCX));
+  return uScale * (1.6 * (vnoise(vec2((px.x - GCX) / uScale * 0.30, 7.0)) - 0.5)
+                 + 0.8 * (vnoise(vec2((px.x - GCX) / uScale * 0.95, 3.0)) - 0.5)
+                 - 1.6 * exp(-wallGap / (2.5 * uScale)));
+}
+`;
+
 const FS_BEER = `#version 300 es
 precision highp float;
 ${GLSL_GLASS}
@@ -214,8 +227,10 @@ ${GLSL_LOGO}
 uniform sampler2D uField;
 uniform float uTime, uCaustics, uLevel, uHaze, uBeerA, uBeerSolid;
 uniform float uScale;        // G.scale: page px per px of the house-sized glass
+uniform float uLightX;       // cos of the light angle: which side the light is on
 uniform vec3  uLightTint, uAbsorb;
 out vec4 frag;
+${GLSL_CONTACT}
 
 
 /* The pour and its coverage. For its reflection it is mirrored about its
@@ -252,7 +267,20 @@ vec4 beerAt(vec2 px){
 
     float murk = vnoise(vec2(px.x * 0.016, px.y * 0.011 - uTime * 0.04))
                + vnoise(vec2(px.x * 0.050 + 9.0, px.y * 0.034 - uTime * 0.09)) * 0.5;
-    beer *= 1.0 + (murk * 0.667 - 0.5) * 0.14 * uHaze;
+    beer *= 1.0 + (murk * 0.667 - 0.5) * 0.06 * uHaze;
+
+    /* One broad lift on the side the light comes from, so the body has a
+       direction of light and is not an even fill. It is nought on the axis, so
+       the palette's calibration there holds. */
+    float lc = 0.6 * clamp(uLightX, -1.0, 1.0);
+    float lq = (nx - lc) / 0.65, l0 = lc / 0.65;
+    beer *= 1.0 + (exp(-lq * lq) - exp(-l0 * l0)) * mix(0.22, 0.09, uHaze);
+    /* Light let through the core, gathering towards the base. Scaled by how
+       much the beer lets through, so a pale beer glows and a stout does not. */
+    float cy = clamp((px.y - surf) / max(floorY - surf, 1.0), 0.0, 1.0);
+    float core = 1.0 - nx * nx;
+    beer *= 1.0 + 0.14 * core * core * (0.3 + 0.7 * cy * cy)
+                * dot(through * through, vec3(0.2126, 0.7152, 0.0722));
 
     /* Caustics only where the surface is actually disturbed — and haze kills them */
     float sl = slopeAt(px.x);
@@ -281,7 +309,7 @@ vec4 beerAt(vec2 px){
     beer += uLightTint * (0.12 + uHaze * 0.12) * exp(-d * 0.022);
 
     float wallD = ih - abs(px.x - GCX);
-    float men = smoothstep(2.8, 0.4, wallD);
+    float men = (1.0 - smoothstep(0.4, 2.8, wallD));
     beer += uLightTint * men * (0.08 + 0.46 * exp(-d * 0.03));
 
     /* The top plane of the beer, seen slightly from above. Its far and near arcs
@@ -297,6 +325,10 @@ vec4 beerAt(vec2 px){
     /* Shadow cast by the head */
     float fd = texture(uField, vec2(px.x / uRes.x, 1.0 - (surf + 6.0) / uRes.y)).r;
     beer *= 1.0 - 0.34 * clamp(fd, 0.0, 1.0) * exp(-d * 0.024);
+    /* and where the head rests on the beer: a short contact shadow under the
+       head's near edge, which is the edge that shows */
+    float hfront = headSurfaceAt(px.x) + edy + contactWander(px);
+    beer *= 1.0 - 0.09 * clamp(fd * 2.0, 0.0, 1.0) * exp(-max(px.y - hfront, 0.0) / (3.0 * uScale));
 
     beer += (hash21(px * 1.7 + uTime) - 0.5) * 0.006;
     /* Softened at the floor too: its arc runs almost level, so a hard cut leaves
@@ -426,8 +458,8 @@ void main(){
      multiplier so the seam survives the light the compose pass pools there. */
   vec2 q = vec2((px.x - GCX) / bw, (px.y - baseCY) / max(ryB, 1.0));
   float rq = length(q);
-  float shade = (1.0 - smoothstep(3.2, 1.0, rq) * (uDark > 0.5 ? 0.55 : 0.30) * uGlassOn)
-              * (1.0 - smoothstep(1.34, 1.0, rq) * (uDark > 0.5 ? 0.62 : 0.42) * uGlassOn);
+  float shade = (1.0 - (1.0 - smoothstep(1.0, 3.2, rq)) * (uDark > 0.5 ? 0.55 : 0.30) * uGlassOn)
+              * (1.0 - (1.0 - smoothstep(1.0, 1.34, rq)) * (uDark > 0.5 ? 0.62 : 0.42) * uGlassOn);
   col *= grain * shade;
   m *= grain * shade;
 
@@ -618,33 +650,40 @@ void main(){
     if (d > 1.0) discard;
     if (vPx.y < surfaceAt(vPx.x) + ellipseDy(vPx.x)) discard;
     if (abs(vPx.x - GCX) > innerHalfAt(vPx.y)) discard;
+    /* A fine bubble is too small for a ring: a soft bright point, tinted by the
+       beer in front of it */
+    if (vRad.x < 1.8){
+      float pa = 0.55 * (1.0 - smoothstep(0.2, 1.0, d));
+      frag = vec4(mix(vec3(1.0), uBeerSeen, 0.30 + 0.55 * vFar), pa * vAlpha * (1.0 - 0.55 * vFar));
+      return;
+    }
     float e = clamp(2.0 / vRad.x, 0.02, 0.6);
-    float outer   = smoothstep(1.0, 1.0 - e * 1.2, d);
-    float shell   = smoothstep(1.0 - e * 1.0, 1.0 - e * 3.0, d);
-    float inside  = smoothstep(1.0 - e * 3.0, 1.0 - e * 5.0, d);
+    float outer   = (1.0 - smoothstep(1.0 - e * 1.2, 1.0, d));
+    float shell   = (1.0 - smoothstep(1.0 - e * 3.0, 1.0 - e * 1.0, d));
+    float inside  = (1.0 - smoothstep(1.0 - e * 5.0, 1.0 - e * 3.0, d));
     float outline = clamp(outer - shell, 0.0, 1.0);
     float rim     = clamp(shell - inside, 0.0, 1.0);
-    float pip     = smoothstep(0.32, 0.0, length(vLocal - vec2(-0.30, -0.34)));
-    float wRim = rim + pip * 0.9;
+    float pip     = (1.0 - smoothstep(0.0, 0.32, length(vLocal - vec2(-0.30, -0.34))));
+    float wRim = rim + pip * 0.45;
     vec3 col = (vec3(1.0) * wRim + uBeer * 0.42 * outline) / max(wRim + outline, 0.0001);
     /* A bubble at the back of the glass is seen through the beer in front of
        it: dimmer, and coloured by it */
     col = mix(col, uBeerSeen, vFar * 0.55);
-    frag = vec4(col, clamp(rim * 0.7 + outline * 0.55 + pip * 0.5 + inside * 0.05, 0.0, 1.0)
+    frag = vec4(col, clamp(rim * 0.7 + outline * 0.55 + pip * 0.28 + inside * 0.05, 0.0, 1.0)
                      * vAlpha * (1.0 - vFar * 0.45));
   } else if (vKind < 1.5){
     if (d > 1.0) discard;
     float e = clamp(2.0 / vRad.x, 0.02, 0.6);
-    float body = smoothstep(1.0, 1.0 - e * 2.0, d);
-    float pip  = smoothstep(0.36, 0.02, length(vLocal - vec2(-0.28, -0.36)));
+    float body = (1.0 - smoothstep(1.0 - e * 2.0, 1.0, d));
+    float pip  = (1.0 - smoothstep(0.02, 0.36, length(vLocal - vec2(-0.28, -0.36))));
     frag = vec4(mix(uBeer, vec3(1.0), pip * 0.7), body * vAlpha);
   } else if (vKind < 2.5){
     if (d > 1.0) discard;
-    frag = vec4(uFoam, smoothstep(1.0, 0.1, d) * 0.55 * vAlpha);
+    frag = vec4(uFoam, (1.0 - smoothstep(0.1, 1.0, d)) * 0.55 * vAlpha);
   } else if (vKind < 4.5){
     if (d > 1.0) discard;
-    float ring = smoothstep(1.0, 0.70, d) * smoothstep(0.28, 0.62, d);
-    float pip  = smoothstep(0.46, 0.05, length(vLocal - vec2(-0.32, -0.36)));
+    float ring = (1.0 - smoothstep(0.70, 1.0, d)) * smoothstep(0.28, 0.62, d);
+    float pip  = (1.0 - smoothstep(0.05, 0.46, length(vLocal - vec2(-0.32, -0.36))));
     float sag  = smoothstep(0.2, 1.0, d) * step(0.15, vLocal.y);   /* heavier below */
     vec3 col = mix(vec3(0.03, 0.04, 0.05), vec3(1.0), clamp(pip * 1.4, 0.0, 1.0));
     frag = vec4(col, clamp(ring * 0.45 + sag * 0.20 + pip * 0.9, 0.0, 1.0) * vAlpha);
@@ -659,7 +698,7 @@ void main(){
     float lu = (vPx.x - GCX) / lrRx;
     if (abs(lu) > 1.0) discard;
     if (vPx.y < lrCy - lrRy * ${glf(RIM_INNER)} * sqrt(max(0.0, 1.0 - lu * lu))) discard;
-    frag = vec4(uFoam, smoothstep(1.0, 0.2, d) * 0.55 * vAlpha);
+    frag = vec4(uFoam, (1.0 - smoothstep(0.2, 1.0, d)) * 0.55 * vAlpha);
   }
 }`;
 
@@ -677,6 +716,7 @@ uniform float uCrest;        // how far the head stands above the lip, at its hi
 uniform vec2  uLightDir;
 uniform vec3  uFoam, uFoamShade, uFoamWet, uBeerTint;
 out vec4 frag;
+${GLSL_CONTACT}
 
 /* Held at 1, where a byte field saturates: a float one keeps adding, and the
    thresholds and the relief below were set against a field that stops there */
@@ -735,6 +775,7 @@ void main(){
   /* and nothing below the near arc of the beer it floats on (cut again below).
      Asked here, before the taps, it spares the whole body of the pour them. */
   float front = headSurfaceAt(px.x) + ellipseDy(px.x);
+  front += contactWander(px);
   if (px.y >= front + 1.2) discard;
 
   /* A head is a body of foam, not a heap of blobs. The outline is filled in as
@@ -787,10 +828,16 @@ void main(){
   /* The face of the head is pressed flat against the glass — relief belongs
      to the outline, not to blob seams inside the solid mass */
   float edgeW = 1.0 - smoothstep(0.35, 0.75, f);
-  vec3 nrm = normalize(vec3(-fx * uRelief * 30.0 * edgeW, -fy * uRelief * 30.0 * edgeW, 1.0));
+  /* The body's own shape, which the field cannot give (it is solid inside the
+     head): the face turns away at each side as the glass does, and the crown
+     tips up towards the light. Shading only, not geometry. */
+  float nxh   = clamp((px.x - GCX) / max(ihLip, 1.0), -1.0, 1.0);
+  float crown = smoothstep(0.45, 0.95, clamp((front - px.y) / max(front - headTop, 1.0), 0.0, 1.0));
+  vec3 nrm = normalize(vec3(0.50 * nxh, -0.65 * crown, 1.0)
+                     + vec3(-fx, -fy, 0.0) * uRelief * 30.0 * edgeW);
 
   vec3 L = normalize(vec3(uLightDir, 0.85));
-  float dif = clamp(dot(nrm, L) * 0.5 + 0.62, 0.0, 1.3);
+  float dif = 0.58 + 0.34 * max(dot(nrm, L), 0.0);
 
   float cells = vnoise(px * 0.16 + vec2(uTime * 0.05, 0.0)) * 0.7
               + vnoise(px * 0.45 - vec2(0.0, uTime * 0.08)) * 0.3;
@@ -802,32 +849,39 @@ void main(){
   float pores  = vnoise(px * 0.85 * pf + vec2(uTime * 0.03, 0.0));
   float pores2 = vnoise(px * 1.90 * pf + vec2(0.0, uTime * 0.02));
   dif *= 1.0 - smoothstep(0.60, 0.95, pores) * (0.12 + uCoarse * 0.10 + tH * 0.05)
-             - smoothstep(0.68, 0.98, pores2) * 0.10;
+             - smoothstep(0.68, 0.98, pores2) * 0.05;
 
-  vec2 cp = px * (0.05 * mix(1.25, 0.75, uCoarse));
+  /* Visible bubbles: mostly small, a few large, as a real head sorts them */
+  vec2 cp = px / uScale * (0.07 * mix(1.25, 0.75, uCoarse));
   vec2 ci = floor(cp), cf = fract(cp);
-  float on = step(0.90 - tH * 0.18 - uCoarse * 0.12, hash21(ci));
+  float on = step(0.72 - tH * 0.22 - uCoarse * 0.12, hash21(ci));
   vec2 cc = 0.25 + 0.5 * vec2(hash21(ci + 3.7), hash21(ci + 9.1));
-  float cr = 0.16 + 0.20 * hash21(ci + 5.3);
-  float ring = smoothstep(0.09, 0.02, abs(distance(cf, cc) - cr)) * on;
-  float pip  = smoothstep(cr * 0.45, 0.0, distance(cf, cc + vec2(-0.09, -0.09))) * on;
-  dif -= ring * 0.14;
+  float cr = mix(0.07, 0.34, pow(hash21(ci + 5.3), 2.8));
+  float ring = (1.0 - smoothstep(0.015, 0.07, abs(distance(cf, cc) - cr))) * on;
+  float pip  = (1.0 - smoothstep(0.0, cr * 0.45, distance(cf, cc + vec2(-0.09, -0.09)))) * on;
+  dif -= ring * 0.10;
 
-  vec3 base = mix(uFoamWet, uFoam, smoothstep(0.0, 0.55, tH));
+  vec3 base = mix(uFoamWet, uFoam, smoothstep(0.0, 0.32, tH));
   vec3 col = mix(uFoamShade, base, clamp(dif, 0.0, 1.0));
 
   col *= 0.88 + 0.12 * smoothstep(0.16, 0.40, f);
 
   vec3 H = normalize(L + vec3(0.0, 0.0, 1.0));
-  col += vec3(1.0) * pow(clamp(dot(nrm, H), 0.0, 1.0), 26.0) * uGloss * mix(0.6, 0.25, tH);
-  col += vec3(1.0) * smoothstep(0.82, 0.99, pores2) * uGloss * 0.12;
-  col += vec3(1.0) * pip * (0.04 + uGloss * 0.10);
+  /* The highlights roll off towards white and cannot pass it, so the crown
+     keeps its tone under them */
+  float spec = pow(clamp(dot(nrm, H), 0.0, 1.0), 26.0) * uGloss * mix(0.6, 0.25, tH)
+             + smoothstep(0.82, 0.99, pores2) * uGloss * 0.12
+             + pip * (0.04 + uGloss * 0.10);
+  col = mix(col, vec3(0.98), 1.0 - exp(-spec));
 
   /* Soaked as deep as the head stands in the beer: the surface lens's depth at
      this column, not a fixed band, which drew its own edge part way across the
      lens. Over a short reach only, or the head grades into the beer with no edge. */
   float lens = clamp(ellipseDy(px.x) * 0.55, 7.0, 20.0);
-  col = mix(col, col * uBeerTint, smoothstep(-lens, 3.0, px.y - front) * 0.45);
+  col = mix(col, col * uBeerTint, smoothstep(-lens, 3.0, px.y - front) * 0.20);
+  /* and a narrow wet strip right at the contact, which is what reads as the
+     foam standing in the beer and not painted over it */
+  col = mix(col, col * uBeerTint, exp(-max(front - px.y, 0.0) / (3.0 * uScale)) * 0.32);
 
   frag = vec4(col, mask);
 }`;
@@ -885,12 +939,12 @@ void main(){
     a = max(a, fres * (uDark > 0.5 ? 0.16 : 0.12) * uLine);
   }
 
-  float outerLine = smoothstep(w, 0.0, abs(outer)) * step(rimTanY, px.y) * step(px.y, GBOT);
+  float outerLine = (1.0 - smoothstep(0.0, w, abs(outer))) * step(rimTanY, px.y) * step(px.y, GBOT);
   /* The inner wall runs from the rim's widest points to the floor's and stops.
      There a wall seen edge-on meets the ellipse it stands on, tangent, so the
      line hands over without a join. Carried past the floor it crosses the floor
      ellipse and ends in mid air under it. The outer wall stops likewise. */
-  float innerLine = smoothstep(w, 0.0, abs(inner))
+  float innerLine = (1.0 - smoothstep(0.0, w, abs(inner)))
                   * smoothstep(rimTanY - 1.0, rimTanY + 3.0, px.y)
                   * (1.0 - smoothstep(GINBOT - 1.0, GINBOT + 0.5, px.y));
   col = mix(col, uEdge, clamp(outerLine, 0.0, 1.0));
@@ -908,8 +962,10 @@ void main(){
     float sd = px.x < GCX ? 0.0 : 7.3;
     float along1 = 0.55 + 0.45 * vnoise(vec2(yy * 4.5 + sd, 1.3));
     float along2 = 0.40 + 0.60 * vnoise(vec2(yy * 7.0 + sd, 5.9));
-    float d1 = (u - 0.66) / 0.050, d2 = (u - 0.48) / 0.022;
-    float refl = exp(-d1 * d1) * 0.5 * along1 + exp(-d2 * d2) * 0.26 * along2;
+    /* One reflection leads and the other is faint beside it; two alike read as
+       painted stripes. The leader's width breathes down its length. */
+    float d1 = (u - 0.66) / (0.036 + 0.026 * along1), d2 = (u - 0.48) / 0.020;
+    float refl = exp(-d1 * d1) * 0.5 * along1 + exp(-d2 * d2) * 0.11 * along2;
     refl *= smoothstep(rimTanY, rimTanY + rimRy * 3.0, px.y) * (1.0 - smoothstep(GBOT - GBASE * 2.4, GBOT, px.y));
     refl *= 1.0 + side * 0.5 * min(abs(uLightX) * 1.6, 1.0);
     col = mix(col, uLight, clamp(refl, 0.0, 1.0));
@@ -922,20 +978,20 @@ void main(){
   float lipF = clamp((px.y - rimTanY) / max(rimRy, 1.0) * 0.5 + 0.5, 0.0, 1.0);
 
   float rim = abs(length(rc) - 1.0) * rimRx;
-  float rimLine = smoothstep(GWALL * mix(0.34, 0.78, lipF), 0.0, rim);
+  float rimLine = (1.0 - smoothstep(0.0, GWALL * mix(0.34, 0.78, lipF), rim));
   col = mix(col, mix(uEdge, uLight, lipF), clamp(rimLine * mix(0.75, 1.2, lipF), 0.0, 1.0));
   a = max(a, rimLine * mix(0.38, 1.0, lipF) * uLine);
 
   float riRx = max(rimRx - GWALL, 1.0);
   vec2 ric = vec2((px.x - GCX) / riRx, (px.y - rimTanY) / max(rimRy * ${glf(RIM_INNER)}, 1.0));
-  float rimInLine = smoothstep(GWALL * mix(0.28, 0.52, lipF), 0.0, abs(length(ric) - 1.0) * riRx);
+  float rimInLine = (1.0 - smoothstep(0.0, GWALL * mix(0.28, 0.52, lipF), abs(length(ric) - 1.0) * riRx));
   col = mix(col, uLight, clamp(rimInLine * 0.85, 0.0, 1.0));
   a = max(a, rimInLine * mix(0.26, 0.66, lipF) * uLine);
 
   if ((px.y > GBOT - GBASE * 2.1 && px.y <= GBOT && outer < 0.0) || inBulge){
     float t = smoothstep(GBOT - GBASE * 2.1, GBOT + ryB, px.y);
-    col = mix(col, uLight, t * 0.7);
-    a = max(a, t * (uDark > 0.5 ? 0.22 : 0.38));
+    col = mix(col, uLight, t * 0.42);
+    a = max(a, t * (uDark > 0.5 ? 0.18 : 0.30));
     if (uLevel > 0.02){
       /* The glow lights the base below the interior floor, an ellipse. Ramps in x
          times ramps in y would give a soft box, so the falloff is measured out
@@ -952,9 +1008,9 @@ void main(){
                * smoothstep(floorFront - 1.0, floorFront + 5.0, px.y) * lvl;
       /* cooled towards the glass it is, so the base does not read as more
          beer below the beer */
-      vec3 lit = mix(uBeerGlow, vec3(0.62, 0.68, 0.72), 0.42);
-      col = mix(col, lit, bt * 0.52);
-      a = max(a, bt * 0.36);
+      vec3 lit = mix(uBeerGlow, vec3(0.62, 0.68, 0.72), 0.20);
+      col = mix(col, lit, bt * 0.60);
+      a = max(a, bt * 0.44);
     }
   }
 
@@ -982,13 +1038,13 @@ void main(){
   }
 
   float botD = abs(length(bcS) - 1.0) * bw;
-  float botLine = smoothstep(w, 0.0, botD) * step(GBOT - 1.0, px.y);
+  float botLine = (1.0 - smoothstep(0.0, w, botD)) * step(GBOT - 1.0, px.y);
   col = mix(col, uEdge, clamp(botLine, 0.0, 1.0));
   a = max(a, botLine * 0.72 * uLine);
 
   vec2 bc = vec2((px.x - GCX) / max(bw * 0.86, 1.0), (px.y - GBOT) / max(ryB * 0.86, 1.0));
   float baseArc = abs(length(bc) - 1.0) * bw * 0.86;
-  float baseLine = smoothstep(GWALL * 0.5, 0.0, baseArc);
+  float baseLine = (1.0 - smoothstep(0.0, GWALL * 0.5, baseArc));
   baseLine *= 1.0 - max(headCov, beerCov) * (1.0 - clamp(bc.y * 0.5 + 0.5, 0.0, 1.0));
   col = mix(col, uLight, clamp(baseLine, 0.0, 1.0));
   a = max(a, baseLine * 0.45 * uLine);
@@ -1000,7 +1056,7 @@ void main(){
   vec2 fc = vec2((px.x - GCX) / fihw, (px.y - GINBOT) / max(fihw * uRyKs.y, 1.0));
   float floorArc = abs(length(fc) - 1.0) * fihw;
   float floorNear = clamp((px.y - GINBOT) / max(fihw * uRyKs.y, 1.0) * 0.5 + 0.5, 0.0, 1.0);
-  float floorLine = smoothstep(GWALL * 0.55, 0.0, floorArc);
+  float floorLine = (1.0 - smoothstep(0.0, GWALL * 0.55, floorArc));
   floorLine *= 1.0 - max(headCov, beerCov) * (1.0 - floorNear);
   col = mix(col, mix(uEdge, uLight, floorNear), clamp(floorLine, 0.0, 1.0));
   a = max(a, floorLine * mix(0.42, 0.72, floorNear) * uLine);
@@ -1175,7 +1231,7 @@ void main(){
        into a blot inside the mouth (a dark comma). Edge-on a stroke has no shade. */
     float edge = min(1.0, abs(cos(th)) * 3.4);
     over(acc, vec3(0.353, 0.282, 0.173),
-         smoothstep(lw * 0.5, lw * 0.5 - 1.0, perp) * 0.28 * 0.5 * edge * uWeepAlive);
+         (1.0 - smoothstep(lw * 0.5 - 1.0, lw * 0.5, perp)) * 0.28 * 0.5 * edge * uWeepAlive);
   }
 
   /* One body apiece: the tail and its bead are the same foam, and two overlapping
@@ -1208,15 +1264,15 @@ void main(){
     float underLip = smoothstep(-0.7, 0.7, px.y - lipSideY(px.x, side));
     if (underLip > 0.001){
       if (px.y <= endP.y){
-        cover = smoothstep(phw + 0.7, phw - 0.7, abs(px.x - cxr));
+        cover = (1.0 - smoothstep(phw - 0.7, phw + 0.7, abs(px.x - cxr)));
       } else if (pool > 0.0){
         /* It has arrived. Foam standing on the bottom has its whole width against
            the base's arc, so a rounded end there would be a drop in mid air. */
-        cover = smoothstep(endHw + 0.7, endHw - 0.7, abs(px.x - endP.x))
+        cover = (1.0 - smoothstep(endHw - 0.7, endHw + 0.7, abs(px.x - endP.x)))
               * step(px.y, footSideY(px.x, side));
       } else {
         vec2 q = vec2((px.x - endP.x) / endHw, (px.y - endP.y) / max(0.35, rr));
-        cover = smoothstep(1.0, 1.0 - 1.4 / max(endHw, 1.0), length(q));
+        cover = (1.0 - smoothstep(1.0 - 1.4 / max(endHw, 1.0), 1.0, length(q)));
       }
     }
     over(acc, foamGrain(px), cover * underLip * a);
@@ -1227,7 +1283,7 @@ void main(){
     if (hw0 > 2.2 && cover > 0.02 && phw >= 1.1 && px.y <= endP.y){
       float lwid = max(0.6, hw0 * 0.34);
       float dl = abs(px.x - (cxr - phw * 0.42));
-      over(acc, vec3(1.0), smoothstep(lwid * 0.5, 0.0, dl) * a * 0.32 * 0.55);
+      over(acc, vec3(1.0), (1.0 - smoothstep(0.0, lwid * 0.5, dl)) * a * 0.32 * 0.55);
     }
 
     /* and what got all the way down runs off the glass and lies on the bar. Only
@@ -1237,7 +1293,7 @@ void main(){
       float prx = max(1.0, pool);
       vec2 q = vec2((px.x - endP.x) / prx, (px.y - endP.y - rr) / pry);
       float e = 1.0 / min(prx, pry);
-      over(acc, uFoam, smoothstep(1.0 + e, 1.0 - e, length(q)) * a * 0.8);
+      over(acc, uFoam, (1.0 - smoothstep(1.0 - e, 1.0 + e, length(q))) * a * 0.8);
     }
   }
 
@@ -1250,7 +1306,7 @@ void main(){
     float yTop = rimCy() - rimRy() * cos(th);
     vec2 hp = hemPt(th);
     float band = smoothstep(yTop - 0.7, yTop + 0.7, px.y)
-               * smoothstep(hp.y + 0.7, hp.y - 0.7, px.y);
+               * (1.0 - smoothstep(hp.y - 0.7, hp.y + 0.7, px.y));
     /* The mouth is not covered: foam over the lip lies on the ring and hangs down
        the outside, it is not a lid. The cut is a hair inside the bore (inset), so
        the collar laps the head, but only a hair: eight pixels read as a band of
@@ -1622,9 +1678,11 @@ function buildPalette(){
     absorb,
     /* Foam is beer held in bubble walls: a pilsner head is bright white, a
        bock head beige. The wet band at the beer line carries the most colour. */
-    foam: hslToRgb(38 + (h - 40) * 0.6, 24 + r * 30, dark ? 90 - r * 7 : 97 - r * 8),
-    foamShade: hslToRgb(34 + (h - 40) * 0.5, 26 + r * 22, (dark ? 54 : 60) - r * 12),
-    foamWet: hslToRgb(h + 4, 55 + r * 20, dark ? 74 - r * 12 : 84 - r * 14),
+    foam: hslToRgb(38 + (h - 40) * 0.6, 16 + r * 20, dark ? 90 - r * 7 : 97 - r * 8),
+    foamShade: hslToRgb(34 + (h - 40) * 0.5, 26 + r * 22, (dark ? 54 : 68) - r * 12),
+    /* less colour the darker the beer: a stout's head is tan where it is wet,
+       not orange */
+    foamWet: hslToRgb(h + 4, 58 - r * 26, dark ? 74 - r * 12 : 84 - r * 14),
     foamCoarse: clamp(0.15 + (cfg.bubbleSize - 100) / 100 * 0.45 + r * 0.45
                            - (cfg.carbonation - 100) / 100 * 0.15, 0, 1),
     beerMid: hslToRgb(h + 2, 78, 54),
@@ -1634,7 +1692,7 @@ function buildPalette(){
       const y = Math.exp(-absorb[i] * D / 2);
       return lt * y * y * (1 - m) + lt * scat * y * m;
     }),
-    beerTint: hslToRgb(h, 70, 62),
+    beerTint: hslToRgb(h, 72 - r * 34, 62),
     glassEdge: dark ? [0.93, 0.95, 0.96] : [0.05, 0.07, 0.10],
     glassLight: [1, 1, 1],
     glow: dark ? 0.30 : 0.18
@@ -1744,8 +1802,10 @@ function drawSprites(){
      without a z is in the middle. */
   for (const b of bubbles){
     const z = clamp(b.z || 0, -1, 1);
-    const r = Math.max(1.2, b.r * (1 + 0.16 * z));
-    push(b.x, b.y, r, r, 0, 1, Math.max(0, -z));
+    const r = Math.max(0.9, b.r * (1 + 0.16 * z));
+    /* every bubble has some beer in front of it; only one on the near wall
+       has none */
+    push(b.x, b.y, r, r, 0, 1, 0.38 * (1 - z));
   }
   for (const d of drops){
     if ((d.near || 0) >= 0) continue;
@@ -1911,6 +1971,7 @@ function render(){
     gl.uniform1f(progBeer.u.uCaustics, cfg.caustics / 100 * 0.55);
     gl.uniform1f(progBeer.u.uHaze, 1 - cfg.clarity / 100);
     gl.uniform1f(progBeer.u.uScale, G.scale);
+    gl.uniform1f(progBeer.u.uLightX, Math.cos(cfg.lightAngle * Math.PI / 180));
     /* Composited, not written: the back-of-glass weep is already in the sheet and
        the pour goes over it. Output is premultiplied, so no second alpha multiply. */
     gl.enable(gl.BLEND);
@@ -1963,7 +2024,7 @@ function render(){
     setShared(progGlass, dpr);
     gl.uniform3fv(progGlass.u.uEdge, pal.glassEdge);
     gl.uniform3fv(progGlass.u.uLight, pal.glassLight);
-    gl.uniform3fv(progGlass.u.uBeerGlow, pal.beerTint);
+    gl.uniform3fv(progGlass.u.uBeerGlow, pal.beerSeen);
     gl.uniform1f(progGlass.u.uDark, pal.dark ? 1 : 0);
     gl.uniform1f(progGlass.u.uLightX, Math.cos(cfg.lightAngle * Math.PI / 180));
     gl.uniform1f(progGlass.u.uLevel, level);

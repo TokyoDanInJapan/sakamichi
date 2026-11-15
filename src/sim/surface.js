@@ -720,6 +720,7 @@ function remesh(moved, maxCols = Infinity, maxFoam = Infinity){
      the glass. The square root of a random radius stops them crowding the
      middle. */
   const n = clamp(Math.round(G.topHalf / 26), 3, 12);
+  const STREAM_SITES = 5;
   const floorHalf = innerHalfAt(G.inBottom - 4);
   /* The sites are kept across a resize so bubble streams do not jump when the
      frame timer drops quality, and are scattered afresh only when the count
@@ -737,7 +738,9 @@ function remesh(moved, maxCols = Infinity, maxFoam = Infinity){
         u: Math.cos(th) * rr * floorHalf,
         v: Math.sin(th) * rr,              /* -1 at the back of the floor, +1 at the front */
         half: floorHalf,
-        acc: Math.random(), rate: rand(1.4, 3.2), scale: rand(0.6, 1.5)
+        acc: Math.random(), rate: rand(1.4, 3.2), scale: rand(0.6, 1.5),
+        /* the first few also send up a stream of fine bubbles, this many a second */
+        stream: i < STREAM_SITES ? rand(5, 8) : 0, fine: Math.random(), gas: 0
       });
     }
   }
