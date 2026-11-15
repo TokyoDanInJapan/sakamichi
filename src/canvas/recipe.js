@@ -40,15 +40,10 @@ const HOUSE = {
   beerAlpha:100, bgHue:220, beerHex:null, roomHex:null, auraHex:null
 };
 
-/* A style is the whole recipe, not a colour and a hint. Choosing one sets
-   everything the beer itself decides — how dark it is and how much light it
-   stops, how it carbonates and how its head stands, how thick it runs and how
-   readily it weeps — and leaves alone the things you decide: how full the
-   glass is, how hard you are stirring it, how big it is drawn.
-
-   A stout stops light altogether and a sour is nearly clear; that is the same
-   slider at two ends of its travel, and a style that set the colour but not
-   the opacity was only half a style. */
+/* A style sets everything the beer itself decides (colour, opacity,
+   carbonation, head, viscosity, weep) and leaves alone what the viewer
+   decides (fill, agitation, glass size). Opacity must be part of it: a stout
+   and a sour are the same slider at opposite ends. */
 const PRESETS = {
   pilsner: {hue:45, richness:22, beerAlpha:115, carbonation:145, bubbleSize:75, bubbleBreak:125, headDepth:135, foamChurn:130, weep:110, waveSpeed:56, viscosity:24, condensation:110, dewSize:90},
   helles:  {hue:40, richness:46, beerAlpha:140, carbonation:100, bubbleSize:100, bubbleBreak:100, headDepth:100, foamChurn:100, weep:100, waveSpeed:46, viscosity:40, condensation:70, dewSize:100},
@@ -67,7 +62,7 @@ const cfg = Object.assign({}, HOUSE, {tilt:false, theme:"auto", goo:true, runnin
 try{
   const saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
   if (saved && typeof saved === "object") Object.assign(cfg, saved);
-}catch(e){ /* storage unavailable — house recipe it is */ }
+}catch(e){ /* storage unavailable: house recipe */ }
 
 /* Deep links: ?theme=dark&fill=95&hue=28&panel=1 */
 const params = new URLSearchParams(location.search);
