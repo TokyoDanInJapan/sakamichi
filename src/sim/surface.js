@@ -490,15 +490,22 @@ function stepWavesFor(dt){
 /* About fifty degrees. A slosh across the glass reaches forty, so only the
    front of a wave driven into a wall meets the limit. */
 const MAX_FACE = 1.2;
+/* Sweeps of the limiter in one substep, at most. A gentle front is at the limit
+   in a few; a hard swipe would need hundreds, and is left a tenth over. */
+const CREST_PASSES = 32;
 /* Foam rate per second while a crest breaks, not a chance per substep, so it
    does not depend on how the frame was cut. */
 const CREST_FOAM_RATE = 300;
 function breakCrests(dt){
   if (!N || !hArr) return false;
-  const A = grid();
+  let A = grid();
   let moved = false;
-  /* A steep front is let down one column at a time, so repeat until quiet */
-  for (let pass = 0; pass < 8; pass++){
+  /* A steep front is let down one column at a time, so repeat until quiet. The
+     columns ride the surface, so moving beer moves them: the spacing is
+     measured again before each pass. Held against the spacing from before the
+     first pass, the faces came out up to 40 per cent over the limit however
+     many passes were made. */
+  for (let pass = 0; pass < CREST_PASSES; pass++){
     let quiet = true;
     for (let i = 0; i < N - 1; i++){
       const d = hArr[i + 1] - hArr[i];
@@ -520,6 +527,7 @@ function breakCrests(dt){
       }
     }
     if (quiet) break;
+    A = grid();
   }
   return moved;
 }
