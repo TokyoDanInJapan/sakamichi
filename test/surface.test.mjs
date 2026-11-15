@@ -111,22 +111,24 @@ function steepest(step, drive, transform){
   return { worst, maxFace: s.run("MAX_FACE") };
 }
 
-/* Measured with the limiter in place: 1.2 to 1.7 for drives of 50 to 800 at
-   1/60 and 1/144 (see the todo below). With it taken out: 2.5 to 40. */
+/* Measured with the limiter in place: 1.20 to 1.33 for drives of 50 to 800 at
+   1/60 and 1/144. With it taken out: 2.5 to 40. A hard drive is left a little
+   over, since the limiter stops at CREST_PASSES sweeps. */
 for (const step of [1 / 60, 1 / 144]){
   for (const drive of [200, 400]){
     test(`crest limiter keeps the face slope near MAX_FACE (drive ${drive}, 1/${Math.round(1 / step)})`, () => {
       const { worst, maxFace } = steepest(step, drive);
-      assert.ok(worst < maxFace * 2, `steepest face ${worst}, limit ${maxFace}`);
+      assert.ok(worst < maxFace * 1.15, `steepest face ${worst}, limit ${maxFace}`);
     });
   }
 }
 
-/* What the comment on MAX_FACE promises is a slope at or under the limit. The
-   limiter leaves faces 20 to 40 per cent over it (its eight sweeps do not
-   always finish the job), so this is marked todo: it reports, and does not
-   fail the run. Remove the flag when the limiter is exact. */
-test("crest limiter holds the face slope at or under MAX_FACE", { todo: "measured up to 1.69 against 1.2" }, () => {
-  const { worst, maxFace } = steepest(1 / 144, 100);
-  assert.ok(worst <= maxFace + 0.01, `steepest face ${worst}, limit ${maxFace}`);
-});
+/* What the comment on MAX_FACE promises is a slope at or under the limit, and
+   a gentle drive gets exactly that. It did not while the limiter measured the
+   column spacing once and then moved the columns: 1.59 against 1.2. */
+for (const step of [1 / 60, 1 / 144]){
+  test(`crest limiter holds the face slope at or under MAX_FACE (1/${Math.round(1 / step)})`, () => {
+    const { worst, maxFace } = steepest(step, 100);
+    assert.ok(worst <= maxFace + 0.01, `steepest face ${worst}, limit ${maxFace}`);
+  });
+}

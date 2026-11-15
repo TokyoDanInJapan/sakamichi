@@ -931,10 +931,20 @@ void main(){
 
   /* Glass reflects more the more obliquely it is seen, so towards the silhouette
      the wall picks up the room's light and reads as a thickness. On a pale wall
-     it picks up the wall, so the edge goes a little darker instead. */
-  if (outer < 0.0 && px.y >= rimTanY && px.y <= GBOT){
+     it picks up the wall, so the edge goes a little darker instead.
+     Above the rim's widest line the silhouette is the rim's far arc, so the
+     measure there is the ellipse's own radius. Stopped at that line, the fade
+     ended on a level cut across the middle of the mouth. Round the arc the wall
+     turns to face us, so it thins by how far to the side it stands and is gone
+     at the back. Both measures agree on the line, so there is no join. */
+  if ((outer < 0.0 && px.y >= rimTanY && px.y <= GBOT) || inTopLens){
     float fu = dx / max(halfAt(px.y), 1.0);
-    float fres = pow(smoothstep(0.62, 1.0, fu), 2.5);
+    float turn = 1.0;
+    if (px.y < rimTanY){
+      fu = length(rc);
+      turn = rc.x * rc.x / max(fu * fu, 0.0001);
+    }
+    float fres = pow(smoothstep(0.62, 1.0, fu), 2.5) * turn;
     col = mix(col, uDark > 0.5 ? uLight : mix(uEdge, uLight, 0.45), fres);
     a = max(a, fres * (uDark > 0.5 ? 0.16 : 0.12) * uLine);
   }
