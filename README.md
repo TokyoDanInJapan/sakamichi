@@ -136,7 +136,7 @@ The panel has seven style presets (Pilsner, Helles, Bock, Stout, Hazy IPA,
 Red ale and Sour) and sliders grouped as Pour, Motion, Carbonation, Head,
 Glass and Colour. The shader version adds an Optics group (caustics, light
 angle and gloss), plus foam relief and clarity. Under Display you can set the
-theme, the counter (polished or wood), motion and, on a phone, tilt. The
+theme, the counter (wood by default, or polished), motion and, on a phone, tilt. The
 canvas version can also turn off the gooey head.
 
 Settings are saved in `localStorage`, separately for each version

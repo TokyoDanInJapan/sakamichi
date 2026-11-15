@@ -28,14 +28,16 @@ const dropScale = d => 1 + 0.45 * clamp(d.near || 0, -0.8, 2.6);
    depth. */
 const reachAt = z => Math.sqrt(1 - z * z);
 function addBubble(x, y, r, z){
-  if (bubbles.length >= capBubbles) return;
+  if (bubbles.length >= capBubbles) return null;
   if (z == null) z = rand(-1, 1);
   const lim = (innerHalfAt(y) - 2) * reachAt(z);
-  bubbles.push({
+  const b = {
     x: clamp(x, G.cx - lim, G.cx + lim), y, z,
     r: r * (0.35 + cfg.bubbleSize / 100 * 0.85) * G.scale,
     vx: 0, rise: rand(0.85, 1.35), ph: Math.random() * TAU, wob: rand(3, 12) * G.scale
-  });
+  };
+  bubbles.push(b);
+  return b;
 }
 
 function foamRadius(depth){
@@ -81,6 +83,10 @@ function burstDrops(x, y, n){
   }
 }
 
+/* How much of the bubble cap streams may fill, and the size of bubble (house
+   px) a stream's gas is spent as at the surface */
+const STREAM_SHARE = 0.8, STREAM_GAS = 2.4;
+let looseAcc = 0;                        /* loose bubbles owed, see updateBubbles */
 function updateBubbles(dt){
   const fizz = cfg.carbonation / 100;
   const pouring = level < targetLevel() - 0.01 ? 2.6 : 1;
@@ -92,10 +98,27 @@ function updateBubbles(dt){
          being further away */
       const back = (s.v || 0) * ryAt(G.inBottom) * innerHalfAt(G.inBottom);
       addBubble(G.cx + s.u + rand(-3, 3), G.inBottom + back - rand(1, 8),
-                rand(0.7, 3.2) * s.scale, s.v);
+                (0.7 + 2.5 * Math.pow(Math.random(), 1.7)) * s.scale, s.v);
+    }
+    /* A stream: fine bubbles leaving one point on the floor in a thin string,
+       which is what carbonation looks like in a glass. They hardly wander or
+       grow. Streams stop short of the cap, so the larger bubbles that feed the
+       head are never starved. */
+    if (!s.stream) continue;
+    s.fine += dt * s.stream * fizz;
+    while (s.fine >= 1){
+      s.fine -= 1;
+      /* a bubble the cap turns away is dropped, not owed: no burst later */
+      if (bubbles.length >= capBubbles * STREAM_SHARE) continue;
+      const back = (s.v || 0) * ryAt(G.inBottom) * innerHalfAt(G.inBottom);
+      const b = addBubble(G.cx + s.u + rand(-0.6, 0.6) * G.scale, G.inBottom + back - rand(0, 3),
+                          rand(0.45, 0.85), s.v);
+      if (b){ b.fine = s; b.wob = rand(0.4, 1.2) * G.scale; b.rise = rand(0.95, 1.12); }
     }
   }
-  if (Math.random() < dt * 20 * fizz){
+  looseAcc += dt * 8 * fizz;
+  while (looseAcc >= 1){
+    looseAcc -= rand(0.5, 1.5);          /* irregular, one a beat on average */
     const y = rand(restSurfaceY() + 20, G.inBottom);
     const z = rand(-1, 1);
     addBubble(G.cx + rand(-1, 1) * innerHalfAt(y) * 0.9 * reachAt(z), y, rand(0.5, 2.2), z);
@@ -113,7 +136,7 @@ function updateBubbles(dt){
   for (let i = bubbles.length - 1; i >= 0; i--){
     const b = bubbles[i];
     b.ph += dt * 3.4;
-    b.r += dt * 0.16 * G.scale;
+    b.r += dt * (b.fine ? 0.04 : 0.16) * G.scale;
     b.vx *= bubbleDrag;
     b.x += (b.vx + Math.sin(b.ph) * b.wob) * dt;
     b.y -= (48 + b.r * 26 / G.scale) * b.rise * G.scale * dt;
@@ -130,9 +153,19 @@ function updateBubbles(dt){
         /* A bubble breaking is a ripple, not a heave, as two dozen reach the surface
            per second. */
         const brk = bubbleBreak();
-        if (brk > 0.001){
-          splash(b.x, -Math.min(0.13, b.r * 0.018) * brk, (14 + b.r * 3));
-          addFoam(b.x, clamp(b.r * 2.1 + 3, 3, 24 * G.scale) * brk);
+        /* A fine bubble is too small to show at the surface. Its gas is saved
+           up by its site and spent as one bubble of ordinary size, so a stream
+           feeds the head without flooding it with foam. */
+        let r = b.r;
+        if (b.fine){
+          const s = b.fine, one = STREAM_GAS * G.scale;
+          s.gas = (s.gas || 0) + r * r * r;
+          r = 0;
+          if (s.gas >= one * one * one){ s.gas -= one * one * one; r = one; }
+        }
+        if (brk > 0.001 && r > 0){
+          splash(b.x, -Math.min(0.13, r * 0.018) * brk, (14 + r * 3));
+          addFoam(b.x, clamp(r * 2.1 + 3, 3, 24 * G.scale) * brk);
         }
         if (b.r > 3.4 * G.scale && Math.random() < 0.22){
           mist.push({x:b.x, y:sy, vx:rand(-24,24)*G.scale, vy:rand(-90,-25)*G.scale, r:rand(.6,1.4)*G.scale, life:rand(.3,.8)});
@@ -458,10 +491,31 @@ function settleStill(){
   poured = true;
   const depth = cfg.headDepth / 100;
   for (let i = 0; i < 140; i++) addFoam(G.cx + rand(-1, 1) * innerHalfAt(restSurfaceY()) * 0.95, foamRadius(depth));
-  for (let i = 0; i < 70; i++){
+  /* Carbonation sets how many, as it does in motion. Loose bubbles take at
+     most a third of the cap, and the streams share the rest equally, so a
+     small glass shows every stream thinned and not the first few alone. */
+  const fizz = clamp(cfg.carbonation / 100, 0, 2);
+  const loose = Math.min(Math.round(70 * fizz), Math.floor(capBubbles / 3));
+  for (let i = 0; i < loose; i++){
     const y = rand(restSurfaceY() + 20, G.inBottom);
     const z = rand(-1, 1);
     addBubble(G.cx + rand(-1, 1) * innerHalfAt(y) * 0.9 * reachAt(z), y, rand(0.6, 3.4), z);
+  }
+  /* and the streams, already risen: a string above each stream site */
+  const streams = sites.filter(s => s.stream);
+  const each = streams.length
+    ? Math.floor((capBubbles * STREAM_SHARE - bubbles.length) / streams.length) : 0;
+  for (const s of streams){
+    const back = (s.v || 0) * ryAt(G.inBottom) * innerHalfAt(G.inBottom);
+    const y0 = G.inBottom + back, y1 = restSurfaceY() + 12;
+    /* spaced as the stream's rate would space them on the way up */
+    const want = Math.round((y0 - y1) / (64 * G.scale) * s.stream * fizz);
+    const n = Math.max(0, Math.min(want, each));
+    for (let i = 0; i < n; i++){
+      const b = addBubble(G.cx + s.u + rand(-1.5, 1.5) * G.scale, y0 + (y1 - y0) * (i + Math.random()) / n,
+                          rand(0.45, 0.85), s.v);
+      if (b){ b.fine = s; b.wob = rand(0.4, 1.2) * G.scale; b.rise = rand(0.95, 1.12); }
+    }
   }
   const beads = Math.round(capDew * clamp(cfg.condensation / 100, 0, 2) * 0.7
                           * clamp(level / 0.8, 0, 1));

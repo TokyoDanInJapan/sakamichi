@@ -57,7 +57,7 @@ const PRESETS = {
 
 const STORE_KEY = "sakamichi-splash-v2";
 const cfg = Object.assign({}, HOUSE, {tilt:false, theme:"auto", goo:true, running:true,
-                                     counter:"polished", preset:"helles"});
+                                     counter:"wood", preset:"helles"});
 
 try{
   const saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
