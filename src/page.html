@@ -1,7 +1,6 @@
 <!--# The one page both renderers are built from. build.mjs fills in the
-      names in double braces, keeps the @if sections for the renderer being
-      built, and inlines each @inline file, so each built page is a single
-      file. Comments like this one, opened with a #, are left out. -->
+      {{names}}, keeps the @if sections for the renderer being built and
+      inlines each @inline file. Comments opened with a # are left out. -->
 <!doctype html>
 <html lang="en-GB">
 <head>
@@ -45,7 +44,7 @@
 <div class="nogl">
   <div>
     <p>This pour needs WebGL2, which this browser has turned off or does not support.</p>
-    <p><a class="btn ghost" href="index.html">Open the canvas version</a></p>
+    <p><a class="btn ghost" href="canvas.html">Open the canvas version</a></p>
   </div>
 </div>
 <!-- @end -->
@@ -89,11 +88,9 @@
   </p>
 </aside>
 
-<!-- Everything the page has to say that is not the pint itself, folded away
-     behind one button on a phone: the two taprooms and how to find them, where
-     the beer is listed, what people made of it, and the usual accounts. There
-     is no corner to put a row of links in on a screen this narrow, and the
-     foot of the glass is already carrying the hours. -->
+<!-- Phone menu: everything that is not the pint (taprooms, beer list,
+     reviews, accounts) behind one button, because there is no room for the
+     link row on a narrow screen. -->
 <button class="menu-toggle" id="menuOpen" aria-expanded="false" aria-controls="menu"
         aria-label="Taprooms, beer list and links">
   <svg width="16" height="12" viewBox="0 0 16 12" fill="none" stroke="currentColor"
@@ -129,13 +126,11 @@
   </p>
 </nav>
 
-<!-- Cards that stand in place of the glass and the beer card, which are put
-     away while one is open. Opened by anything with data-opens set to the
-     card's id, or by a link to #id. -->
+<!-- Cards that replace the glass and the beer card while open. Opened by
+     anything with data-opens set to the card's id, or by a link to #id. -->
 
-<!-- The brewery's company details, as its own 会社概要 page gives them. They
-     are only in Japanese there, so each one is given in English with the
-     Japanese beneath it. -->
+<!-- Company details from the brewery's own 会社概要 page, which is Japanese
+     only, so each is given in English with the Japanese beneath. -->
 <dialog class="sheet wide" id="company" aria-labelledby="companyTitle">
   <div class="sheet-card">
     <div class="sheet-head">
@@ -169,7 +164,7 @@
           <dd>Brewing and selling beer and other alcoholic drinks<span lang="ja">酒類の製造及び販売</span></dd>
         </div>
       </dl>
-      <!-- The brewery's own words, as it wrote them in both languages -->
+      <!-- The brewery's own text in both languages -->
       <div class="sheet-about">
         <h3>About us</h3>
         <p>At Sakamichi Brewing we recognise that the journey is just as important as the destination. We understand that before the first sip of delicious craft beer, there is a process that requires patience, craftsmanship, hard work, and attention to detail. We are dedicated to brewing the finest beer in western Tokyo with ecologically responsible brewing methods and locally sourced organic ingredients whenever possible. Our goal is to create a modern and welcoming space in Tachikawa where we can brew and serve a wide range of contemporary craft beer styles. With a line-up of beers ranging from classic styles to modern explorations of what beer can be, our goal is to make exciting and delicious beers perfect for any occasion.</p>
@@ -179,8 +174,8 @@
   </div>
 </dialog>
 
-<!-- How to write to the brewery. Its form is on its own site, where it has to
-     be sent from, so the card says what the form asks for and opens it. -->
+<!-- The form must be sent from the brewery's own site, so this card lists
+     what it asks for and links to it. -->
 <dialog class="sheet" id="contact" aria-labelledby="contactTitle">
   <div class="sheet-card">
     <div class="sheet-head">
@@ -266,10 +261,10 @@
     <button class="reset" id="reset">Reset to house recipe</button>
     <p class="hint">Stir the beer with your cursor, or tilt the phone and let it lean. Click for a splash. Slosh it over the rim and the glass tops itself back up. Press <b>C</b> to hide the interface.</p>
 <!-- @if canvas -->
-    <p class="renderer"><span>Canvas 2D</span> <a href="webgl.html">Shader version</a></p>
+    <p class="renderer"><span>Canvas 2D</span> <a href="index.html">Shader version</a></p>
 <!-- @end -->
 <!-- @if shader -->
-    <p class="renderer"><span id="gpu">WebGL2</span> <a href="index.html">Canvas version</a></p>
+    <p class="renderer"><span id="gpu">WebGL2</span> <a href="canvas.html">Canvas version</a></p>
 <!-- @end -->
   </div>
 </section>
@@ -284,13 +279,25 @@
 <!-- @inline bar-wood.js -->
 </script>
 <script>
-<!-- @inline sim.js -->
+<!-- @inline sim/core.js -->
+<!-- @inline sim/layout.js -->
+<!-- @inline sim/surface.js -->
+<!-- @inline sim/weep.js -->
+<!-- @inline sim/particles.js -->
+<!-- @inline sim/input.js -->
+<!-- @inline sim/colour.js -->
+<!-- @inline sim/tuning.js -->
+<!-- @inline sim/controls.js -->
+<!-- @inline splash.js -->
 </script>
 <script>
 <!-- @inline page.js -->
 </script>
 <script>
 <!-- @inline {{renderer}}/render.js -->
+</script>
+<script>
+<!-- @inline loop.js -->
 </script>
 </body>
 </html>

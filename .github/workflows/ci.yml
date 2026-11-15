@@ -1,7 +1,8 @@
 name: CI
 
-# `check` builds the site as Vercel does, and `gitleaks` scans every commit for
-# secrets. The ruleset on main requires both to pass.
+# `check` builds the site as Vercel does and then runs the tests (Node's own
+# test runner, no install step), and `gitleaks` scans every commit for secrets.
+# The ruleset on main requires both to pass.
 on:
   push:
     branches: [main]
@@ -22,6 +23,7 @@ jobs:
         with:
           node-version: 24
       - run: node build.mjs
+      - run: node --test "test/*.test.mjs"
 
   gitleaks:
     runs-on: ubuntu-latest

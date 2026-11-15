@@ -88,7 +88,7 @@ body{
 :focus-visible{outline:2px solid var(--focus);outline-offset:3px;border-radius:2px}
 
 /* ------------------------------------------------------------------ *
- * Stage — whatever the page draws the pour on
+ * Stage: whatever the page draws the pour on
  * ------------------------------------------------------------------ */
 .stage{position:fixed;inset:0;touch-action:none;cursor:crosshair}
 .stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
@@ -112,17 +112,14 @@ body{
   letter-spacing:.2em;
   text-transform:uppercase;
   color:var(--ink-soft);
-  /* One line, never two: its size is fitted to the wordmark above it, so it is
-     made to fit rather than left to find its own way. Allowed to wrap it would
-     wrap under the growing, and a wrapped line measures as its first half —
-     which the fit then reads as far too narrow and grows again. */
+  /* One line, never two: its size is fitted to the wordmark, and a wrapped line
+     measures as its first half, which the fit would read as too narrow. */
   display:flex;flex-wrap:nowrap;gap:1.1em;
-  /* under the wordmark now, so the gap it keeps is above it */
+  /* the gap sits above, under the wordmark */
   margin:clamp(14px,2.4vw,22px) 0 0;
 }
-/* and neither half breaks inside itself. Left to shrink, the two halves wrapped
-   their own text as the size grew, so the line measured narrower the bigger it
-   got and the fit chased it upward until it ran out of room. */
+/* Each half stays on one line too, or the line would measure narrower as the
+   size grew and the fit would chase it upward. */
 .eyebrow span{display:inline-flex;gap:.7em;align-items:center;flex:0 0 auto;white-space:nowrap}
 .eyebrow span::before{content:"";width:14px;height:1px;background:var(--hair)}
 .eyebrow span:first-child::before{display:none}
@@ -153,25 +150,19 @@ h1 .thin{
 .info p{margin:0 0 clamp(10px,1.8vmin,18px)}
 .info b{display:block;font-weight:600;letter-spacing:.18em;font-size:10px;color:var(--ink-soft)}
 .info span{display:block}
-/* Each opening is its own element rather than a line of text with a middot
-   typed into it, so a pair can be shown as one line or as two without the
-   words being written out twice. Run together here, where there is width. */
+/* Each opening is its own element so a pair can show as one line or two
+   without the words being written twice. Run together where there is width. */
 .info .d{display:inline}
 .info .d + .d::before{content:" · "}
-/* Links are the one thing in this corner that does something, so they are the
-   one thing that does not whisper. Everything else here is the house grey at
-   nine and a half point; these are a gold that holds in both themes — the same
-   one the focus ring uses — a point larger, and underlined solidly rather than
-   with a hairline. Left in the house grey with a hairline under them they were
-   indistinguishable from the opening times above, which is not a house style,
-   it is a page hiding what it is for. */
+/* Links are the one active thing in this corner, so they are a gold that
+   holds in both themes (as the focus ring), a point larger than the grey
+   text, with a solid underline. */
 .info a{
   color:var(--focus);text-decoration:none;margin-left:1.4em;
   border-bottom:1px solid currentColor;
   font-size:10.5px;letter-spacing:.16em;
 }
-/* A taproom's name is the way to it, so the name goes to itself on a map, in
-   the same gold as the rest of them and with the mark at full strength. */
+/* A taproom's name links to its map, in the same gold, mark at full strength. */
 .info b a.place{
   color:var(--focus);border-bottom:1px solid currentColor;margin-left:0;
   letter-spacing:inherit;font-size:inherit;
@@ -179,25 +170,16 @@ h1 .thin{
 .info b a.place::after{content:"\2197";margin-left:.35em;font-size:.95em}
 .info a:first-child{margin-left:0}
 .info a:hover{color:var(--ink);border-color:var(--ink)}
-/* and the row of them leads the corner rather than trailing it: they are what
-   somebody comes to this corner to use, and the addresses and the opening
-   times are what they read once they are here. The rule sits under them now,
-   holding them off what follows rather than off what went before. */
+/* The links lead the corner. The rule under them separates them from the
+   addresses and times that follow. */
 .info .social{
   margin:0 0 clamp(12px,2vmin,20px);padding-bottom:clamp(11px,1.8vmin,16px);
   border-bottom:1px solid var(--hair-soft);
 }
-/* Small screens do not get less of the brewery. Above 900 the taprooms sit in
-   the top right corner, which the wordmark leaves free. Below that there is no
-   such corner — the wordmark has the width to itself — so they move into what
-   the glass leaves empty instead: the bar top beneath it on an upright screen,
-   and the right-hand side on one turned on its side, where the glass is short
-   and the width is going spare. They used to be deleted outright, which left a
-   brewery's page with no address on it on the screens most people read it on.
-
-   Folded up as they move: the taproom's name and its lines run together with
-   middots rather than each taking a line of its own, so two taprooms and the
-   links come to four or five lines instead of eleven. */
+/* Below 900px the corner is not free (the wordmark has the full width), so
+   the taprooms move into the space the glass leaves: the bar top when
+   upright, the right-hand side when on its side. Each taproom's name and
+   lines run together with middots to save height. */
 @media (max-width:900px){
   .info{
     top:auto;left:0;right:0;
@@ -208,30 +190,24 @@ h1 .thin{
     padding:0 clamp(10px,3vw,28px);
     font-size:clamp(8px,2.4vw,9.5px);line-height:1.85;
   }
-  /* The two taprooms stand side by side rather than one above the other. They
-     are a pair of addresses and they read as a pair, and across the foot of a
-     phone the width is the room there is — stacked they ran down into the
-     glass and left the two halves of the screen unbalanced. Each keeps its own
-     lines within its column, the way it does in the corner on a wide screen. */
-  /* an equal share of what is left after the gap — at 50% each they and the
-     gap came to more than the width and wrapped back into a stack */
+  /* The taprooms stand side by side as a pair. Stacked they ran down into
+       the glass. Each keeps its own lines within its column. */
+  /* An equal share of what is left after the gap. At 50% each, they and the
+       gap exceed the width and wrap into a stack. */
   .info p{margin:0;flex:1 1 0;min-width:0}
-  /* Which station and which exit is something to know on the way, not
-     something to read on a phone while standing outside: what a small screen
-     wants is the taproom's name and when it is open. So the address goes, and
-     the openings come apart onto a row each, which is how a list of times
-     reads when the column is narrow. */
+  /* The address goes (a phone reader wants the name and the hours) and the
+       openings take a row each. */
   .info .where{display:none}
   .info .d{display:block}
   .info .d + .d::before{content:none}
   .info b{display:block;font-size:inherit}
   .info span{display:block}
-  /* the accounts move into the menu on a phone rather than being listed twice */
+  /* The accounts are in the menu on a phone. */
   .info .social{display:none}
   .info a{margin:0 .5em}
 }
-/* Turned on its side there is no bar top to spare — the glass has taken the
-   height — but there is width, so they go back to the corner they came from. */
+/* On its side there is no bar top to spare but there is width, so the
+   taprooms go back to the corner. */
 @media (max-width:900px) and (orientation:landscape){
   .info{
     display:block;                     /* a column again, not a pair */
@@ -244,16 +220,14 @@ h1 .thin{
   .info .social{margin-top:0}
 }
 
-/* A finger is not a mouse: the corner buttons and the panel's chips are given
-   the room to be hit rather than aimed at. */
+/* Touch targets get more room. */
 @media (pointer:coarse){
   .panel-toggle{padding:15px 18px}
   .chip{padding:11px 14px}
 }
 
-/* Very little height — a small phone lying on its side. The wordmark gives
-   some of itself back, or there is nowhere left for the glass to stand: at
-   568 by 320 it came down past the rim by fourteen pixels. */
+/* Very little height (a phone on its side): the wordmark shrinks or the
+   glass has nowhere to stand. */
 @media (max-height:430px){
   .masthead{padding:clamp(10px,2.4vmin,20px)}
   h1{font-size:clamp(1.3rem,min(6vw,8.5vh),2.6rem)}
@@ -263,21 +237,18 @@ h1 .thin{
 /* ------------------------------------------------------------------ *
  * Control panel
  * ------------------------------------------------------------------ */
-/* The two corner buttons sit in one row rather than each pinning itself to
-   the corner, so the left one lands beside the right one whatever either of
-   them says. */
+/* The two corner buttons share one row so they never overlap. */
 .corner{
   position:fixed;right:clamp(16px,2.4vw,28px);
   bottom:max(clamp(16px,2.4vw,28px),env(safe-area-inset-bottom));
   z-index:6;display:flex;gap:8px;align-items:stretch;
 }
 body[data-panel="open"] .corner{display:none}
-/* nothing to hold when there is no card to hold it on */
+/* no card to hold on a phone */
 @media (max-width:900px){ #beerHold{display:none} }
-/* The one button a phone gets. Hidden above the width the corner buttons come
-   back at, where the taprooms are in their corner and there is room for links
-   beside them. Top right upright, where the wordmark leaves the corner free;
-   bottom right on its side, where the taprooms have taken that corner back. */
+/* The one button a phone gets. Top right when upright, where the wordmark
+   leaves the corner free. Bottom right on its side, where the taprooms
+   have taken the top corner back. */
 .menu-toggle{
   position:fixed;z-index:7;display:none;
   top:max(clamp(14px,2.4vw,24px),env(safe-area-inset-top));
@@ -335,19 +306,17 @@ body[data-menu="open"] .menu-toggle{display:none}
 /* ------------------------------------------------------------------ *
  * Cards in place of the glass: company information and contact
  * ------------------------------------------------------------------ */
-/* While one is open the glass goes (the renderers leave it out of the room,
-   so the counter and the mark stay), and so do the spray, the beer card and
-   the buttons that work them. The card stands where they were. */
+/* While a card is open the glass (but not the counter or mark), the spray,
+   the beer card and the corner buttons are hidden. The card takes their place. */
 .splash,.corner{transition:opacity .35s ease,visibility .35s}
 body[data-sheet] .splash,
 body[data-sheet] .beer,
 body[data-sheet] .corner{opacity:0;visibility:hidden}
 @media (prefers-reduced-motion:reduce){ .splash,.corner{transition:none} }
 
-/* Centred in the band the wordmark and the taprooms leave, as the beer card
-   is, rather than on the page: centred on the page, a wide card stood across
-   the wordmark. Neither end takes more than 30% of the height, so a short
-   screen still leaves the card room, and what does not fit scrolls. */
+/* Centred in the band the wordmark and taprooms leave, not on the page, or a
+   wide card would cross the wordmark. Each end takes at most 30% of the
+   height so a short screen still has room. Overflow scrolls. */
 .sheet{
   --sheet-top:min(calc(var(--mast-bottom,0px) + 16px),30vh);
   --sheet-bot:min(calc(100vh - var(--info-top,100vh) + 16px),30vh);
@@ -360,8 +329,7 @@ body[data-sheet] .corner{opacity:0;visibility:hidden}
   font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
   overflow:auto;overscroll-behavior:contain;
 }
-/* The page stays in view round the card, and the card lights the room the
-   way the pour does: a warm glow behind it on the wall and the counter,
+/* The card lights the room as the pour does: a warm glow behind it,
    centred where the card stands in the band. */
 .sheet::backdrop{
   --glow-y:calc((min(calc(var(--mast-bottom,0px) + 16px),30vh)
@@ -371,7 +339,7 @@ body[data-sheet] .corner{opacity:0;visibility:hidden}
              rgba(255,196,64,var(--glow-a)), rgba(255,170,36,calc(var(--glow-a) * .4)) 45%,
              transparent 74%);
 }
-/* On a dark room it is light added to the room, as the pour's glow is */
+/* In a dark room it is light added to the room, as the pour's glow is. */
 :root[data-theme="dark"] .sheet::backdrop{--glow-a:.42;mix-blend-mode:screen}
 @media (prefers-color-scheme:dark){
   :root:not([data-theme="light"]) .sheet::backdrop{--glow-a:.42;mix-blend-mode:screen}
@@ -396,12 +364,10 @@ body[data-sheet] .corner{opacity:0;visibility:hidden}
 .sheet dt [lang="ja"]{margin-left:.6em}
 .sheet dd{margin:5px 0 0;font-size:12px;line-height:1.55;letter-spacing:.04em}
 .sheet dd [lang="ja"]{display:block;margin-top:2px;font-size:11px;color:var(--ink-soft)}
-/* A card with two things to say side by side is given the width for them:
-   the facts on the left and the brewery's own words on the right, one above
-   the other where there is no room for both. */
+/* A two-part card gets width for both: facts left, the brewery's words
+   right, stacked where there is no room. */
 .sheet.wide{width:min(960px,calc(100vw - 32px))}
-/* Stacked on a phone, the brewery's own words come first and the facts after
-   them; side by side, the facts are on the left */
+/* Stacked on a phone the brewery's words come first, the facts after. */
 .sheet-cols{display:flex;flex-direction:column}
 .sheet-about{order:-1;padding:14px 0 4px;border-bottom:1px solid var(--hair-soft)}
 .sheet-about h3{
@@ -415,7 +381,7 @@ body[data-sheet] .corner{opacity:0;visibility:hidden}
   .sheet-about{order:0;padding:14px 0 4px 28px;border-bottom:0;border-left:1px solid var(--hair-soft)}
 }
 .sheet-lead{margin:14px 0 2px;font-size:12px;line-height:1.6;letter-spacing:.04em}
-/* the way out to the form: the one thing on the card that does something */
+/* the link out to the form: the one action on the card */
 .sheet-action{margin:16px 0 0;padding-top:16px;border-top:1px solid var(--hair-soft)}
 .sheet-action a{
   display:inline-block;padding:12px 18px;border-radius:2px;
@@ -425,13 +391,9 @@ body[data-sheet] .corner{opacity:0;visibility:hidden}
 .sheet-action a::after{content:"\2197";margin-left:.5em}
 .sheet-action a:hover{filter:brightness(1.06)}
 
-/* And no tuning at all on a phone. The panel is a workbench — thirty sliders
-   wanting a pointer, a wide screen and time to play — not part of the poster,
-   and on a small screen it is the poster that the page is for. With the tune
-   button gone the corner has nothing left in it, so the corner goes with it and
-   the taprooms take back the band it was standing in. Hidden rather than
-   removed: ?panel=1 still opens it, and its own close button still shuts it,
-   for anyone who came looking. */
+/* No tuning panel on a phone: with the button gone the whole corner goes and
+   the taprooms reclaim its band. Hidden, not removed, so ?panel=1 and the
+   panel's own close button still work. */
 @media (max-width:900px){ .corner{display:none} }
 .panel-toggle{
   display:inline-flex;align-items:center;gap:10px;
@@ -549,19 +511,14 @@ body[data-chrome="off"] .panel-toggle{opacity:0;pointer-events:none}
   }
   .masthead{max-width:100%}
 }
-/* The beer of the moment, standing beside the glass and turning on its own
-   axis. A card rather than a picture: it is artwork with a front and a back,
-   and it shows a new one each time it comes round. */
+/* The beer of the moment: a two-sided card turning on its own axis. */
 .beer{
   position:fixed;z-index:2;cursor:pointer;
-  /* a third in from the right, as the glass is a third in from the left */
+  /* a third in from the right, mirroring the glass */
   left:66.7%;transform:translate(-50%,-50%);
-  /* Centred in the band the taprooms and the buttons leave, rather than on the
-     page. Centred on the page it rode up under the taprooms wherever the screen
-     was short — 84 pixels of the card across the links at 901 by 600 — because
-     half the page is higher up the shorter the page is, while the taprooms are
-     the same few lines whatever. Sized to that band too, so it can never grow
-     into it. --info-bottom is measured and handed over by layoutGlass. */
+  /* Centred in the band the taprooms and buttons leave, not on the page: page
+       centre rides up under the taprooms on short screens. Sized to the band
+       so it cannot grow into it. layoutGlass measures and sets --info-bottom. */
   --band-top:calc(var(--info-bottom,0px) + 18px);
   --band-bot:calc(100vh - 96px);
   top:calc((var(--band-top) + var(--band-bot)) / 2);
@@ -574,9 +531,8 @@ body[data-chrome="off"] .panel-toggle{opacity:0;pointer-events:none}
   transition:transform 1.15s cubic-bezier(.55,.06,.2,1);
   will-change:transform;
 }
-/* Two faces, as a card has. The one coming round is loaded and waiting out of
-   sight, so the turn shows it rather than swapping a picture in mid-air —
-   which is what flickered, the image being replaced under the eye. */
+/* Two faces. The next beer is loaded on the hidden face so the turn reveals
+   it instead of swapping the image in view. */
 .beer-face{
   position:absolute;inset:0;
   width:100%;height:100%;display:block;object-fit:contain;
@@ -588,26 +544,21 @@ body[data-chrome="off"] .panel-toggle{opacity:0;pointer-events:none}
 body[data-chrome="off"] .beer{opacity:0}
 .beer{transition:opacity .35s ease}
 @media (prefers-reduced-motion:reduce){ .beer-turn{transition:none} }
-/* On a narrow page the glass takes the middle back and there is no room beside it */
-/* The card comes to a phone too, standing on the bar in front of the glass
-   rather than beside it — there is no beside on a screen this narrow, but the
-   bar in front of it is doing nothing. The glass gives up the room first (see
-   cardRoom) and is told how much, so the two are not each guessing at the
-   other. Not below 640 pixels of height, where taking that much bar off the
-   glass leaves neither of them worth looking at. */
+/* On a narrow page the glass takes the middle back, so the card is placed
+   in the band between wordmark and taprooms instead. */
+/* The card reaches a phone too. The glass makes room first (see cardRoom)
+   and is told how much, so the two do not guess at each other. */
 @media (max-width:900px){ .beer{display:none} }
 @media (max-width:900px) and (orientation:portrait){
   .beer{
     display:block;
-    /* beside the glass, as on a desktop: the glass a third in from the left,
-       the card a third in from the right */
+    /* beside the glass: the glass sits left of centre, the card right of it */
     left:72%;
     top:calc((var(--mast-bottom,22vh) + var(--info-top,100vh)) / 2);
     width:min(27vw,calc((var(--info-top,100vh) - var(--mast-bottom,22vh) - 28px) * 0.75));
   }
 }
-/* On its side it goes into the corner the wordmark leaves, which is the only
-   room a landscape phone has going spare. */
+/* On its side it takes the corner the wordmark leaves free. */
 @media (max-width:900px) and (orientation:landscape){
   .beer{
     display:block;
@@ -617,15 +568,10 @@ body[data-chrome="off"] .beer{opacity:0}
     width:min(22.5vw,30vh);
   }
 }
-/* The splashes lie over the card, and over nothing else that matters */
-/* The sheet the near splashes are painted on. It needs its display size given
-   to it: it is a canvas, and a canvas is a replaced element, so inset:0 pins
-   its corner but does not stretch it — with width left to itself it draws at
-   its own backing size instead. The backing is the viewport times the device's
-   pixel ratio, so on a screen where that ratio is one the two happen to agree
-   and nobody notices. On a phone, where it is two or three, the sheet came out
-   two or three times the size of the window with its top left in the corner:
-   a splash thrown at the lip of the glass landed near the bottom of the
-   screen, which is where it was being drawn. The canvases inside .stage were
-   never wrong because they are given 100% there. */
+/* Near splashes are drawn on this sheet, above the card and nothing else.
+   A canvas is a replaced element, so inset:0 does not stretch it: without
+   an explicit size it draws at its backing size (viewport times pixel ratio)
+   and splashes land in the wrong place. The canvases in .stage are given
+   100% elsewhere. */
 .splash{position:fixed;inset:0;width:100%;height:100%;z-index:4;pointer-events:none}
+

@@ -9,17 +9,17 @@ const gl = canvas.getContext("webgl2", {alpha:false, antialias:false, depth:fals
 const cvS = document.querySelector(".splash");
 const ctxS = cvS.getContext("2d");
 
+/* Without WebGL2 the canvas page takes over, with the same query and hash. The
+   notice and its link stay on show in case the browser does not follow. */
 if (!gl){
   document.body.dataset.gl = "off";
+  location.replace("canvas.html" + location.search + location.hash);
   return;
 }
 
-/* The GPU can take the context back — a driver reset, the system reclaiming
-   memory — and every program, texture and buffer goes with it. Left to that,
-   the glass went black and stayed black while the pour ran on underneath it.
-   Everything here is built once, at the top, so the page is loaded again when
-   the context is handed back; the settings are saved as they change, so it
-   comes back poured the way it was. */
+/* On context loss every program, texture and buffer is gone, and all of them
+   are built once at the top. So the page reloads when the context is restored.
+   Settings are saved as they change, so it comes back as it was. */
 let contextLost = false;
 canvas.addEventListener("webglcontextlost", e => { e.preventDefault(); contextLost = true; });
 canvas.addEventListener("webglcontextrestored", () => location.reload());
@@ -57,6 +57,16 @@ function program(vs, fs){
   return {p, u};
 }
 
+/* A simulation constant written as a GLSL float. The shaders take the JS
+   constants (BAR_DEPTH, HEAD_LIFT, RIM_INNER and the rest) so the two cannot drift. */
+const glf = v => {
+  const s = String(v);
+  return /[.e]/.test(s) ? s : s + ".0";
+};
+/* How strongly the house mark shows on the wall and through the beer, once
+   its bitmap has arrived */
+const LOGO_ON = 0.075;
+
 /* The glass, the surface and the pixel frame, shared by every pass */
 const GLSL_GLASS = `
 uniform sampler2D uHeight;
@@ -89,10 +99,9 @@ float halfAt(float y){
 }
 float innerHalfAt(float y){ return max(1.0, halfAt(y) - GWALL); }
 
-/* How open the ellipse is at a height — the camera's own rule, which is a line
-   in y. uRyKs carries it at two heights only, which is enough for the surface
-   and the base and no use at all for anything hung between them. */
-float ryAt(float y){ return clamp(y * uRyLin.x + uRyLin.y, 0.03, 0.55); }
+/* Ellipse openness at height y: the camera's rule, a line in y. uRyKs holds it
+   at the surface and the base only, so use this for anything between. */
+float ryAt(float y){ return clamp(y * uRyLin.x + uRyLin.y, ${glf(RY_MIN)}, ${glf(RY_MAX)}); }
 
 /* A point on the outside of the glass: how far round it sits, and how high.
    The near wall drops lower and faces us square, the far wall rides higher. */
@@ -101,32 +110,30 @@ vec2 conePoint(float h, float th){
   return vec2(GCX + hw * sin(th), h + ryAt(h) * hw * cos(th));
 }
 
+float colAt(float x){ return (x - (GCX - uSpanHw)) / (2.0 * uSpanHw) * max(1.0, uCols - 1.0); }
+vec2 heightTexel(float tc, int row){
+  return textureLod(uHeight, vec2((tc + 0.5) / float(textureSize(uHeight, 0).x),
+                                  (float(row) + 0.5) * 0.5), 0.0).rg;
+}
 float heightRow(float x, int row){
   float last = max(1.0, uCols - 1.0);
-  float t = (x - (GCX - uSpanHw)) / (2.0 * uSpanHw) * last;
-  /* Past the ends the surface goes on rather than stopping. The span is the
-     beer's own width at its surface, and the wall it runs to stands wider than
-     that on whichever side the beer is standing high — measured on a hard
-     tilt, thirteen pixels outside it, which is near three columns. Held at the
-     end column for those, the surface came out level against the wall while
-     the rest of it went on tilting, and what stood between the two was a thin
-     wedge of beer with a straight top: the triangle at the wall.
-
-     Carried on at the slope of the last pair instead, it arrives at the wall
-     where it was going. A few columns of it only, so that a reading taken far
-     outside the glass cannot run away with the slope. */
-  float i0 = clamp(floor(t), 0.0, last - 1.0);
-  float f  = clamp(t - i0, -4.0, 5.0);
-  float a = texelFetch(uHeight, ivec2(int(i0), row), 0).r;
-  float b = texelFetch(uHeight, ivec2(int(i0) + 1, row), 0).r;
-  return mix(a, b, f);
+  float t = colAt(x);
+  /* Past the ends the surface carries on at the end pair's slope, a few columns
+     only. On a hard tilt the wall stands up to three columns beyond the span, and
+     clamping there left a flat-topped wedge of beer against it. */
+  float tc = clamp(t, 0.0, last);
+  vec2 hs = heightTexel(tc, row);
+  return hs.x + hs.y * clamp(t - tc, -4.0, 4.0);
 }
 float heightAt(float x){ return heightRow(x, 0); }
 /* and the head's own raft, on row 1 */
 float headHeightAt(float x){ return heightRow(x, 1); }
 float surfaceAt(float x){ return uRestY + heightAt(x); }
 float headSurfaceAt(float x){ return uRestY + headHeightAt(x); }
-float slopeAt(float x){ return (heightAt(x + 3.0) - heightAt(x - 3.0)) / 6.0; }
+float slopeAt(float x){
+  float last = max(1.0, uCols - 1.0);
+  return heightTexel(clamp(colAt(x), 0.0, last), 0).y * last / (2.0 * uSpanHw);
+}
 float ellipseDy(float x){
   float t = (x - GCX) / uSpanHw;
   if (abs(t) >= 1.0) return 0.0;
@@ -146,6 +153,14 @@ float vnoise(vec2 p){
   return mix(mix(hash21(i), hash21(i + vec2(1,0)), f.x),
              mix(hash21(i + vec2(0,1)), hash21(i + vec2(1,1)), f.x), f.y);
 }
+/* Interleaved gradient noise: neighbouring pixels get well spread values, so
+   a tap pattern turned by it reads as fine grain rather than as copies */
+float ign(vec2 p){ return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
+/* Tap i of n spread evenly over a unit disc, turned by phi */
+vec2 vogel(int i, int n, float phi){
+  float th = float(i) * 2.39996323 + phi;
+  return sqrt((float(i) + 0.5) / float(n)) * vec2(cos(th), sin(th));
+}
 `;
 
 const GLSL_LOGO = `
@@ -159,6 +174,27 @@ float logoA(vec2 p){
 }
 `;
 
+/* The head's cap and its top, shared by the head and the glass. The cap is
+   headCapY in the simulation (surface.js), with no extra lift, and is built
+   from the same HEAD_LIFT and HEAD_MOUND. Needs GLSL_GLASS before it. */
+const GLSL_HEAD = `
+/* The highest the head may stand at x: the rim's own ellipse for the plane of
+   the lip, and over it a low mound that holds nearly its height right across
+   and turns down only at the walls */
+float headCap(float x, float lipCy, float rry){
+  float cu    = clamp((x - GCX) / max(1.0, innerHalfAt(lipCy)), -1.0, 1.0);
+  float disc  = sqrt(max(0.0, 1.0 - cu * cu));
+  float mound = sqrt(max(0.0, 1.0 - pow(abs(cu), ${glf(HEAD_MOUND)})));
+  return lipCy - rry * ${glf(HEAD_LIFT)} * mound - rry * disc;
+}
+/* The head's top at a column: the far edge of the beer less the head's band, or
+   the crown over the lip, whichever is higher. Takes x so that a neighbouring
+   column can be asked for (see the slope in FS_FOAM). */
+float headTopAt(float x, float lipCy, float rry, float bandPx){
+  return max(headSurfaceAt(x) - ellipseDy(x) - bandPx, headCap(x, lipCy, rry));
+}
+`;
+
 const VS_FULL = `#version 300 es
 void main(){
   vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
@@ -166,7 +202,7 @@ void main(){
 }`;
 
 /* ------------------------------------------------------------------ *
- * Pass 1 — the room, then the beer inside the glass
+ * Pass 1 — the beer (A), then the room (B)
  * ------------------------------------------------------------------ */
 /* Pass A — the pour and nothing else, premultiplied over a clear ground, so
    the whole dressed glass ends up in one texture the reflection can sample */
@@ -177,6 +213,7 @@ ${GLSL_NOISE}
 ${GLSL_LOGO}
 uniform sampler2D uField;
 uniform float uTime, uCaustics, uLevel, uHaze, uBeerA, uBeerSolid;
+uniform float uScale;        // G.scale: page px per px of the house-sized glass
 uniform vec3  uLightTint, uAbsorb;
 out vec4 frag;
 
@@ -185,7 +222,8 @@ out vec4 frag;
    own contact with the bar, not the wall's horizon. */
 vec4 beerAt(vec2 px){
   float ih = innerHalfAt(px.y);
-  float top = surfaceAt(px.x) - ellipseDy(px.x);
+  float surf = surfaceAt(px.x), edy = ellipseDy(px.x);
+  float top = surf - edy;
   /* The beer sits on the interior floor, whose front arc dips below GINBOT */
   float ihb = innerHalfAt(GINBOT);
   float fxn = clamp((px.x - GCX) / max(ihb, 1.0), -1.0, 1.0);
@@ -194,21 +232,31 @@ vec4 beerAt(vec2 px){
 
   if (inWalls && uLevel > 0.002 && px.y > top - 1.5){
     float d = max(px.y - top, 0.0);
-    vec3 beer = uLightTint * exp(-uAbsorb * d * 0.0032);
+    float dh = d / uScale;                       /* in house px */
+    float nx = (px.x - GCX) / max(ih, 1.0);
 
-    /* Haze: suspended yeast scatters light back out before it is absorbed,
-       so a murky beer glows evenly instead of deepening with the pour */
-    vec3 scat = uLightTint * (0.38 + 0.50 * exp(-d * 0.005));
+    /* Beer-Lambert along the line of sight, through the chord of the cylinder
+       here: longest in the middle, shorter at the walls and down the narrowing
+       glass. Refraction keeps the chord open at the wall (the 0.82). The depth
+       term is light that came down through the head. In house px, so glass size
+       does not change the colour. buildPalette calibrates uAbsorb to this. */
+    float chord = 2.0 * ih / uScale * sqrt(max(0.0, 1.0 - 0.82 * nx * nx));
+    float path  = chord * (0.62 + 0.38 * (1.0 - exp(-dh / 70.0)));
+    vec3 through = exp(-uAbsorb * path * 0.0016);     /* half the path */
+    vec3 beer = uLightTint * through * through;
+
+    /* Haze: yeast scatters light out before it is absorbed. That light has
+       travelled about half as far, so it uses half the path. */
+    vec3 scat = uLightTint * (0.38 + 0.50 * exp(-dh * 0.005)) * through;
     beer = mix(beer, scat, uHaze * 0.60);
 
-    /* The murk itself drifts: slow clouds of turbidity, not a flat fill */
     float murk = vnoise(vec2(px.x * 0.016, px.y * 0.011 - uTime * 0.04))
                + vnoise(vec2(px.x * 0.050 + 9.0, px.y * 0.034 - uTime * 0.09)) * 0.5;
     beer *= 1.0 + (murk * 0.667 - 0.5) * 0.14 * uHaze;
 
     /* Caustics only where the surface is actually disturbed — and haze kills them */
     float sl = slopeAt(px.x);
-    float curv = heightAt(px.x - 5.0) - 2.0 * heightAt(px.x) + heightAt(px.x + 5.0);
+    float curv = heightAt(px.x - 5.0) - 2.0 * (surf - uRestY) + heightAt(px.x + 5.0);
     float stir = clamp(abs(sl) * 5.0 + abs(curv) * 0.45, 0.0, 1.4);
     float bend = px.x + sl * d * 2.2;
     float c = (0.5 + 0.5 * cos(bend * 0.048 + uTime * 0.7))
@@ -216,61 +264,43 @@ vec4 beerAt(vec2 px){
     c = pow(c, 3.0) * stir + max(0.0, -curv) * 0.03;
     beer += beer * c * uCaustics * (1.0 - uHaze * 0.65) * exp(-d * 0.011);
 
-    /* The mark seen through the pour: magnified by the cylinder of liquid and
-       swallowed by depth and haze — but not moved by the waves. It is painted
-       on the wall behind the bar and the glass stands in front of it, so the
-       beer's own motion is not its to carry: bent by the slope and lifted by
-       the wave's height, it read as a mark floating in the pour rather than
-       one standing behind it. The squeeze towards the middle stays, being the
-       cylinder it is seen through, and a cylinder does not move when the beer
-       inside it does. */
-    float nx = (px.x - GCX) / max(ih, 1.0);
-    vec2 rp;
-    rp.x = GCX + nx * ih * (0.72 - 0.20 * nx * nx);
-    rp.y = px.y + 4.0;
-    float la = logoA(rp) * step(0.001, uLogoOn);
+    /* The mark seen through the pour. It is on the wall behind the bar, so waves
+       must not move it (that made it float in the beer); only the cylinder's
+       squeeze towards the edges stays. The cylinder is a strong lens and shows
+       the wall mirrored. Across the top plane the view is down through the
+       surface, so the mark turns over, fading through the turn. Above the far
+       arc it is upright, as in wallStill. */
+    float front = surf + edy;
+    float pl = clamp((front - px.y) / max(1.0, front - top), 0.0, 1.0);
+    float turn = mix(-1.0, 1.0, smoothstep(0.35, 0.65, pl));
+    float squeeze = turn < 0.0 ? 0.85 + 0.45 * nx * nx : 1.0 - 0.16 * nx * nx;
+    vec2 rp = vec2(GCX + turn * nx * ih * squeeze, px.y + 4.0);
+    float la = logoA(rp) * step(0.001, uLogoOn) * abs(turn);
     beer *= 1.0 - la * 0.32 * (1.0 - uBeerSolid) * exp(-d * 0.005) * (1.0 - uHaze * 0.85);
 
-    /* Light gathers under the head — more so when the beer scatters */
     beer += uLightTint * (0.12 + uHaze * 0.12) * exp(-d * 0.022);
 
-    /* Meniscus: the beer climbs the wall, and the thin film catches the light */
     float wallD = ih - abs(px.x - GCX);
     float men = smoothstep(2.8, 0.4, wallD);
-    beer += uLightTint * men * (0.16 + 0.38 * exp(-d * 0.03));
+    beer += uLightTint * men * (0.08 + 0.46 * exp(-d * 0.03));
 
-    /* The top plane of the beer, seen slightly from above — and guarded,
-       because the two edges of this band meet.
-
-       The band is the surface's own ellipse: its far arc above and its near arc
-       below. That ellipse has no depth where it meets the wall, so past the
-       beer's span the two arcs are one line and the reading here asked a
-       smoothstep to work between two edges that are equal, which is a division
-       by nothing and is left undefined. What came back was whatever the machine
-       made of it, at full strength: a strip of beer up each wall, from the
-       surface to the bottom of the glass, lit as though it were the top of the
-       pour rather than the depth of it. Which is the differently-coloured piece
-       at each side, the beer that did not seem to reach the cone.
-
-       Written out rather than handed to smoothstep, it is the same curve
-       wherever the band has any width at all, and closes quietly where it has
-       none. */
-    float front = surfaceAt(px.x) + ellipseDy(px.x);
-    float pl = clamp((front - px.y) / max(1.0, front - top), 0.0, 1.0);
+    /* The top plane of the beer, seen slightly from above. Its far and near arcs
+       meet at the wall, where smoothstep with equal edges is undefined (a lit
+       strip up each wall), so the curve is written out. pl is set above. */
     beer = mix(beer, beer * 1.14 + uLightTint * 0.10, pl * pl * (3.0 - 2.0 * pl) * 0.85);
 
-    /* More beer to look through at the walls */
-    float edge = abs(px.x - GCX) / max(ih, 1.0);
-    beer *= 1.0 - 0.34 * pow(smoothstep(0.55, 1.0, edge), 1.6);
+    /* Just inside the wall the ray meets the glass at a grazing angle and is
+       reflected away rather than let through: a thin dark line, no more */
+    float wq = (wallD - 2.6 * uScale) / (1.4 * uScale);
+    beer *= 1.0 - 0.30 * exp(-wq * wq);
 
     /* Shadow cast by the head */
-    float fd = texture(uField, vec2(px.x / uRes.x, 1.0 - (surfaceAt(px.x) + 6.0) / uRes.y)).r;
+    float fd = texture(uField, vec2(px.x / uRes.x, 1.0 - (surf + 6.0) / uRes.y)).r;
     beer *= 1.0 - 0.34 * clamp(fd, 0.0, 1.0) * exp(-d * 0.024);
 
     beer += (hash21(px * 1.7 + uTime) - 0.5) * 0.006;
-    /* Softened against the floor as well as the surface. The floor's arc runs
-       almost level through the middle, so cutting the beer off it with a hard
-       test leaves a long stepped edge — many pixels wide at each tread. */
+    /* Softened at the floor too: its arc runs almost level, so a hard cut leaves
+       a long stepped edge. */
     return vec4(beer, smoothstep(top - 1.2, top + 1.2, px.y)
                     * (1.0 - smoothstep(floorY - 1.2, floorY + 1.2, px.y)));
   }
@@ -279,16 +309,14 @@ vec4 beerAt(vec2 px){
 
 void main(){
   vec4 b = beerAt(fragPx());
-  /* Premultiplied, so one multiply takes the colour and the coverage down
-     together and what is behind the glass comes through the pour rather than
-     the pour turning pale. */
+  /* Premultiplied, so one multiply scales colour and coverage together and the
+     background shows through the pour rather than the pour turning pale. */
   frag = vec4(b.rgb * b.a, b.a) * uBeerA;
 }`;
 
-/* Pass B — the room: wall, frosted bar and both reflections. The pour arrives
-   as a texture, so each frost tap is one sample instead of a re-brew, and the
-   reflection carries the foam, bubbles and glass lines it used to lack. */
-/* The wall behind the bar, as far as it stands still: its ground and the mark
+/* Pass B, the room, in two programs: FS_ROOM paints what stands still into a
+   kept texture, FS_COMPOSE adds the moving light and the pour. */
+/* The wall behind the bar as far as it stands still: its ground and the mark
    painted on it. Read by the room pass and by the bake that keeps it. */
 const GLSL_WALL = `
 uniform float uDark;
@@ -297,14 +325,14 @@ uniform vec3  uGround;
 vec3 wallStill(vec2 px){
   vec3 col = uGround;
 
-  /* The house mark painted on the wall behind the bar. Seen through the
-     empty glass it bends a little; the beer bends it properly further down. */
+  /* The house mark painted on the wall. Through the empty glass it bends a
+     little, upright. Through the beer it is turned over (FS_BEER), whose mapping
+     above the surface matches this one. */
   vec2 lp = px;
   float ihHere = max(innerHalfAt(px.y), 1.0);
   float nxg = (px.x - GCX) / ihHere;
-  /* The glass bends what stands behind it, but the bend has to ease in at
-     the silhouette's edges: switched on across a hard boundary it displaces
-     the mark in a step, which reads as a pane of glass above the lip. */
+  /* The bend eases in at the silhouette's edges. Switched on across a hard
+     boundary it displaces the mark in a step, like a pane above the lip. */
   float bendX = 1.0 - smoothstep(0.80, 1.0, abs(nxg));
   float bendY = smoothstep(GTOP - 1.0, GTOP + GTH * GRYK * 2.2, px.y)
               * (1.0 - smoothstep(GBOT - GBASE * 1.5, GBOT, px.y));
@@ -314,176 +342,183 @@ vec3 wallStill(vec2 px){
 }
 `;
 
-/* Pass B, kept — everything in the room that answers only to the layout and
-   the palette, painted once for as long as those hold rather than every frame.
-   Most of the room's cost was here: four readings of the wall, each bending
-   the mark and reading it, for every pixel of the bar, and a noise besides.
-   Above the horizon it keeps the wall itself; below it, the four readings of
-   the wall the bar reflects, already averaged, and in alpha the noise that
-   makes the reflection wander. What moves — the light the pour throws, which
-   follows the level, and the pour's own reflection — is the room pass's. */
+/* Pass B, kept: what depends only on layout, palette and counter, painted once
+   while those hold. Alpha keeps what the streaks, grain and shadow multiply by,
+   so FS_COMPOSE can lay the moving light under them. */
+const GLSL_FLOOR = `
+/* The wall meets the floor behind the glass. A room measure (BAR_DEPTH), so
+   resizing the glass cannot warp it. */
+float floorHorizon(){ return GBOT + uRyKs.y * GBH - uRes.y * ${glf(BAR_DEPTH)}; }
+/* The floor's multiplier is kept in alpha divided by this, so it fits in a
+   byte where the room cannot be a float texture */
+#define FLOOR_MK 1.25
+`;
+
 const FS_ROOM = `#version 300 es
 precision highp float;
 ${GLSL_GLASS}
 ${GLSL_NOISE}
 ${GLSL_LOGO}
 ${GLSL_WALL}
+${GLSL_FLOOR}
+uniform sampler2D uWood;
+uniform vec2 uWoodK;          // tiles across a camera height, and 0 or 1 for on
+uniform vec3 uGroundDeep;
 out vec4 frag;
+
+const int ROOM_TAPS = 24;
 
 void main(){
   vec2 px = fragPx();
-  float horizonY = GBOT + uRyKs.y * GBH - uRes.y * 0.095;   /* as the room pass has it */
+  float horizonY = floorHorizon();
   if (px.y <= horizonY){ frag = vec4(wallStill(px), 0.0); return; }
   float t = px.y - horizonY;
-  float n = vnoise(vec2(px.x * 0.02, px.y * 0.05));
-  vec2 pw = vec2(px.x + (n - 0.5) * t * 0.07, 2.0 * horizonY - px.y);
-  float blur = 2.0 + t * 0.16;
-  frag = vec4(( wallStill(pw + vec2(-1.0, -0.45) * blur)
-              + wallStill(pw + vec2( 0.9, -0.90) * blur)
-              + wallStill(pw + vec2(-0.5,  0.85) * blur)
-              + wallStill(pw + vec2( 0.8,  0.50) * blur) ) * 0.25, n);
+  float bw  = GBH;
+  float ryB = uRyKs.y * bw;
+  float baseCY = GBOT;                 // the footprint's centre lies IN the plane
+
+  float persp = t / (t + GBH * 1.2);
+  vec3 floorCol = uGroundDeep * mix(uDark > 0.5 ? 1.45 : 1.03,
+                                    uDark > 0.5 ? 0.60 : 0.93, persp);
+
+  /* Timber in the plane's own coordinates. The plane vanishes where ryAt reads
+     zero, the camera the rim and base ellipses use, so the grain runs to their
+     vanishing point. Depth goes as one over the distance below that line. A flat
+     texture would run parallel to the frame, not away from the eye. */
+  if (uWoodK.y > 0.5){
+    float yV  = -uRyLin.y / max(abs(uRyLin.x), 1e-6);
+    float fL  = 1.0 / max(abs(uRyLin.x), 1e-6);
+    float dyP = max(px.y - yV, 1.0);
+    vec2 wuv  = vec2((px.x - GCX) / dyP, fL / dyP) * uWoodK.x;
+    /* Lit like the bare plane, paler where it recedes and deeper towards the eye,
+       so the glass stands on it. */
+    floorCol = texture(uWood, wuv).rgb
+             * mix(uDark > 0.5 ? 0.72 : 1.00, uDark > 0.5 ? 0.34 : 0.70, persp);
+  }
+
+  /* The wall reflects about the wall-floor junction, wandering with the frost and
+     blurring as it recedes. The taps are a disc turned per pixel, so the blur is
+     fine grain, not copies of the mark, stretched down the floor as a gloss is. */
+  vec3 col = floorCol;
+  float fadeW = exp(-t / (GHT * 0.26)) * (uDark > 0.5 ? 0.45 : 0.30);
+  if (fadeW > 0.001){
+    float n = vnoise(vec2(px.x * 0.02, px.y * 0.05));
+    vec2 pw = vec2(px.x + (n - 0.5) * t * 0.07, 2.0 * horizonY - px.y);
+    float blur = 2.0 + t * 0.16;
+    float phi = ign(gl_FragCoord.xy) * 6.2831853;
+    vec3 reflW = vec3(0.0);
+    for (int i = 0; i < ROOM_TAPS; i++)
+      reflW += wallStill(pw + vogel(i, ROOM_TAPS, phi) * vec2(1.0, 1.2) * blur * 1.4);
+    col = mix(floorCol, reflW / float(ROOM_TAPS), fadeW);
+  }
+
+  float depthT = 1.0 / (t + 18.0);
+  float streak = vnoise(vec2(px.x * 0.013, depthT * 2400.0));
+  float m = 1.0 + (streak - 0.5) * 0.08 * clamp(t / 40.0, 0.0, 1.0);
+  col *= m;
+
+  col += (uDark > 0.5 ? vec3(0.012, 0.013, 0.015) : vec3(0.035, 0.036, 0.038))
+       * clamp(t / 60.0, 0.0, 1.0);
+  float grain = 1.0 + (hash21(px * 1.31) - 0.5) * 0.02;
+
+  /* Contact shadow and occlusion: ellipses in the plane, sharing its
+     eccentricity, wrapping the footprint behind and in front. Also kept in the
+     multiplier so the seam survives the light the compose pass pools there. */
+  vec2 q = vec2((px.x - GCX) / bw, (px.y - baseCY) / max(ryB, 1.0));
+  float rq = length(q);
+  float shade = (1.0 - smoothstep(3.2, 1.0, rq) * (uDark > 0.5 ? 0.55 : 0.30) * uGlassOn)
+              * (1.0 - smoothstep(1.34, 1.0, rq) * (uDark > 0.5 ? 0.62 : 0.42) * uGlassOn);
+  col *= grain * shade;
+  m *= grain * shade;
+
+  /* dithered, for where this is kept in bytes */
+  col += (ign(gl_FragCoord.xy + vec2(7.0, 3.0)) - 0.5) / 255.0;
+  frag = vec4(col, m / FLOOR_MK);
 }`;
 
 const FS_COMPOSE = `#version 300 es
 precision highp float;
 ${GLSL_GLASS}
 ${GLSL_NOISE}
-${GLSL_LOGO}
-${GLSL_WALL}
-uniform sampler2D uWood;
+${GLSL_FLOOR}
+uniform float uDark;
 uniform float uReflect;
-uniform vec2 uWoodK;          // tiles across a camera height, and 0 or 1 for on
-uniform sampler2D uScene;
-uniform sampler2D uRoom;      // what of the room stands still — see FS_ROOM
+uniform sampler2D uScene;     // premultiplied, with mips for the reflection
+uniform sampler2D uRoom;      // the still part of the room, from FS_ROOM
 uniform float uGlow, uLevel;
-/* uAura is the light the glass throws, which is the beer's own colour until
-   it is given one of its own — it is not used for anything else here. */
-uniform vec3  uGroundDeep, uAura;
+/* The light the glass throws: the beer's own colour unless set otherwise. */
+uniform vec3  uAura;
 out vec4 frag;
 
-/* Light spilling out of the glass onto the wall behind it: the part of the
-   wall that moves, since it follows the pour up and down the glass */
+/* Light from the glass on the wall behind it. It follows the pour, so it is not baked. */
 vec3 wallGlow(vec2 px){
   float gy = uRestY + (GINBOT - uRestY) * 0.35;
   float gd = length((px - vec2(GCX, gy)) / vec2(GTH * 3.4, GHT * 1.15));
   return uAura * uGlow * exp(-gd * 2.4) * (0.4 + 0.6 * uDark) * smoothstep(0.02, 0.62, uLevel) * 0.85;
 }
 
-
-vec4 sceneAt(vec2 p){
-  return texture(uScene, vec2(p.x, uRes.y - p.y) / uRes);
-}
+const int REFL_TAPS = 8;
 
 void main(){
   vec2 px = fragPx();
-  float bw  = GBH;
-  float ryB = uRyKs.y * bw;
-  float baseCY = GBOT;                          // the footprint's centre lies IN the plane
-  float horizonY = baseCY + ryB - uRes.y * 0.095;  // the wall meets the floor behind the
-                                                  // glass; a room measure (BAR_DEPTH),
-                                                  // so resizing the glass cannot warp it
+  ivec2 fc = ivec2(gl_FragCoord.xy);
+  vec4 room = texelFetch(uRoom, fc, 0);
+  float horizonY = floorHorizon();
 
-  /* The footprint is a circle lying in the plane, so the glass meets the
-     floor along the front arc of its base ellipse — never along a flat line */
-  float nxb = clamp((px.x - GCX) / bw, -1.0, 1.0);
-  float footY = baseCY + ryB * sqrt(max(0.0, 1.0 - nxb * nxb));
-
-  vec3 col;
-  vec4 room = texelFetch(uRoom, ivec2(gl_FragCoord.xy), 0);
-
+  vec3 col = room.rgb;
   if (px.y <= horizonY){
-    col = room.rgb + wallGlow(px);
+    col += wallGlow(px);
   } else {
     float t = px.y - horizonY;
-    float wob = (room.a - 0.5) * t * 0.07;
+    float bw  = GBH;
+    float ryB = uRyKs.y * bw;
+    float baseCY = GBOT;
 
-    /* The wall reflects about the wall–floor junction — its still part kept
-       in the room sheet, and its glow taken at the same four places */
-    vec2 pw = vec2(px.x + wob, 2.0 * horizonY - px.y);
-    float blur = 2.0 + t * 0.16;
-    vec3 reflW = room.rgb
-               + ( wallGlow(pw + vec2(-1.0, -0.45) * blur)
-                 + wallGlow(pw + vec2( 0.9, -0.90) * blur)
-                 + wallGlow(pw + vec2(-0.5,  0.85) * blur)
-                 + wallGlow(pw + vec2( 0.8,  0.50) * blur) ) * 0.25;
-
-    /* ...the glass about its own footprint centre, so its reflection begins
-       exactly where it touches. The scene texture holds the glass and its
-       beer-lit base along with the pour, so the mirror is sampled true. */
-    float tg = max(px.y - footY, 0.0);
-    vec2 pg = vec2(px.x + wob, 2.0 * baseCY - px.y);
-    float blurG = 1.5 + tg * 0.16;
-    vec4 reflB = ( sceneAt(pg + vec2(-1.0, -0.45) * blurG)
-                 + sceneAt(pg + vec2( 0.9, -0.90) * blurG)
-                 + sceneAt(pg + vec2(-0.5,  0.85) * blurG)
-                 + sceneAt(pg + vec2( 0.8,  0.50) * blurG) ) * 0.25;
-
-    /* A plane: bright with reflected wall at grazing angles near the
-       horizon, falling to its own tone toward the viewer */
-    float persp = t / (t + GBH * 1.2);
-    vec3 floorCol = uGroundDeep * mix(uDark > 0.5 ? 1.45 : 1.03,
-                                      uDark > 0.5 ? 0.60 : 0.93, persp);
-
-    /* Timber, laid in the plane's own coordinates. The plane vanishes where a
-       horizontal circle would degenerate to a line, which is where ryAt reads
-       zero — the same camera the rim and the base ellipses are drawn with, so
-       the grain runs to the point they run to. Below that line the depth goes
-       as one over the distance from it, and the distance across the plane is
-       the screen offset times that depth. Those two are the plank's own
-       coordinates; a texture pasted on flat gives grain running parallel to
-       the frame rather than away from the eye, which is a poster of a bar and
-       not a bar. */
-    if (uWoodK.y > 0.5){
-      float yV  = -uRyLin.y / max(abs(uRyLin.x), 1e-6);
-      float fL  = 1.0 / max(abs(uRyLin.x), 1e-6);
-      float dyP = max(px.y - yV, 1.0);
-      vec2 wuv  = vec2((px.x - GCX) / dyP, fL / dyP) * uWoodK.x;
-      /* Lit the way the bare plane was — paler where it recedes, deeper
-         towards the eye — so the glass goes on standing on it. */
-      floorCol = texture(uWood, wuv).rgb
-               * mix(uDark > 0.5 ? 0.72 : 1.00, uDark > 0.5 ? 0.34 : 0.70, persp);
-    }
+    /* The glow, as the floor reflects it. The glow is broad and smooth, so
+       one reading does for the blur the wall's reflection is given. */
     float fadeW = exp(-t / (GHT * 0.26)) * (uDark > 0.5 ? 0.45 : 0.30);
-    float fadeG = exp(-tg / (GHT * 0.30)) * (uDark > 0.5 ? 0.52 : 0.34) * uReflect;
-    col = mix(floorCol, reflW, fadeW);
+    vec3 add = wallGlow(vec2(px.x, 2.0 * horizonY - px.y)) * fadeW;
 
-    /* the sample is premultiplied, so it composites over the floor directly */
-    float k = fadeG * step(footY, px.y);
-    col = col * (1.0 - clamp(reflB.a, 0.0, 1.0) * k) + reflB.rgb * k;
-
-    float depthT = 1.0 / (t + 18.0);
-    float streak = vnoise(vec2(px.x * 0.013, depthT * 2400.0));
-    col *= 1.0 + (streak - 0.5) * 0.08 * clamp(t / 40.0, 0.0, 1.0);
-
-    /* A milky veil and a whisper of grain in the frost */
-    col += (uDark > 0.5 ? vec3(0.012, 0.013, 0.015) : vec3(0.035, 0.036, 0.038))
-         * clamp(t / 60.0, 0.0, 1.0);
-    col *= 1.0 + (hash21(px * 1.31) - 0.5) * 0.02;
-
-    /* Light through the base pools around the foot, hugging the plane */
     vec2 qp = vec2((px.x - GCX) / (bw * 1.25), (px.y - baseCY - ryB * 0.9) / max(ryB * 2.0, 1.0));
-    col += uAura * uGlow * exp(-dot(qp, qp) * 2.0) * (0.5 + 0.6 * uDark) * smoothstep(0.02, 0.62, uLevel) * 0.8;
+    add += uAura * uGlow * exp(-dot(qp, qp) * 2.0) * (0.5 + 0.6 * uDark) * smoothstep(0.02, 0.62, uLevel) * 0.8;
 
-    /* Contact shadow and occlusion: ellipses lying IN the plane, sharing its
-       eccentricity, wrapping the footprint behind as well as in front. Applied
-       last so the seam where glass meets floor survives the pooled light. */
-    vec2 q = vec2((px.x - GCX) / bw, (px.y - baseCY) / max(ryB, 1.0));
-    float rq = length(q);
-    col *= 1.0 - smoothstep(3.2, 1.0, rq) * (uDark > 0.5 ? 0.55 : 0.30) * uGlassOn;
-    col *= 1.0 - smoothstep(1.34, 1.0, rq) * (uDark > 0.5 ? 0.62 : 0.42) * uGlassOn;
+    /* The glass mirrored about its footprint centre, so the reflection starts
+       where it touches. It meets the floor along the base ellipse's front arc,
+       not a flat line. Read only below that arc, near the glass and while the
+       fade has anything left. */
+    float nxb = clamp((px.x - GCX) / bw, -1.0, 1.0);
+    float footY = baseCY + ryB * sqrt(max(0.0, 1.0 - nxb * nxb));
+    float tg = px.y - footY;
+    float k = exp(-max(tg, 0.0) / (GHT * 0.30)) * (uDark > 0.5 ? 0.52 : 0.34) * uReflect;
+    float blurG = 1.5 + max(tg, 0.0) * 0.16;
+    if (tg >= 0.0 && k > 0.002 && abs(px.x - GCX) < GTH * 2.0 + 160.0 + blurG * 2.0){
+      float wob = (vnoise(vec2(px.x * 0.02, px.y * 0.05)) - 0.5) * t * 0.07;
+      vec2 pg = vec2(px.x + wob, 2.0 * baseCY - px.y);
+      /* Taps turned per pixel, each read from a mip as wide as their spacing:
+         no copies of the glass and no grain */
+      float phi = ign(gl_FragCoord.xy) * 6.2831853;
+      float r = blurG * 1.25;
+      float lod = log2(max(1.0, r * 0.5 * uDpr));
+      vec4 reflB = vec4(0.0);
+      for (int i = 0; i < REFL_TAPS; i++){
+        vec2 p = pg + vogel(i, REFL_TAPS, phi) * vec2(1.0, 1.2) * r;
+        reflB += textureLod(uScene, vec2(p.x, uRes.y - p.y) / uRes, lod);
+      }
+      reflB /= float(REFL_TAPS);
+      col *= 1.0 - clamp(reflB.a, 0.0, 1.0) * k;
+      add += reflB.rgb * k;
+    }
+    col += add * room.a * FLOOR_MK;
   }
 
-  /* The pour and everything it wears stand in front of all of it */
-  vec4 src = sceneAt(px);
+  vec4 src = texelFetch(uScene, fc, 0);
   col = col * (1.0 - src.a) + src.rgb;
 
-  /* No hairline where the wall meets the bar. In the canvas version that line
-     is the lit far edge of a bar top a good deal paler than the wall behind
-     it, so it reads as the edge of a step. Here the floor near the horizon
-     comes out all but the same tone as the wall, and a line drawn between two
-     equal darks is the edge of nothing: it floated across the back of the
-     scene as a bright rule with no surface either side of it. */
-
+  /* No horizon line is drawn. The floor there is nearly the wall's tone, so a
+     line would be the edge of nothing. */
+  /* Half a step of noise, so the glow's long gradients on a dark wall do not
+     come out in bands */
+  col += (ign(gl_FragCoord.xy + vec2(19.0, 41.0)) - 0.5) / 255.0;
   frag = vec4(col, 1.0);
 }`;
 
@@ -497,8 +532,6 @@ uniform float uBand, uTime;
 out vec4 frag;
 
 float bandShape(float x){
-  /* A real head keeps a fairly level top: gentle long swells with
-     bubble-scale ripple, not deep lobes */
   float s = 0.5 + 0.5 * (
     0.45 * sin(x * 0.0104 + uTime * 0.55) +
     0.30 * sin(x * 0.0271 - uTime * 0.85) +
@@ -550,17 +583,18 @@ void main(){
 const VS_SPRITE = `#version 300 es
 in vec2 aCorner;
 in vec4 aInst;              // x, y, radius x, radius y
-in vec2 aMeta;              // kind, alpha
+in vec3 aMeta;              // kind, alpha, how far back (0 near to 1 at the back wall)
 uniform vec2 uRes;
 out vec2 vLocal;
 out vec2 vPx;
 out vec2 vRad;
-out float vKind, vAlpha;
+out float vKind, vAlpha, vFar;
 void main(){
   vLocal = aCorner;
   vRad = aInst.zw;
   vKind = aMeta.x;
   vAlpha = aMeta.y;
+  vFar = aMeta.z;
   vec2 pos = aInst.xy + aCorner * aInst.zw;
   vPx = pos;
   gl_Position = vec4((pos.x / uRes.x) * 2.0 - 1.0, 1.0 - (pos.y / uRes.y) * 2.0, 0.0, 1.0);
@@ -572,15 +606,15 @@ ${GLSL_GLASS}
 in vec2 vLocal;
 in vec2 vPx;
 in vec2 vRad;
-in float vKind, vAlpha;
+in float vKind, vAlpha, vFar;
 uniform vec3 uFoam, uBeer;
+uniform vec3 uBeerSeen;      // the body's colour through the middle of the glass
 out vec4 frag;
 
 void main(){
   float d = length(vLocal);
 
   if (vKind < 0.5){
-    /* Gas bubble, cut off by the surface and the walls */
     if (d > 1.0) discard;
     if (vPx.y < surfaceAt(vPx.x) + ellipseDy(vPx.x)) discard;
     if (abs(vPx.x - GCX) > innerHalfAt(vPx.y)) discard;
@@ -593,7 +627,11 @@ void main(){
     float pip     = smoothstep(0.32, 0.0, length(vLocal - vec2(-0.30, -0.34)));
     float wRim = rim + pip * 0.9;
     vec3 col = (vec3(1.0) * wRim + uBeer * 0.42 * outline) / max(wRim + outline, 0.0001);
-    frag = vec4(col, clamp(rim * 0.7 + outline * 0.55 + pip * 0.5 + inside * 0.05, 0.0, 1.0) * vAlpha);
+    /* A bubble at the back of the glass is seen through the beer in front of
+       it: dimmer, and coloured by it */
+    col = mix(col, uBeerSeen, vFar * 0.55);
+    frag = vec4(col, clamp(rim * 0.7 + outline * 0.55 + pip * 0.5 + inside * 0.05, 0.0, 1.0)
+                     * vAlpha * (1.0 - vFar * 0.45));
   } else if (vKind < 1.5){
     if (d > 1.0) discard;
     float e = clamp(2.0 / vRad.x, 0.02, 0.6);
@@ -604,7 +642,6 @@ void main(){
     if (d > 1.0) discard;
     frag = vec4(uFoam, smoothstep(1.0, 0.1, d) * 0.55 * vAlpha);
   } else if (vKind < 4.5){
-    /* Condensation on the outside: a lens with a dark rim and one bright pip */
     if (d > 1.0) discard;
     float ring = smoothstep(1.0, 0.70, d) * smoothstep(0.28, 0.62, d);
     float pip  = smoothstep(0.46, 0.05, length(vLocal - vec2(-0.32, -0.36)));
@@ -612,20 +649,16 @@ void main(){
     vec3 col = mix(vec3(0.03, 0.04, 0.05), vec3(1.0), clamp(pip * 1.4, 0.0, 1.0));
     frag = vec4(col, clamp(ring * 0.45 + sag * 0.20 + pip * 0.9, 0.0, 1.0) * vAlpha);
   } else {
-    /* Lacing: dried foam stuck to the wall above the beer line — and never
-       above the lip, where there is no inside of the glass to stick to. The
-       canvas clips its lacing to the wall and to the rim's own far arc; a
-       sprite cannot be clipped, so the same arc is tested here, and the same
-       cut is made. Without it a speck on the far wall, carried up the screen
-       by the whole bulge of the rim's ellipse, was drawn clear over the back
-       of the glass and hung in the dark above it. */
+    /* Lacing: dried foam on the wall above the beer line, never above the lip,
+       where there is no inside to stick to. A sprite cannot be clipped, so the
+       rim's far arc is tested here, as the canvas clips it. */
     if (d > 1.0) discard;
     float lrRy = GTH * GRYK;
     float lrCy = GTOP + lrRy;
     float lrRx = max(innerHalfAt(lrCy), 2.0);
     float lu = (vPx.x - GCX) / lrRx;
     if (abs(lu) > 1.0) discard;
-    if (vPx.y < lrCy - lrRy * 0.94 * sqrt(max(0.0, 1.0 - lu * lu))) discard;
+    if (vPx.y < lrCy - lrRy * ${glf(RIM_INNER)} * sqrt(max(0.0, 1.0 - lu * lu))) discard;
     frag = vec4(uFoam, smoothstep(1.0, 0.2, d) * 0.55 * vAlpha);
   }
 }`;
@@ -637,6 +670,7 @@ const FS_FOAM = `#version 300 es
 precision highp float;
 ${GLSL_GLASS}
 ${GLSL_NOISE}
+${GLSL_HEAD}
 uniform sampler2D uField;
 uniform float uTime, uRelief, uGloss, uBandPx, uCoarse, uScale;
 uniform float uCrest;        // how far the head stands above the lip, at its highest
@@ -644,223 +678,103 @@ uniform vec2  uLightDir;
 uniform vec3  uFoam, uFoamShade, uFoamWet, uBeerTint;
 out vec4 frag;
 
-float fieldAt(vec2 p){ return texture(uField, vec2(p.x / uRes.x, 1.0 - p.y / uRes.y)).r; }
+/* Held at 1, where a byte field saturates: a float one keeps adding, and the
+   thresholds and the relief below were set against a field that stops there */
+float fieldAt(vec2 p){ return min(texture(uField, vec2(p.x / uRes.x, 1.0 - p.y / uRes.y)).r, 1.0); }
 
 /* Rounded intersection: min() with the corner filleted off at radius k. Two
-   bounds crossing at a sharp angle meet in a point, and a head has no points
-   in it — the canvas gets its rounded hem free, from a blur and a threshold
-   that cannot hold a corner. */
+   bounds crossing at a sharp angle meet in a point, and a head has no points. */
 float smin(float a, float b, float k){
   float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
   return mix(b, a, h) - k * h * (1.0 - h);
 }
 
-/* The head's own top at a column: the far edge of the beer less the band the
-   head stands, or the crown arching over the lip, whichever is the higher.
-   Written as a function of x so it can be asked for a neighbouring column as
-   well as this one — see the slope below. */
-float headTopAt(float x, float lipCy, float rry, float bandPx){
-  float cu    = clamp((x - GCX) / max(1.0, innerHalfAt(lipCy)), -1.0, 1.0);
-  float disc  = sqrt(max(0.0, 1.0 - cu * cu));
-  float mound = sqrt(max(0.0, 1.0 - pow(abs(cu), 6.0)));
-  float cap   = lipCy - rry * 0.55 * mound - rry * disc;
-  return max(headSurfaceAt(x) - ellipseDy(x) - bandPx, cap);
-}
 
 void main(){
   vec2 px = fragPx();
 
-  /* The head's own top, read the way the canvas reads it: the far edge of the
-     beer less the band the head stands, or the crown arching over the lip,
-     whichever is the higher. Two things follow that a fixed dome above the lip
-     could not give. The head rides the wave — swilled hard it comes up the
-     glass and over the lip, where before it stopped dead on a line at the rim
-     however hard the beer was thrown at it. And the crown is the canvas's own
-     curve, so it meets the head's body at the wall instead of stopping short
-     of it and handing over with a step. */
+  /* The head's top, as the canvas reads it (headTopAt): it rides the wave, so a
+     swilled head climbs over the lip and the crown meets the body at the wall
+     without a step. */
   float rry   = GTH * GRYK;
   float lipCy = GTOP + rry;
   float headTop = headTopAt(px.x, lipCy, rry, uBandPx);
-  /* and above the lip the bore stops widening: there is no more glass to hold it */
-  /* The side of the head: the bore below the lip, and above it the cap of foam
-     standing on the mouth. Two bounds — the wall, which widens as the glass
-     rises, and the cap, which draws in as the foam rises past the lip. Taken
-     as one or the other by whichever side of the lip a pixel falls, they met
-     at the rim's widest point in a spike, the wall slanting out as it climbed
-     and the cap turning in. That spike is the notch that stood at each side of
-     a tall head, where the two lines would not join. Met with a filleted min
-     they turn into one another over a few pixels instead, which is what foam
-     hanging over a lip actually does.
-
-     And the cap draws in on a curve that is level at both ends. Squared and
-     then clamped, it was running in at its very steepest at the moment it
-     stopped, so the outline broke into a long straight ramp and then a wall
-     going straight up with a corner between them — the two facets and the flat
-     top that made a tall head read as a paper dome rather than foam. */
+  /* The side of the head: the bore below the lip, a cap of foam above. Chosen by
+     side of the lip, they met at the rim's widest point in a spike (a notch at
+     each side of a tall head), so a filleted min joins them. */
   float ihLip = innerHalfAt(lipCy);
   float up    = max(0.0, lipCy - px.y);
-  /* Above the lip there is no glass, and what stands there is a crown of foam
-     sitting on the mouth: as wide as the mouth where it leaves the rim, and
-     closing to nothing at its own top. Drawn in on a lean that ran out
-     instead, the head narrowed to a waist a rim's depth up and then went
-     straight to a flat top, which reads as a funnel rather than a dome.
-
-     The dome is sized to how far the head is actually standing proud, so it
-     closes exactly where the foam ends rather than at some height of its own —
-     a shallow head gets a shallow crown and a proud one a tall one. */
+  /* Above the lip a crown of foam sits on the mouth, as wide as the mouth at the
+     rim and closing to nothing at its top, sized to how far the head stands proud
+     (uCrest). Its curve must be level at both ends, or the outline breaks into a
+     ramp, a corner and a wall (a paper dome). */
   float crest  = max(uCrest, 1.0);
   float ct     = clamp(up / crest, 0.0, 1.0);
   float domeHw = ihLip * sqrt(max(0.0, 1.0 - ct * ct));
-  /* And never inside the mouth's own ring. The rim is a circle seen at an
-     angle, so for a rim's depth above the lip the glass still stands out to
-     that ellipse — and a dome cutting inside it left a crescent of room
-     showing between the foam and the far lip, which is the dark nick at each
-     shoulder of the head. */
+  /* Never inside the mouth's own ring: the rim is a circle seen at an angle, and
+     a dome inside it leaves a crescent of room showing (a nick at each shoulder). */
   float mt     = clamp(up / max(1.0, rry), 0.0, 1.0);
   float ringHw = ihLip * sqrt(max(0.0, 1.0 - mt * mt));
   float capHw  = max(domeHw, ringHw);
-  /* The side is the inner wall itself, with nothing added. Carried out past it
-     to make up for what the hem's own threshold takes off the edge, the head
-     came out wider than the beer standing under it and the two met in a step
-     at the waterline — where a glass shows one unbroken line up the wall, foam
-     and beer alike against the same bore. Whatever the hem loses, it has to
-     lose on the line the beer ends on.
-
-     And below the lip the cap is not a bound at all. What stands above the
-     mouth is a cap of foam; what stands below it is held by the glass, and the
-     glass is a cone. Left at the mouth's own width all the way down — a
-     straight line beside a wall that is narrowing away from it — the fillet
-     went on rounding the head against a bound that was not there, and let go
-     only once the bore had narrowed by the fillet's own width, which on a full
-     glass is most of the head. Two pixels off it at the lip, tapering down:
-     the head standing off the glass, worst exactly where the glass is widest.
-     That is the head failing to follow the bore, and it was the cone being
-     filleted against a straight line that did it.
-
-     Given up below the lip, the head sits on the cone itself the whole way
-     down — nought off it, not a fraction. The fillet stays, and small, for the
-     one place it is wanted: the rim, where the wall climbing out and the cap
-     turning in meet at a point that wants rounding rather than a spike. */
+  /* The side is the inner wall itself, nothing added: pushed outward, the head
+     came out wider than the beer, with a step at the waterline. Below the lip the
+     cap is not a bound, since the cone holds the head: a cap left at the mouth's
+     width kept the fillet rounding against a bound that was not there, and the
+     head stood off the glass. The small fillet stays for the rim, where wall and
+     cap meet at a point. */
   float capB  = capHw + max(0.0, px.y - lipCy) * 4.0;
   float dWall = smin(innerHalfAt(px.y) - abs(px.x - GCX),
                      capB - abs(px.x - GCX), 3.0 * uScale);
-  /* The bottom of a glass is a disc, and a head with almost no beer left under
-     it comes to rest on that disc: what stops it down there is the near half of
-     the floor's ellipse, the same curve the beer is stopped on. Stopped on the
-     floor's plane instead, the last of the foam sat on a dead straight line
-     ruled across the glass — the one shape a glass with elliptical walls
-     cannot show. */
+  /* The bottom of a glass is a disc: a head with almost no beer under it rests on
+     the near half of the floor's ellipse, as the beer does. A level floor plane
+     gives a straight line a glass with elliptical walls cannot show. */
   float ihb  = max(innerHalfAt(GINBOT), 1.0);
   float fxn  = clamp((px.x - GCX) / ihb, -1.0, 1.0);
   float pan  = GINBOT + uRyKs.y * ihb * sqrt(max(0.0, 1.0 - fxn * fxn));
   if (dWall < -2.0 || px.y > pan) discard;
-  /* and nothing below the near arc of the beer it floats on — see the cut on
-     that arc further down, which takes all of it. Asked here, before the taps
-     rather than after them, the whole body of the pour is spared them. */
+  /* and nothing below the near arc of the beer it floats on (cut again below).
+     Asked here, before the taps, it spares the whole body of the pour them. */
   float front = headSurfaceAt(px.x) + ellipseDy(px.x);
   if (px.y >= front + 1.2) discard;
 
-  /* A head is a body of foam, not a heap of blobs. The canvas fills its own
-     outline and lets the texture play inside it; here the blobs alone said
-     where the foam was, and where they thinned — which is at the wall, where
-     each one is cut in half by it — they left holes.
-
-     So the head's own outline is filled in as field rather than added on as a
-     second mask. Added on, everything the blobs did not reach came out flat
-     and a shade darker — the shading reads the field, and there was none there
-     to read — so the glass wore two heads, a smooth pale dome with a bubbled
-     one standing in front of it. Filled in, the whole body shades alike and
-     the pores and boulders, which are noise rather than blobs, carry the
-     texture right across it.
-
-     And the outline fills; it does not cut. Cut to it, a crest surging up the
-     glass ran into the crown and stopped on a straight line, which is a lid
-     rather than a wave. The blobs are what a crest is made of and they are
-     free to carry it as high as the beer throws them. */
-  /* Welded, the way the canvas welds them. It draws its blobs through a goo
-     filter — a wide blur and then a hard threshold — which is what turns a
-     heap of circles into one body with a rounded, continuous hem. Thresholding
-     the field where it stands gave every blob its own lump in the outline and
-     a gritty edge between them; blurring it first and cutting hard afterwards
-     rounds the hem, welds the seams, and pulls the silhouette in a little, all
-     of which is what the canvas's head looks like. */
+  /* A head is a body of foam, not a heap of blobs. The outline is filled in as
+     field (f below), not added as a second mask, since the shading reads the
+     field and gaps in it came out flat and darker. It fills but does not cut:
+     cut to it, a surging crest stopped on a straight line. */
+  /* Welded as the canvas welds them: a wide blur, then a hard threshold, giving
+     one body with a rounded hem. Thresholding in place gave each blob its own lump. */
   float fs = fieldAt(px);
   float r1 = 5.0 * uScale, r2 = 3.5 * uScale;
   float fb = (fieldAt(px + vec2( r1, 0.0)) + fieldAt(px + vec2(-r1, 0.0))
             + fieldAt(px + vec2(0.0,  r1)) + fieldAt(px + vec2(0.0, -r1))
             + fieldAt(px + vec2( r2,  r2)) + fieldAt(px + vec2(-r2, -r2))
             + fieldAt(px + vec2( r2, -r2)) + fieldAt(px + vec2(-r2,  r2))) * 0.125;
-  /* The head's own body, bounded above by its top and at the side by the wall,
-     and rounded where those two meet. The blobs are welded by the taps above,
-     which is a blur and a threshold and so cannot hold a corner; the body was
-     laid over them as a plain step and kept every corner it had. The head's
-     top runs away almost vertically as it reaches the wall — it is the far rim
-     of a disc, seen flat on — so it crossed the wall at a hair of an angle and
-     left a short straight facet standing out at each side, at the head's
-     widest point.
-
-     The two bounds are measured as distances and met with a filleted min, so
-     the hem turns that corner on an arc of its own. The top's distance is
-     taken across its slope rather than straight down, or a boundary running
-     that steeply would read as far away when it is a pixel off. */
-  /* How steeply that top runs, measured by asking the columns either side
-     rather than by taking a screen derivative of it.
-
-     A derivative is a difference across the quad the hardware happens to be
-     shading, and the other pixels of that quad are not ours to rely on: at the
-     edge of the head its neighbours are off the glass, where the top is not a
-     number at all. What comes back there is whatever the hardware does with
-     that — nothing, on the software rasteriser this is tested against, and not
-     nothing everywhere else. Divided into the distance below, one bad
-     derivative does not blur an edge, it decides that every pixel above the
-     head is inside it, and the head goes up the screen as a bar the width of
-     its own sides. Asked of the geometry instead, the slope is the same number
-     on every machine and is defined wherever the head is. */
+  /* The head's body: bounded above by its top and at the side by the wall, met
+     with a filleted min. The blob field is blurred and thresholded, so it cannot
+     hold a corner, and a plain step left a straight facet at each side. The top's
+     distance is taken across its slope, or a steep boundary reads as far away
+     when it is a pixel off. */
+  /* The top's slope, from the columns either side, not a screen derivative: at
+     the head's edge the quad's neighbours are off the glass, and one bad
+     derivative marks every pixel above the head as inside it. */
   float gTop  = (headTopAt(px.x + 1.0, lipCy, rry, uBandPx)
                - headTopAt(px.x - 1.0, lipCy, rry, uBandPx)) * 0.5;
   float dTop  = (px.y - headTop) * inversesqrt(1.0 + gTop * gTop);
   float body  = smoothstep(0.0, 2.0, smin(dTop, dWall, 3.0 * uScale));
   float f = max(mix(fs, fb, 0.8), body);
-  /* Granular outline: a whisper of bubble-scale roughness on the edge */
   float grain = vnoise(px * 0.9 + vec2(uTime * 0.04, 0.0));
   float mask = smoothstep(0.185, 0.245, f + (grain - 0.5) * 0.035);
 
-  /* Below the lip the wall cuts the head off square, because a wall does. Above
-     it there is no wall, and cutting there gave a swilled head a dead straight
-     edge standing a hundred pixels over the rim — a slab sawn off rather than
-     a crest. What stands up there sits on the ring of the mouth, and the ring
-     runs away from us at the two sides: seen edge-on there is less of it to
-     see the higher it goes. So the edge leans in as it climbs, and the foam
-     curves into the rim instead of ending on a line.
-
-     Leaned rather than faded. Holding the edge where it was and letting the
-     foam thin away over thirty or forty pixels turned a sawn-off slab into a
-     bank of white fog hanging off the side of the glass, because what it fades
-     into is the dark room behind it. Foam has an edge; it keeps one here, and
-     the edge is what moves.
-
-     And leaned on a curve rather than a slope. Leaning it by a fixed amount
-     for each pixel it rises is a straight line, and a straight line at an
-     angle to the wall is still an angle: measured against the canvas, whose
-     edge sweeps nineteen pixels in over the first five rows and four over the
-     last, this one moved one or two per five rows for forty rows together. So
-     the lean is nothing at the rim and gathers as it climbs, which puts the
-     bend where the canvas has it — a shoulder at the top of the crest, and the
-     wall itself where the foam meets the lip.
-
-     And leaned rather than domed. A dome centred on the glass curves to the
-     rim prettily and then cuts away the very crest it is meant to round, since
-     a crest rides one wall and not the middle: sized to clear the surge, it
-     squeezed that surge to a third of its width, which is where the foam
-     actually was. */
+  /* Below the lip the wall cuts the head square. Above it there is no wall, and a
+     cut there left a straight slab edge over the rim. The foam sits on the ring
+     of the mouth, which runs away at the sides, so the edge leans in as it climbs.
+     Leaned, not faded: fading made white fog off the glass, and foam has an edge.
+     On a curve, not a slope, so the lean is nothing at the rim and gathers as it
+     climbs. Leaned, not domed: a dome cuts away a crest that rides one wall. */
   mask *= smoothstep(0.0, 1.5, dWall);
 
-  /* The head floats on the beer, so it ends on the near arc of the surface —
-     that arc is what you see of the beer's own edge. Let out over seven pixels
-     the blobs scalloped past it and the blur carried them further still, and
-     what that drew was an underside flatter than the surface beneath it: a
-     head lying in the beer rather than on it. Cut on the arc, the head's
-     underside is the ellipse exactly. */
+  /* The head floats on the beer, so it ends on the near arc of the surface.
+     Letting it out past that drew an underside flatter than the surface beneath. */
   mask *= 1.0 - smoothstep(front - 0.8, front + 1.2, px.y);
   if (mask <= 0.001) discard;
 
@@ -890,7 +804,6 @@ void main(){
   dif *= 1.0 - smoothstep(0.60, 0.95, pores) * (0.12 + uCoarse * 0.10 + tH * 0.05)
              - smoothstep(0.68, 0.98, pores2) * 0.10;
 
-  /* Boulders: sparse bubbles that have merged large near the dry top */
   vec2 cp = px * (0.05 * mix(1.25, 0.75, uCoarse));
   vec2 ci = floor(cp), cf = fract(cp);
   float on = step(0.90 - tH * 0.18 - uCoarse * 0.12, hash21(ci));
@@ -900,32 +813,19 @@ void main(){
   float pip  = smoothstep(cr * 0.45, 0.0, distance(cf, cc + vec2(-0.09, -0.09))) * on;
   dif -= ring * 0.14;
 
-  /* Wet foam at the bottom is soaked with beer; the top dries towards white */
   vec3 base = mix(uFoamWet, uFoam, smoothstep(0.0, 0.55, tH));
   vec3 col = mix(uFoamShade, base, clamp(dif, 0.0, 1.0));
 
-  /* Thin foam reads darker, but only at the true edges of the head */
   col *= 0.88 + 0.12 * smoothstep(0.16, 0.40, f);
 
   vec3 H = normalize(L + vec3(0.0, 0.0, 1.0));
-  /* Wet foam is glossy; dry foam goes matte */
   col += vec3(1.0) * pow(clamp(dot(nrm, H), 0.0, 1.0), 26.0) * uGloss * mix(0.6, 0.25, tH);
   col += vec3(1.0) * smoothstep(0.82, 0.99, pores2) * uGloss * 0.12;
   col += vec3(1.0) * pip * (0.04 + uGloss * 0.10);
 
-  /* Soaked as deep as the head stands in the beer, which is the depth of the
-     surface's own lens at that column and not a fixed band. A fixed one stopped
-     partway across the lens on a glass with little in it and drew its own edge
-     there, following the far arc of the surface rather than the near one the
-     head actually ends on — so the head read as finishing at the back of the
-     beer with the front of the beer showing beyond it. */
-  /* over a short reach, and no more. Carried the whole depth of the lens it
-     ran seventy pixels at the middle of the glass, and a head that grades into
-     the beer over seventy pixels has no edge at all: what you see then is a
-     wash with a level top, not the arc the head actually ends on. The soaking
-     is a hand's breadth of foam standing in beer, so it is a hand's breadth
-     here — enough to tell the wet foam from the dry, not enough to swallow the
-     edge it belongs to. */
+  /* Soaked as deep as the head stands in the beer: the surface lens's depth at
+     this column, not a fixed band, which drew its own edge part way across the
+     lens. Over a short reach only, or the head grades into the beer with no edge. */
   float lens = clamp(ellipseDy(px.x) * 0.55, 7.0, 20.0);
   col = mix(col, col * uBeerTint, smoothstep(-lens, 3.0, px.y - front) * 0.45);
 
@@ -938,28 +838,23 @@ void main(){
 const FS_GLASS = `#version 300 es
 precision highp float;
 ${GLSL_GLASS}
+${GLSL_NOISE}
+${GLSL_HEAD}
 uniform vec3 uEdge, uLight, uBeerGlow;
 uniform float uDark, uLightX, uLevel, uBandPx, uBeerSolid;
-/* How plainly the glass is drawn. It fades the lot together — the silhouette
-   and its tint, both rim ellipses and the lip's light, the wall lines, the
-   floor the beer stands on and the ring the glass stands on. Not the
-   reflections running down the wall and not the light in the thick base:
-   those are light on the glass rather than lines saying a glass is there, and
-   the canvas leaves them alone too. */
+/* How plainly the glass is drawn. The silhouette, tint, rim ellipses, lip light,
+   wall lines, floor and standing ring fade together. The wall reflections and
+   base light do not: they are light on the glass, not lines saying it is there. */
 uniform float uLine;
 out vec4 frag;
 
 void main(){
   vec2 px = fragPx();
 
-  /* Perspective: the base ellipse is more open than the rim, and its front
-     arc bulges below GBOT — the glass stands on that arc */
   float bw  = GBH;
   float ryB = uRyKs.y * bw;
   if (px.y < GTOP - 2.0 || px.y > GBOT + ryB + 2.0) discard;
 
-  /* The rim ellipse tops the silhouette: its widest points, at rimTanY, are
-     where the wall lines begin, so the outline reads as one closed shape */
   float rimRy = GTH * GRYK;
   float rimTanY = GTOP + rimRy;
   float rimRx = halfAt(rimTanY);
@@ -972,8 +867,6 @@ void main(){
   vec3 col = vec3(0.0);
   float a = 0.0;
 
-  /* Faint tint across the body of the glass; above the wall tangent the body
-     is bounded by the rim ellipse, below GBOT by the base ellipse */
   vec2 rc = vec2((px.x - GCX) / rimRx, (px.y - rimTanY) / rimRy);
   bool inTopLens = px.y < rimTanY && dot(rc, rc) < 1.0;
   vec2 bcS = vec2((px.x - GCX) / max(bw, 1.0), (px.y - GBOT) / max(ryB, 1.0));
@@ -982,17 +875,21 @@ void main(){
     col += uEdge; a += (uDark > 0.5 ? 0.05 : 0.035) * uLine;
   }
 
-  /* The two walls: a dark outer edge and a bright inner one */
+  /* Glass reflects more the more obliquely it is seen, so towards the silhouette
+     the wall picks up the room's light and reads as a thickness. On a pale wall
+     it picks up the wall, so the edge goes a little darker instead. */
+  if (outer < 0.0 && px.y >= rimTanY && px.y <= GBOT){
+    float fu = dx / max(halfAt(px.y), 1.0);
+    float fres = pow(smoothstep(0.62, 1.0, fu), 2.5);
+    col = mix(col, uDark > 0.5 ? uLight : mix(uEdge, uLight, 0.45), fres);
+    a = max(a, fres * (uDark > 0.5 ? 0.16 : 0.12) * uLine);
+  }
+
   float outerLine = smoothstep(w, 0.0, abs(outer)) * step(rimTanY, px.y) * step(px.y, GBOT);
-  /* The inner wall runs from the rim's widest points down to the floor's, and
-     stops there. Those are the two places where a wall seen edge-on meets the
-     ellipse it stands on, and the curves are tangent at them, so the line hands
-     over to the floor's own arc without a join to draw. Carried on past the
-     floor — it used to run four tenths of the base below it — the line crossed
-     the floor ellipse it was supposed to meet, hung under it through the solid
-     glass of the base where there is no bore left to have a wall, and ended in
-     mid air on a flat cut. The outer wall has always stopped at its own
-     ellipse's widest points, which is the same rule. */
+  /* The inner wall runs from the rim's widest points to the floor's and stops.
+     There a wall seen edge-on meets the ellipse it stands on, tangent, so the
+     line hands over without a join. Carried past the floor it crosses the floor
+     ellipse and ends in mid air under it. The outer wall stops likewise. */
   float innerLine = smoothstep(w, 0.0, abs(inner))
                   * smoothstep(rimTanY - 1.0, rimTanY + 3.0, px.y)
                   * (1.0 - smoothstep(GINBOT - 1.0, GINBOT + 0.5, px.y));
@@ -1001,27 +898,27 @@ void main(){
   col = mix(col, uLight, clamp(innerLine * 0.75, 0.0, 1.0));
   a = max(a, innerLine * 0.4 * uLine);
 
-  /* Reflections running down the glass — brighter on the side facing the
-     light. The wall tapers, so each band sits at a fixed fraction of the
-     local half width and converges with it, rather than running straight
-     down while the glass narrows away from it. */
+  /* Reflections running down the glass, brighter on the side facing the light.
+     Each band sits at a fixed fraction of the local half width, so it converges
+     with the tapering wall. */
   if (outer < 0.0 && px.y > rimTanY){
     float u = dx / max(halfAt(px.y), 1.0);
-    float refl = 0.0;
-    refl += smoothstep(0.10, 0.0, abs(u - 0.66)) * 0.5;
-    refl += smoothstep(0.05, 0.0, abs(u - 0.48)) * 0.26;
-    refl *= smoothstep(rimTanY, rimTanY + rimRy * 2.0, px.y) * (1.0 - smoothstep(GBOT - GBASE * 1.4, GBOT, px.y));
     float side = sign(px.x - GCX) * sign(uLightX);
+    float yy = (px.y - GTOP) / max(GHT, 1.0);
+    float sd = px.x < GCX ? 0.0 : 7.3;
+    float along1 = 0.55 + 0.45 * vnoise(vec2(yy * 4.5 + sd, 1.3));
+    float along2 = 0.40 + 0.60 * vnoise(vec2(yy * 7.0 + sd, 5.9));
+    float d1 = (u - 0.66) / 0.050, d2 = (u - 0.48) / 0.022;
+    float refl = exp(-d1 * d1) * 0.5 * along1 + exp(-d2 * d2) * 0.26 * along2;
+    refl *= smoothstep(rimTanY, rimTanY + rimRy * 3.0, px.y) * (1.0 - smoothstep(GBOT - GBASE * 2.4, GBOT, px.y));
     refl *= 1.0 + side * 0.5 * min(abs(uLightX) * 1.6, 1.0);
     col = mix(col, uLight, clamp(refl, 0.0, 1.0));
     a = max(a, refl * (uDark > 0.5 ? 0.35 : 0.65));
   }
 
-  /* Rim: the outer lip, and the inner lip just inside it — without that
-     second ellipse the inner wall lines begin in mid air, joined to nothing */
-  /* The near half of the lip is closest to the eye and takes the light square
-     on, while the far half is read through the whole depth of the glass — so
-     the front is drawn heavier and brighter, and the back stays quiet. */
+  /* Rim: the outer lip, and the inner lip just inside it (without it the inner
+     wall lines begin in mid air). The near half takes the light square on and the
+     far half is read through the whole glass: front heavier, back quiet. */
   float lipF = clamp((px.y - rimTanY) / max(rimRy, 1.0) * 0.5 + 0.5, 0.0, 1.0);
 
   float rim = abs(length(rc) - 1.0) * rimRx;
@@ -1030,21 +927,19 @@ void main(){
   a = max(a, rimLine * mix(0.38, 1.0, lipF) * uLine);
 
   float riRx = max(rimRx - GWALL, 1.0);
-  vec2 ric = vec2((px.x - GCX) / riRx, (px.y - rimTanY) / max(rimRy * 0.94, 1.0));
+  vec2 ric = vec2((px.x - GCX) / riRx, (px.y - rimTanY) / max(rimRy * ${glf(RIM_INNER)}, 1.0));
   float rimInLine = smoothstep(GWALL * mix(0.28, 0.52, lipF), 0.0, abs(length(ric) - 1.0) * riRx);
   col = mix(col, uLight, clamp(rimInLine * 0.85, 0.0, 1.0));
   a = max(a, rimInLine * mix(0.26, 0.66, lipF) * uLine);
 
-  /* Thick base — it refracts the beer above it and glows amber */
   if ((px.y > GBOT - GBASE * 2.1 && px.y <= GBOT && outer < 0.0) || inBulge){
     float t = smoothstep(GBOT - GBASE * 2.1, GBOT + ryB, px.y);
     col = mix(col, uLight, t * 0.7);
     a = max(a, t * (uDark > 0.5 ? 0.22 : 0.38));
     if (uLevel > 0.02){
-      /* The glow lights the glass beneath the interior floor, and that floor
-         is an ellipse. Ramps in x multiplied by ramps in y would give a soft
-         box across the base, so the falloff is measured out from the floor's
-         own rim and gated by its front arc. */
+      /* The glow lights the base below the interior floor, an ellipse. Ramps in x
+         times ramps in y would give a soft box, so the falloff is measured out
+         from the floor's rim and gated by its front arc. */
       float ihb  = max(innerHalfAt(GINBOT), 1.0);
       float iryb = max(uRyKs.y * ihb, 1.0);
       float nxf  = clamp((px.x - GCX) / ihb, -1.0, 1.0);
@@ -1063,22 +958,14 @@ void main(){
     }
   }
 
-  /* What the head covers. Up at the lip this already hides the far half of the
-     rim; the back of the glass down at the bottom needs it just as much. A
-     nearly empty glass sits its head on the floor, and the floor's far arc and
-     the standing ring's ran straight across the foam — the back of the glass
-     seen through a body the light does not get through.
-
-     The outline is the one the foam pass fills: its top, and the near arc of
-     the beer it floats on. Each ring is then hidden by how far back the pixel
-     stands on it, which is the same split the canvas makes by stroking every
-     ring twice, once in a far colour faded out towards the front and once in a
-     near colour faded out towards the back. The near arcs are in front of the
-     head and stay whole. */
-  /* And the beer covers them too, once it is thick enough to. At the house
-     setting you look through a pint and the back of the glass is there, which
-     is most of what says a glass is a glass; wound to the top of the opacity
-     slider the pour stops light, and nothing behind it shows. */
+  /* What the head and the beer cover. The head hides the far half of the rim at
+     the lip and the back of the glass at the bottom: a nearly empty glass sits
+     its head on the floor, and the far arcs of the floor and ring would run
+     across the foam. The outline is the foam pass's own. Each ring is hidden by
+     how far back the pixel is on it (the canvas strokes each ring twice, far and
+     near). The beer covers them too once thick enough (uBeerSolid): at the house
+     setting you see the back of the glass through a pint, which is most of what
+     says it is a glass. */
   float beerCov = 0.0;
   if (uLevel > 0.002 && uBeerSolid > 0.002){
     float bTop = surfaceAt(px.x) - ellipseDy(px.x);
@@ -1087,19 +974,13 @@ void main(){
 
   float headTop = 1e9, headBot = -1e9, headCov = 0.0;
   if (uLevel > 0.001){
-    float hcu   = clamp((px.x - GCX) / max(1.0, innerHalfAt(rimTanY)), -1.0, 1.0);
-    float hdisc = sqrt(max(0.0, 1.0 - hcu * hcu));
-    float hmnd  = sqrt(max(0.0, 1.0 - pow(abs(hcu), 6.0)));
-    float hcap  = rimTanY - rimRy * 0.55 * hmnd - rimRy * hdisc;
-    headTop = max(headSurfaceAt(px.x) - ellipseDy(px.x) - uBandPx, hcap);
+    headTop = headTopAt(px.x, rimTanY, rimRy, uBandPx);
     headBot = headSurfaceAt(px.x) + ellipseDy(px.x);
     if (abs(px.x - GCX) <= innerHalfAt(max(px.y, rimTanY)))
       headCov = smoothstep(headTop - 1.0, headTop + 2.0, px.y)
               * (1.0 - smoothstep(headBot - 0.8, headBot + 1.2, px.y));
   }
 
-  /* The standing ring: its outer edge is the silhouette's bottom arc, its
-     inner edge a second arc just inside */
   float botD = abs(length(bcS) - 1.0) * bw;
   float botLine = smoothstep(w, 0.0, botD) * step(GBOT - 1.0, px.y);
   col = mix(col, uEdge, clamp(botLine, 0.0, 1.0));
@@ -1112,11 +993,9 @@ void main(){
   col = mix(col, uLight, clamp(baseLine, 0.0, 1.0));
   a = max(a, baseLine * 0.45 * uLine);
 
-  /* The floor the beer stands on. Drawn faintly it left the pour, the base
-     and the reflection running together as one amber mass with nothing to
-     divide them, so it is given weight — and its near arc takes the light
-     while its far arc stays a dark line, which is what tells a surface from
-     a scratch. */
+  /* The floor the beer stands on. Faint, it let the pour, base and reflection
+     run together as one amber mass, so it has weight: near arc lit, far arc a
+     dark line. */
   float fihw = max(innerHalfAt(GINBOT), 1.0);
   vec2 fc = vec2((px.x - GCX) / fihw, (px.y - GINBOT) / max(fihw * uRyKs.y, 1.0));
   float floorArc = abs(length(fc) - 1.0) * fihw;
@@ -1126,25 +1005,13 @@ void main(){
   col = mix(col, mix(uEdge, uLight, floorNear), clamp(floorLine, 0.0, 1.0));
   a = max(a, floorLine * mix(0.42, 0.72, floorNear) * uLine);
 
-  /* The mouth of a glass is a hole you look through to its far side, and a
-     head standing proud of the rim fills that hole. Above the rim's plane the
-     only glass left to draw is the back of the lip and the top of the
-     silhouette, and both of those are behind the foam. Painted over it the rim
-     ran on across the head as a bright arc and the head read as tissue.
-
-     The plane is the right place to cut, because the rim ellipse divides
-     there: above it the far half of the lip, behind the foam; below it the
-     near half, in front of the foam and drawn over it as it should be. Nothing
-     below the plane is taken away — the glass we see there is the near wall,
-     which stands between the eye and the foam and tints it.
-
-     The head is read back out of its own outline — the same one the foam pass
-     fills, so the rim is hidden by exactly the foam that is there and no more:
-     a shallow head leaves the lip whole. Asking a dome of its own instead, and
-     the field alone inside it, left the two disagreeing at the walls, where a
-     blob is cut in half and the field thins: the rim's own line was drawn
-     across the foam there and read as a dark comma bitten out of the head at
-     either side of the lip. */
+  /* A head standing proud of the rim fills the mouth. Above the rim's plane the
+     only glass left is the back of the lip and the top of the silhouette, both
+     behind the foam, so they are cut (painted over it they read as a bright arc
+     across the head). Below the plane the near half of the lip is in front of the
+     foam and stays. The cut uses the head's own outline, the one the foam pass
+     fills: a separate dome disagrees with the field at the walls and bit a dark
+     comma out of the head at either side of the lip. */
   if (px.y < rimTanY && uLevel > 0.001 && abs(px.x - GCX) <= innerHalfAt(rimTanY))
     a *= 1.0 - smoothstep(headTop - 1.0, headTop + 2.0, px.y);
 
@@ -1155,17 +1022,9 @@ void main(){
 /* ------------------------------------------------------------------ *
  * Pass 5b — the weep: foam over the lip, and what runs down from it
  *
- * Drawn the way the canvas version draws it, because sprites could not. A
- * collar is one body of foam draped over a ring of glass, and a ribbon is a
- * tapering trail wandering down a cone: laid out as a row of blended capsules
- * they came out as a flat white bar ruled across the glass with a straight
- * line under it, and each blob had to be squeezed to fit inside the silhouette
- * because a sprite cannot be clipped. Here the whole of it is solved per
- * pixel from the same geometry the canvas walks with a pen, so the hem lobes,
- * the taper, the wander, the bead and the pool all come out as they should.
- *
- * It goes on after the glass and inside the scene, so it is in front of the
- * lines the way the canvas paints it, and the bar still has it to reflect.
+ * Solved per pixel, as the canvas draws it, because a sprite cannot be clipped
+ * to the silhouette. It goes on after the glass and inside the scene, so the
+ * bar reflects it.
  * ------------------------------------------------------------------ */
 const FS_WEEP = `#version 300 es
 precision highp float;
@@ -1184,60 +1043,56 @@ uniform vec4  uRibA[6];      // th, top, bottom h, shoulder width
 uniform vec4  uRibB[6];      // bead r, wob, wobA, pool
 uniform vec4  uRibC[6];      // life
 /* the three waves this weep's tongues are made of: how many, where, how deep,
-   and how much of the hem is level. Rolled once per weep, over in sim.js. */
+   and how much of the hem is level. Rolled once per weep, over in sim/weep.js. */
 uniform vec3  uDrapeF;
 uniform vec3  uDrapeP;
 uniform vec4  uDrapeG;       // depths, and the level part in w
 out vec4 frag;
 
-/* The hem hangs in tongues rather than level, and is closed off at the two
-   sides, where the glass has turned away and the collar is edge on. */
+/* The hem hangs in tongues, and is closed off at the two sides where the glass
+   turns away and the collar is edge on. This is collarDrape in the simulation
+   (weep.js), with its constants. */
 float drape(float th){
   float v = uDrapeG.w;
   v += uDrapeG.x * sin(th * uDrapeF.x + uDrapeP.x);
   v += uDrapeG.y * sin(th * uDrapeF.y + uDrapeP.y);
   v += uDrapeG.z * sin(th * uDrapeF.z + uDrapeP.z);
-  return clamp(v, 0.06, 1.0) * min(1.0, abs(cos(th)) * 3.4);
+  return clamp(v, ${glf(DRAPE_LEAST)}, 1.0) * min(1.0, abs(cos(th)) * ${glf(DRAPE_SIDES)});
 }
 
 float rimRy(){ return GTH * GRYK; }
 float rimCy(){ return GTOP + rimRy(); }
 
-/* How far down the glass the hem has got at this angle */
 float hemH(float th){
   return rimCy() + uWeepRun * (uWeep.z + uWeep.w * drape(th));
 }
 vec2 hemPt(float th){ return conePoint(hemH(th), th); }
 
-/* Which height sits at this y, at this angle round the glass. The lean is a
-   height's own bore times the openness there, and both move slowly, so it is
-   walked in rather than solved. */
+/* Which height sits at this y, at this angle round the glass. The lean changes
+   slowly, so it is walked in (three steps) rather than solved. */
 float heightAtY(float y, float th){
   float h = y;
   for (int i = 0; i < 3; i++) h = y - ryAt(h) * halfAt(h) * cos(th);
   return h;
 }
 
-/* Widest as it comes over the lip, drawn thin down the middle, and swelling
-   into the bead that is doing the pulling. */
+/* Widest at the lip, thin down the middle, swelling into the bead that does the
+   pulling. This is ribbonHalf in the simulation (weep.js). */
 float ribbonHalf(float w, float r, float t){
-  float tail = w * (0.45 + 0.75 * pow(1.0 - t, 1.5));
-  float bead = r * clamp((t - 0.70) / 0.30, 0.0, 1.0);
+  float tail = w * (${glf(RIBBON_TAIL)} + ${glf(RIBBON_TAPER)} * pow(1.0 - t, ${glf(RIBBON_TAPER_POW)}));
+  float bead = r * clamp((t - ${glf(RIBBON_BEAD_FROM)}) / ${glf(RIBBON_BEAD_OVER)}, 0.0, 1.0);
   return max(tail, bead);
 }
 
-/* The lip, on whichever side of the glass a thing hangs from, which is where a
-   ribbon is cut off at the top. The rim is an ellipse, and near the sides that
-   is where it turns hardest, so a level cut there reads as a tab stuck on the
-   glass rather than foam coming over the edge of it; and a ribbon on the back
-   comes over the far arc, which is above the near one. */
+/* The lip on whichever side a thing hangs from, where a ribbon is cut off at the
+   top. The rim turns hardest near the sides, so a level cut reads as a tab stuck
+   on; a back ribbon comes over the far arc, which is higher. */
 float lipSideY(float x, float side){
   float rx = max(1.0, halfAt(rimCy()));
   float u = clamp((x - GCX) / rx, -1.0, 1.0);
   return rimCy() + side * (rimRy() * sqrt(max(0.0, 1.0 - u * u)) - 0.5 * uScale);
 }
 
-/* The arc the glass stands on, on whichever side */
 float footSideY(float x, float side){
   float u = clamp((x - GCX) / max(1.0, GBH), -1.0, 1.0);
   return GBOT + side * ryAt(GBOT) * GBH * sqrt(max(0.0, 1.0 - u * u));
@@ -1254,19 +1109,16 @@ bool inSilhouette(vec2 px){
   return wall || lens || bulge;
 }
 
-/* The same cells and pores the head is made of. Flat, the collar came out as a
-   smooth pale dome standing in front of a bubbled one, and the glass looked to
-   be wearing two heads: it is one body of foam that has come over the lip, and
-   it should carry the grain of the foam it came from. */
+/* The head's cells and pores, so the collar carries the grain of the foam it
+   came from. Flat, it read as a second, smooth head. */
 vec3 foamGrain(vec2 px){
   float cells = vnoise(px * 0.16 + vec2(uTime * 0.05, 0.0)) * 0.7
               + vnoise(px * 0.45 - vec2(0.0, uTime * 0.08)) * 0.3;
   float pf = mix(1.5, 0.6, uCoarse);
   float pores  = vnoise(px * 0.85 * pf + vec2(uTime * 0.03, 0.0));
   float pores2 = vnoise(px * 1.90 * pf + vec2(0.0, uTime * 0.02));
-  /* A touch of it, not a coat: this is foam seen through the whole thickness of
-     itself where it has folded over the lip, not the open face of the head. Laid
-     on at the head's own strength it came out as grey mottling. */
+  /* A touch, not a coat: foam seen through its own thickness where it has folded
+     over the lip, not the open face of the head. At full strength it was grey. */
   float k = 0.995 + (cells - 0.5) * 0.022
           - smoothstep(0.76, 0.99, pores)  * 0.022
           - smoothstep(0.84, 0.99, pores2) * 0.016;
@@ -1282,9 +1134,8 @@ void over(inout vec4 acc, vec3 c, float a){
 void main(){
   vec2 px = fragPx();
 
-  /* Nothing here reaches above the rim, outside the widest the glass ever is,
-     or below what a puddle can spread to, and the ribbon loop is dear enough
-     that the rest of the frame should not pay for it. */
+  /* Nothing reaches above the rim, outside the widest the glass is, or below what
+     a puddle can spread to. The ribbon loop is dear, so the rest of the frame skips it. */
   float bry = ryAt(GBOT) * GBH;
   if (px.y < rimCy() - rimRy() - 2.0 || px.y > GBOT + bry + 60.0
       || abs(px.x - GCX) > max(GTH, GBH) + 60.0) discard;
@@ -1293,15 +1144,10 @@ void main(){
 
   bool showCollar = uWeep.x > 0.012 && uWeep.y > 0.002 && uWeepPart > 0.5;
 
-  /* How far round the glass this pixel stands. The collar is not a band of one
-     radius: its top edge lies on the rim, whose ellipse is the bore at the
-     lip's own plane, while its hem lies further down a tapering wall and so
-     comes in with it. Reading the angle off the bore at the pixel's own height
-     put the top edge on a circle a shade wider than the rim it is drawn on, and
-     the collar showed a pixel or two of foam standing outside the glass all
-     along the top of the lip. So the height is found first, roughly, and the
-     radius then taken between the two edges the way the collar's own sides run
-     between them. */
+  /* How far round the glass this pixel stands. The collar's top edge is on the
+     rim and its hem lower on a tapering wall, so reading the angle off the bore
+     at the pixel's own height drew foam outside the glass along the lip. So the
+     height is found first, roughly, and the radius taken between the two edges. */
   float cRx = max(1.0, halfAt(rimCy()));
   float dx = px.x - GCX;
   float hw = max(1.0, halfAt(px.y));
@@ -1316,40 +1162,30 @@ void main(){
   }
   bool onFace = abs(dx) <= hw;
 
-  /* The collar's own shade along its hem, so it hangs on the glass instead of
-     being painted flat onto it. Laid down first, so the collar's body covers
-     the inner half of it and what is left is a shadow cast on what is below —
-     and so a ribbon passing the hem goes over the top of it, as it should,
-     being nearer the eye than the thing casting it. */
+  /* The collar's shade along its hem. Laid first, so the collar covers its inner
+     half and the rest is a shadow below. A ribbon passing the hem goes over it. */
   if (showCollar && onFace){
     vec2 hp = hemPt(th);
     float e = 0.02;
     vec2 d = hemPt(th + e) - hemPt(th - e);
     float perp = abs(px.y - hp.y) * abs(d.x) / max(length(d), 1e-4);
     float lw = max(1.0, GWALL * 0.35);
-    /* Closed off at the two sides, the way the drape itself is. The pixel is
-       placed round the glass by its x, so where the hem runs straight down the
-       screen — which is at the sides, where the glass has turned away — that
-       reading has no width left to divide by and the line spread into a blot.
-       It sat just inside the mouth, which is cut out of the collar, so nothing
-       was laid over it: a dark comma bitten out of the foam at either side of
-       the rim. There is no shade to see there in any case. A stroke seen
-       edge-on is a point. */
+    /* Closed off at the two sides, like the drape: there the hem runs straight
+       down the screen, the angle has no width to divide by, and the line spread
+       into a blot inside the mouth (a dark comma). Edge-on a stroke has no shade. */
     float edge = min(1.0, abs(cos(th)) * 3.4);
     over(acc, vec3(0.353, 0.282, 0.173),
          smoothstep(lw * 0.5, lw * 0.5 - 1.0, perp) * 0.28 * 0.5 * edge * uWeepAlive);
   }
 
-  /* Foam over the lip, running down the outside. One body apiece: the tail and
-     the bead it hangs from are the same foam, and two overlapping fills at this
-     alpha would seam where they crossed. */
+  /* One body apiece: the tail and its bead are the same foam, and two overlapping
+     fills at this alpha would seam where they cross. */
   for (int i = 0; i < 6; i++){
     if (i >= uRibN) break;
     float rth = uRibA[i].x, rtop = uRibA[i].y, rbot = uRibA[i].z, rw = uRibA[i].w;
     float rr = uRibB[i].x, wob = uRibB[i].y, wobA = uRibB[i].z, pool = uRibB[i].w;
     float life = uRibC[i].x;
     float c = cos(rth), sr = sin(rth);
-    /* which way round the glass it runs: in front of the pour, or behind it */
     float side = c < 0.0 ? -1.0 : 1.0;
     /* the back of the glass is painted with the room, the front with the glass */
     if ((c < 0.0) != (uWeepPart < 0.5)) continue;
@@ -1374,22 +1210,19 @@ void main(){
       if (px.y <= endP.y){
         cover = smoothstep(phw + 0.7, phw - 0.7, abs(px.x - cxr));
       } else if (pool > 0.0){
-        /* It has arrived. A run of foam standing on the bottom of the glass has
-           its whole width against the edge, and the edge is the base's own arc:
-           a rounded end there is a drop still hanging in the air. */
+        /* It has arrived. Foam standing on the bottom has its whole width against
+           the base's arc, so a rounded end there would be a drop in mid air. */
         cover = smoothstep(endHw + 0.7, endHw - 0.7, abs(px.x - endP.x))
               * step(px.y, footSideY(px.x, side));
       } else {
-        /* and if it has not, it ends in the bead that is pulling it */
         vec2 q = vec2((px.x - endP.x) / endHw, (px.y - endP.y) / max(0.35, rr));
         cover = smoothstep(1.0, 1.0 - 1.4 / max(endHw, 1.0), length(q));
       }
     }
     over(acc, foamGrain(px), cover * underLip * a);
 
-    /* The light runs down the standing edge of it — but only once there is a
-       standing edge to catch it. On a ribbon drawn down to a thread the
-       highlight was the whole of it, and it read as a scratch on the glass. */
+    /* The light runs down the standing edge, once there is one to catch it. On a
+       ribbon thinned to a thread it was the whole of it and read as a scratch. */
     float hw0 = max(0.35, ribbonHalf(rw, rr, 0.0) * fs);
     if (hw0 > 2.2 && cover > 0.02 && phw >= 1.1 && px.y <= endP.y){
       float lwid = max(0.6, hw0 * 0.34);
@@ -1397,10 +1230,8 @@ void main(){
       over(acc, vec3(1.0), smoothstep(lwid * 0.5, 0.0, dl) * a * 0.32 * 0.55);
     }
 
-    /* and what got all the way down runs off the glass and lies on the bar.
-       Only the half of it that has cleared the foot: the glass stands on the
-       other half, and foam does not gather under a glass that is already
-       there. */
+    /* and what got all the way down runs off the glass and lies on the bar. Only
+       the half clear of the foot: the glass stands on the other. */
     if (pool > 0.0 && !inSilhouette(px)){
       float pry = max(0.8, pool * ryAt(GBOT) * GBH / max(1.0, GBH));
       float prx = max(1.0, pool);
@@ -1410,66 +1241,38 @@ void main(){
     }
   }
 
-  /* The collar: the head hanging over the outside of the lip, which is where
-     the ribbons are drawn from. It goes on last of the three, over the ribbons
-     rather than under them — it is the nearest foam to the eye, lying on the
-     lip itself while a ribbon has already run down the wall behind it, and a
-     ribbon is drawn out of the collar, so the collar is what its root should
-     disappear into.
-
-     Its upper edge is the far arc of the rim, not the near one: foam that has
-     come over covers the whole of the lip it came over. Its lower edge is the
-     hem, read at the height it has reached, so it comes in with the wall as the
-     glass tapers instead of hanging straight off the rim. */
+  /* The collar: the head hanging over the lip, where the ribbons start. It goes
+     last, over the ribbons, so a ribbon's root vanishes into it. Its upper edge
+     is the far arc of the rim, since foam that has come over covers the whole
+     lip. Its lower edge is the hem at the height it has reached, so it comes in
+     with the tapering wall. */
   if (showCollar && onFace){
     float yTop = rimCy() - rimRy() * cos(th);
     vec2 hp = hemPt(th);
     float band = smoothstep(yTop - 0.7, yTop + 0.7, px.y)
                * smoothstep(hp.y + 0.7, hp.y - 0.7, px.y);
-    /* The mouth is not covered. Foam over the lip lies on the ring of glass the
-       lip is and hangs down the outside from it — it is not a lid.
-
-       Cut a hair inside the bore rather than on it, so the collar laps over
-       the head instead of meeting it exactly — but only a hair. At eight
-       pixels of glass the lap read as a band of foam standing inside the rim
-       rather than a ring lying on it, which is not what a collar looks like;
-       the canvas cuts at the bore itself and never had it. Two and a half
-       closes the join just as well: measured at the shoulders, where the
-       trouble was, it leaves the same handful of dark pixels the wide lap did,
-       and fewer than no lap at all. Where the two are supposed to
-       meet is at the wall just under the lip, and that is the one place
-       neither quite reaches: the head's crown comes down to the rim's plane
-       there, and the mouth is cut out of the collar right up to the same
-       line. Between them stood two or three pixels of bare glass at either
-       side of the rim — the dark comma. The canvas closes it by accident,
-       its blobs being blurred out past the head's own top; here it is closed
-       on purpose. */
+    /* The mouth is not covered: foam over the lip lies on the ring and hangs down
+       the outside, it is not a lid. The cut is a hair inside the bore (inset), so
+       the collar laps the head, but only a hair: eight pixels read as a band of
+       foam inside the rim. With no lap, bare glass shows at each side of the rim
+       where the head's crown reaches the rim's plane and the mouth is cut out up
+       to the same line (the dark comma). */
     float inset = 2.5 * uScale;
     float mrx = max(2.0, halfAt(rimCy()) - GWALL - inset);
     vec2 m = vec2((px.x - GCX) / mrx,
-                  (px.y - rimCy()) / max(1.0, rimRy() * 0.94 - inset));
+                  (px.y - rimCy()) / max(1.0, rimRy() * ${glf(RIM_INNER)} - inset));
     band *= smoothstep(1.0 - 1.2 / mrx, 1.0, length(m));
 
-    /* And it comes over the lip rather than landing on it. The hem creeps down
-       the outside from the first frame, but the ring of the lip was covered
-       whole the moment the weep came on — a rim's depth of foam arriving in
-       one frame at full weight while the hem below was still up at the lip,
-       which reads as a flash and not a creep.
-
-       So the ring is covered the way foam covers it: outward from the mouth. A
-       pixel is allowed once the weep has reached its distance from the lip's
-       centre, measured in shares of the rim's own ellipse so the near side and
-       the far side fill at the same rate — and past the rim it is the outside
-       of the glass, where the hem does the running and this has no say. */
+    /* It comes over the lip rather than landing on it (a ring covered whole in one
+       frame reads as a flash). The ring is covered outward from the mouth: a pixel
+       is allowed once the weep has reached its distance from the lip's centre, in
+       shares of the rim's ellipse. Past the rim the hem does the running. */
     float rise = uWeep.y;
     float rx   = max(1.0, halfAt(rimCy()));
     float q    = length(vec2((px.x - GCX) / rx, (px.y - rimCy()) / max(1.0, rimRy())));
-    /* Softened by a pixel and a half of it, not by a fixed share. The ring is
-       only the wall's thickness and a little inset wide — under a tenth of the
-       rim's own radius — so a share of a twentieth put the whole of the lip
-       inside the soft edge and the foam over it came out half there. And the
-       reach runs a hair past the rim, so once the weep is over nothing is left
-       cutting it at all. */
+    /* Softened by a pixel and a half, not a fixed share: the ring is under a tenth
+       of the rim's radius wide, so a twentieth left it half covered. The reach
+       runs a hair past the rim, so nothing cuts it afterwards. */
     float soft  = 1.5 / rx;
     float qRing = mix(mrx / rx, 1.0 + soft * 2.0, rise);
     float ring = 1.0 - smoothstep(qRing - soft, qRing, q);
@@ -1478,10 +1281,8 @@ void main(){
     over(acc, foamGrain(px), band * 0.94 * uWeepAlive);
   }
 
-  /* How plainly it is drawn, which is not how much of it there is. The whole
-     weep goes through one multiply: the sheet is premultiplied, so colour and
-     coverage come down together and thinning it lets the glass and the bar
-     through rather than turning it grey. */
+  /* How plainly it is drawn, not how much of it there is. Premultiplied, so one
+     multiply thins colour and coverage together instead of turning it grey. */
   acc *= uWeepA;
   if (acc.a <= 0.002) discard;
   frag = acc;                      /* premultiplied */
@@ -1507,7 +1308,8 @@ gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.ST
 
 const MAX_BLOBS = 512, MAX_SPRITES = 1400;
 const blobData = new Float32Array(MAX_BLOBS * 4);
-const spriteData = new Float32Array(MAX_SPRITES * 6);
+const SPRITE_FLOATS = 7;            /* x, y, rx, ry, kind, alpha, far */
+const spriteData = new Float32Array(MAX_SPRITES * SPRITE_FLOATS);
 
 function instancedVAO(prog, buf, stride, layout){
   const vao = gl.createVertexArray();
@@ -1536,21 +1338,25 @@ const blobVAO = instancedVAO(progBlob, blobBuf, 16, [["aInst", 4, 0]]);
 const spriteBuf = gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER, spriteBuf);
 gl.bufferData(gl.ARRAY_BUFFER, spriteData.byteLength, gl.DYNAMIC_DRAW);
-const spriteVAO = instancedVAO(progSprite, spriteBuf, 24, [["aInst", 4, 0], ["aMeta", 2, 16]]);
+const spriteVAO = instancedVAO(progSprite, spriteBuf, SPRITE_FLOATS * 4, [["aInst", 4, 0], ["aMeta", 3, 16]]);
 
+/* The surface's heights: row 0 the beer, row 1 the head, each texel a column's
+   height and its change per column, linearly filtered so one fetch reads between
+   columns. Full floats where those can be filtered, else half floats (height to
+   a sixteenth of a pixel). */
 const HEIGHT_TEX_W = 512;
 const heightTex = gl.createTexture();
+const height32 = !!gl.getExtension("OES_texture_float_linear");
 gl.bindTexture(gl.TEXTURE_2D, heightTex);
-gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, HEIGHT_TEX_W, 2, 0, gl.RED, gl.FLOAT, null);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+gl.texImage2D(gl.TEXTURE_2D, 0, height32 ? gl.RG32F : gl.RG16F, HEIGHT_TEX_W, 2, 0, gl.RG, gl.FLOAT, null);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-const heightUpload = new Float32Array(HEIGHT_TEX_W);
+const heightUpload = new Float32Array(HEIGHT_TEX_W * 2);
 
 /* ------------------------------------------------------------------ *
- * The house mark (LOGO_SVG, in sim.js). Rendered white into a texture;
- * tinted in the shader.
+ * The house mark (LOGO_SVG, sim/layout.js): white, tinted in the shader
  * ------------------------------------------------------------------ */
 
 
@@ -1578,15 +1384,16 @@ let logoReady = false;
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     logoReady = true;
-    if (!cfg.running) render();
+    redraw();
   };
   img.src = "data:image/svg+xml;utf8," + encodeURIComponent(LOGO_SVG);
 }
 
-/* The counter's timber. Repeating both ways and mipmapped: towards the far
-   edge of the bar a single row of screen covers more and more of the grain,
-   and without the smaller copies to fall back on it comes apart into moire. */
+/* The counter's timber, repeating and mipmapped: towards the far edge a screen
+   row covers more grain, and without smaller copies it comes apart into moire. */
 const woodTex = gl.createTexture();
+/* the bake reads it, so it says when it has arrived (see bakeRoom) */
+let woodReady = false;
 {
   const img = new Image();
   img.onload = () => {
@@ -1597,14 +1404,14 @@ const woodTex = gl.createTexture();
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
-    if (!cfg.running) render();
+    woodReady = true;
+    redraw();
   };
   img.src = BAR_WOOD;
 }
 
-/* The kept part of the room — see FS_ROOM. Half floats where they can be
-   drawn into, so what is kept is what would have been worked out; bytes
-   otherwise, which are a hair coarser than the page they end up on. */
+/* The kept part of the room (FS_ROOM). Half floats where they can be drawn into,
+   else bytes, which are a hair coarser. */
 let roomTex = null, roomFBO = null, roomKey = "";
 const roomFloat = !!gl.getExtension("EXT_color_buffer_float");
 function makeRoom(w, h){
@@ -1623,11 +1430,12 @@ function makeRoom(w, h){
   roomKey = "";
 }
 
-/* Paint the kept room again if anything it was painted from has moved */
 function bakeRoom(lr){
+  const wood = cfg.counter === "wood" && woodReady;
   const key = [canvas.width, canvas.height, W, H, G.cx, G.top, G.bottom, G.topHalf, G.botHalf,
                G.wall, G.baseH, G.inTop, G.inBottom, G.ryTop, camEye, camLens,
-               pal.ground.join(","), pal.dark, logoReady, lr.join(","), glassAway].join("|");
+               pal.ground.join(","), pal.groundDeep.join(","), pal.dark, logoReady, lr.join(","),
+               glassAway, wood].join("|");
   if (key === roomKey) return;
   roomKey = key;
   gl.bindFramebuffer(gl.FRAMEBUFFER, roomFBO);
@@ -1639,10 +1447,17 @@ function bakeRoom(lr){
   gl.bindTexture(gl.TEXTURE_2D, heightTex);
   gl.activeTexture(gl.TEXTURE2);
   gl.bindTexture(gl.TEXTURE_2D, logoTex);
+  gl.activeTexture(gl.TEXTURE3);
+  gl.bindTexture(gl.TEXTURE_2D, woodTex);
   setShared(progRoom, dpr);
   gl.uniform1i(progRoom.u.uLogo, 2);
+  gl.uniform1i(progRoom.u.uWood, 3);
+  /* the tile stands for about a metre of counter, so a pint covers a fifteenth
+     of it across */
+  gl.uniform2f(progRoom.u.uWoodK, WOOD_TILES, wood ? 1 : 0);
+  gl.uniform3fv(progRoom.u.uGroundDeep, pal.groundDeep);
   gl.uniform4f(progRoom.u.uLogoRect, lr[0], lr[1], lr[2], lr[3]);
-  gl.uniform1f(progRoom.u.uLogoOn, logoReady ? 0.075 : 0);
+  gl.uniform1f(progRoom.u.uLogoOn, logoReady ? LOGO_ON : 0);
   gl.uniform3fv(progRoom.u.uGround, pal.ground);
   gl.uniform1f(progRoom.u.uDark, pal.dark ? 1 : 0);
   gl.uniform1f(progRoom.u.uGlassOn, glassAway ? 0 : 1);
@@ -1659,7 +1474,10 @@ function makeScene(w, h){
   sceneTex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, sceneTex);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, sceneW, sceneH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  /* mipmapped for the bar's blurred reflection of it; the levels are made
+     afresh each frame (see render), and here so it is never incomplete */
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -1671,6 +1489,10 @@ function makeScene(w, h){
 
 const FIELD_SCALE = 2;
 let fieldTex = null, fieldFBO = null, fieldW = 1, fieldH = 1;
+/* The head's density field. Its slope is the foam's relief, and in bytes that
+   shows as terraces, so half floats are used where the target can be drawn into.
+   The driver may still refuse, so it is checked, with one byte a texel as fallback. */
+let fieldHalf = !!(gl.getExtension("EXT_color_buffer_float") || gl.getExtension("EXT_color_buffer_half_float"));
 
 function makeField(w, h){
   if (fieldTex) gl.deleteTexture(fieldTex);
@@ -1679,7 +1501,8 @@ function makeField(w, h){
   fieldH = Math.max(1, Math.round(h));
   fieldTex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, fieldTex);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, fieldW, fieldH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  if (fieldHalf) gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, fieldW, fieldH, 0, gl.RED, gl.HALF_FLOAT, null);
+  else gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, fieldW, fieldH, 0, gl.RED, gl.UNSIGNED_BYTE, null);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -1687,7 +1510,9 @@ function makeField(w, h){
   fieldFBO = gl.createFramebuffer();
   gl.bindFramebuffer(gl.FRAMEBUFFER, fieldFBO);
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, fieldTex, 0);
+  const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  if (!ok && fieldHalf){ fieldHalf = false; makeField(w, h); }
 }
 
 function resize(){
@@ -1698,7 +1523,6 @@ function resize(){
 
   canvas.width  = Math.round(W * dpr);
   canvas.height = Math.round(H * dpr);
-  /* the splash sheet is drawn in page pixels, over the card */
   cvS.width  = Math.round(W * dpr);
   cvS.height = Math.round(H * dpr);
   ctxS.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1731,6 +1555,13 @@ function hslToRgb(h, s, l){
   return [f(h + 1/3), f(h), f(h - 1/3)];
 }
 
+/* The chord FS_BEER absorbs along, through the axis of a house-sized glass
+   (topHalf 150) at half its height: twice the bore there, 0.84 * 150 less the
+   wall, times the depth term at that depth (0.99). */
+const PATH_REF = 2 * (150 * (1 + 0.68) / 2 - 150 * 0.045) * 0.99;
+/* How far down the scatter is calibrated, in house px; FS_BEER's haze term */
+const SCAT_REF = 220;
+
 let pal = {};
 function buildPalette(){
   const room = applyRoom();
@@ -1740,41 +1571,45 @@ function buildPalette(){
   const tone = beerTone();
   const h = tone.h;
 
-  /* The beer here is not a colour but a depth of colour: a thin film's tint
-     and how fast each channel is swallowed as you look further through it.
-     Beer–Lambert, where blue goes first, which is what turns a deep pour amber.
-
-     Given a hex outright the two are solved the other way round. The film is
-     that colour lifted towards white, and the absorption is whatever makes the
-     pour read as the hex a couple of hundred pixels down — so the glass shows
-     the colour that was asked for at the depth you actually look through it,
-     lighter at the top of the pour and deeper at the bottom, the way beer is.
-     Clarity is left out of that solve: it goes on scattering the light, but it
-     may not walk the colour off the one that was named. */
-  const D = 220 * 0.0032;
-  const lightTint = tone.rgb ? hslToRgb(h, tone.sat, Math.min(95, tone.l + 26))
-                             : hslToRgb(h + 8, 92 - r * 10, 74 - r * 8);
-  let absorb;
+  /* The beer is a depth of colour: a film's tint and how fast each channel is
+     absorbed with distance (Beer-Lambert, where blue goes first, turns a deep
+     pour amber). Given a hex the two are solved the other way: the film is that
+     colour lifted towards white and the absorption makes the pour read as the
+     hex through the middle of the glass at half height (PATH_REF), paler at the
+     walls as a pint held to the light is. Clarity is left out of that solve, so
+     it cannot walk the colour off the one named. */
+  const D = PATH_REF * 0.0032;
+  const film = tone.rgb ? hslToRgb(h, tone.sat, Math.min(95, tone.l + 26))
+                        : hslToRgb(h + 8, 92 - r * 10, 74 - r * 8);
+  let lightTint = film, absorb;
+  const m = (1 - clarity) * 0.60;
+  const scat = 0.38 + 0.50 * Math.exp(-SCAT_REF * 0.005);
   if (tone.rgb){
-    /* The murk lifts what you see towards the film's own colour before any of
-       it is absorbed, so solving on the hex alone left the pour reading paler
-       than the colour it was given. The lift is taken off first and the
-       absorption solved for what is left underneath it. */
-    const m = (1 - clarity) * 0.60;
-    const scat = 0.38 + 0.50 * Math.exp(-220 * 0.005);
+    /* A murky pour passes at most this share of its film, so a bright saturated
+       hex (a hazy IPA's orange) was out of reach and came out olive. The film is
+       raised in that channel, past white if need be, until the hex can be met. */
+    const reach = (1 - m) * 0.98 + m * scat * 0.99;
+    lightTint = film.map((v, i) => Math.max(v, Math.min(1.3, tone.rgb[i] / reach)));
+    /* The film through the whole path, mixed with the murk's scatter through half
+       of it (FS_BEER): with y the light left after half the path,
+       c = (1 - m) lt y^2 + m scat lt y. Solved for y, then for the absorption. */
     absorb = tone.rgb.map((c, i) => {
       const lt = Math.max(1e-3, lightTint[i]);
-      const bare = (c - m * scat * lt) / Math.max(0.05, 1 - m);
-      return -Math.log(clamp(bare / lt, 0.02, 0.98)) / D;
+      const a = (1 - m) * lt, b = m * scat * lt;
+      const y = (Math.sqrt(b * b + 4 * a * c) - b) / (2 * a);
+      return -2 * Math.log(clamp(y, 0.02, 0.99)) / D;
     });
   } else {
     const base = 0.22 + r * 1.55;
     const hueShift = (44 - h) / 22;
+    /* Absorbed along the chord, a pale beer has no thin top layer to show its
+       pallor, so the pale end is eased off to keep a pilsner straw, not gold */
+    const pale = 0.75 + 0.25 * r;
     absorb = [
       base * (0.30 + hueShift * 0.10),
       base * (0.95 + hueShift * 0.25),
       base * (2.60 + hueShift * 0.70)
-    ].map(v => v * (1.35 - clarity * 0.55));
+    ].map(v => v * (1.35 - clarity * 0.55) * pale);
   }
 
   pal = {
@@ -1782,19 +1617,23 @@ function buildPalette(){
     ground: hexToRgb(room.ground),
     groundDeep: hexToRgb(room.deep),
     lightTint,
-    /* what it throws on the room: its own light, unless told otherwise */
     aura: (() => { const a = hexHsl(cfg.auraHex);
-                   return a ? hslToRgb(a.h, a.s, a.l) : lightTint; })(),
+                   return a ? hslToRgb(a.h, a.s, a.l) : film; })(),
     absorb,
     /* Foam is beer held in bubble walls: a pilsner head is bright white, a
        bock head beige. The wet band at the beer line carries the most colour. */
     foam: hslToRgb(38 + (h - 40) * 0.6, 24 + r * 30, dark ? 90 - r * 7 : 97 - r * 8),
     foamShade: hslToRgb(34 + (h - 40) * 0.5, 26 + r * 22, (dark ? 54 : 60) - r * 12),
     foamWet: hslToRgb(h + 4, 55 + r * 20, dark ? 74 - r * 12 : 84 - r * 14),
-    /* Coarseness: big-bubbled malty beers open up; fizzy fine ones stay tight */
     foamCoarse: clamp(0.15 + (cfg.bubbleSize - 100) / 100 * 0.45 + r * 0.45
                            - (cfg.carbonation - 100) / 100 * 0.15, 0, 1),
     beerMid: hslToRgb(h + 2, 78, 54),
+    /* what the body reads as at PATH_REF, haze and all: the colour a bubble
+       at the back of the glass is seen through */
+    beerSeen: lightTint.map((lt, i) => {
+      const y = Math.exp(-absorb[i] * D / 2);
+      return lt * y * y * (1 - m) + lt * scat * y * m;
+    }),
     beerTint: hslToRgb(h, 70, 62),
     glassEdge: dark ? [0.93, 0.95, 0.96] : [0.05, 0.07, 0.10],
     glassLight: [1, 1, 1],
@@ -1806,17 +1645,28 @@ buildPalette();
 /* ================================================================== *
  * Draw
  * ================================================================== */
-let clock = 0;
+/* clock, the scene's time that the murk and the grain drift by, is the
+   frame loop's (core.js) */
 
-/* Row 0 is the beer's surface; row 1 is the head's raft riding on it, which
-   follows the beer rather than copying it — see stepHeadSurface. They are the
-   same texture so the shader reads both the same way. */
+/* Row 0 is the beer's surface, row 1 the head's raft riding on it (see
+   stepHeadSurface), in one texture so the shader reads both alike. Each texel is
+   a height and its change per column: centred inside, the end pair's slope at
+   the ends, which heightRow carries the surface on with. */
+function packHeights(a){
+  const u = heightUpload, last = N - 1;
+  for (let i = 0; i <= last; i++){
+    u[2 * i] = a[i];
+    u[2 * i + 1] = i === 0 ? a[1] - a[0]
+                 : i === last ? a[last] - a[last - 1]
+                 : (a[i + 1] - a[i - 1]) * 0.5;
+  }
+}
 function uploadHeight(){
-  for (let i = 0; i < N; i++) heightUpload[i] = hArr[i];
   gl.bindTexture(gl.TEXTURE_2D, heightTex);
-  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, N, 1, gl.RED, gl.FLOAT, heightUpload);
-  if (headArr) for (let i = 0; i < N; i++) heightUpload[i] = headArr[i];
-  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 1, N, 1, gl.RED, gl.FLOAT, heightUpload);
+  packHeights(hArr);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, N, 1, gl.RG, gl.FLOAT, heightUpload);
+  packHeights(headArr || hArr);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 1, N, 1, gl.RG, gl.FLOAT, heightUpload);
 }
 
 function setShared(prog, pixelScale){
@@ -1835,7 +1685,10 @@ function setShared(prog, pixelScale){
   gl.uniform2f(prog.u.uRyLin, 1 / (Math.max(H, 1) * camLens), camEye / camLens);
 }
 
+/* the highest any blob of the head reaches this frame, for the foam's scissor */
+let blobTop = Infinity;
 function drawField(){
+  blobTop = Infinity;
   gl.bindFramebuffer(gl.FRAMEBUFFER, fieldFBO);
   gl.viewport(0, 0, fieldW, fieldH);
   gl.clearColor(0, 0, 0, 1);
@@ -1863,6 +1716,7 @@ function drawField(){
     blobData[o + 1] = surfaceAt(f.x) - ellipseDy(f.x) * 0.4 + f.oy;
     blobData[o + 2] = f.r * 1.9;
     blobData[o + 3] = 0.55 + 0.40 * Math.min(1, f.r / (10 * G.scale));
+    blobTop = Math.min(blobTop, blobData[o + 1] - blobData[o + 2]);
     n++;
   }
   if (n){
@@ -1878,16 +1732,22 @@ function drawField(){
 
 function drawSprites(){
   let n = 0;
-  const push = (x, y, rx, ry, kind, alpha) => {
+  const push = (x, y, rx, ry, kind, alpha, far = 0) => {
     if (n >= MAX_SPRITES) return;
-    const o = n * 6;
+    const o = n * SPRITE_FLOATS;
     spriteData[o] = x; spriteData[o+1] = y; spriteData[o+2] = rx; spriteData[o+3] = ry;
-    spriteData[o+4] = kind; spriteData[o+5] = alpha;
+    spriteData[o+4] = kind; spriteData[o+5] = alpha; spriteData[o+6] = far;
     n++;
   };
-  for (const b of bubbles) push(b.x, b.y, Math.max(1.2, b.r), Math.max(1.2, b.r), 0, 1);
+  /* z runs from -1 at the back wall to 1 at the front: a bubble further off is
+     smaller, dimmed and coloured by the beer in front of it (FS_SPRITE). One
+     without a z is in the middle. */
+  for (const b of bubbles){
+    const z = clamp(b.z || 0, -1, 1);
+    const r = Math.max(1.2, b.r * (1 + 0.16 * z));
+    push(b.x, b.y, r, r, 0, 1, Math.max(0, -z));
+  }
   for (const d of drops){
-    /* the near ones go on the splash sheet, in front of the card */
     if ((d.near || 0) >= 0) continue;
     const dr = d.r * dropScale(d);           /* nearer is bigger */
     push(d.x, d.y, Math.max(1.4, dr), Math.max(1.4, dr), 1, 1);
@@ -1905,30 +1765,26 @@ function drawSprites(){
     push(dx, dy, Math.max(0.8, d.r * Math.max(0.3, Math.abs(c))), Math.max(0.8, d.r), 4,
          clamp(d.r / (1.4 * G.scale * dewScale()), 0, 1) * 0.9);
   }
-  /* The ribbons and the collar are not here. Foam over a lip is one body
-     draped over a ring of glass and a run of it is a tapering trail down a
-     cone; laid out as rows of blended capsules they came out as a flat white
-     bar with a straight line under it, and every blob had to be squeezed to
-     fit inside the silhouette because a sprite cannot be clipped. They are
-     solved per pixel in the weep pass instead — see FS_WEEP. */
+  /* The ribbons and the collar are not sprites. They are solved per pixel in the
+     weep pass (FS_WEEP), since a sprite cannot be clipped to the silhouette. */
 
   if (!n) return;
 
   gl.useProgram(progSprite.p);
   gl.bindVertexArray(spriteVAO);
   gl.bindBuffer(gl.ARRAY_BUFFER, spriteBuf);
-  gl.bufferSubData(gl.ARRAY_BUFFER, 0, spriteData, 0, n * 6);
+  gl.bufferSubData(gl.ARRAY_BUFFER, 0, spriteData, 0, n * SPRITE_FLOATS);
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, heightTex);
   setShared(progSprite, dpr);
   gl.uniform3fv(progSprite.u.uFoam, pal.foam);
   gl.uniform3fv(progSprite.u.uBeer, pal.beerMid);
+  gl.uniform3fv(progSprite.u.uBeerSeen, pal.beerSeen);
   gl.enable(gl.BLEND);
   gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, n);
 }
 
-/* One weep, drawn in two halves — see uWeepPart. */
 const weepA = new Float32Array(24), weepB = new Float32Array(24), weepC = new Float32Array(24);
 function drawWeep(part){
   if (!(drips.length || (collar > 0.012 && creep > 0.004))) return;
@@ -1977,12 +1833,10 @@ function drawWeep(part){
   gl.disable(gl.SCISSOR_TEST);
 }
 
-/* Hold a full-screen pass to the rectangle it can draw in, given in page
-   pixels. The passes below that only ever draw in and around the glass throw
-   away everything else themselves, but only after each pixel has been run far
-   enough to find that out — and the glass is a fifth of the screen. Each box
-   is the one its shader already rejects outside of, so nothing is drawn
-   differently; it is only no longer asked about the rest. */
+/* Hold a full-screen pass to the rectangle it can draw in, in page pixels. The
+   shaders discard the rest themselves, but only after each pixel has run far
+   enough to find out, and the glass is a fifth of the screen. Each box is the one
+   its shader already rejects outside, so nothing is drawn differently. */
 function scissorPx(x0, y0, x1, y1){
   const fx0 = clamp(Math.floor(x0 * dpr), 0, sceneW), fx1 = clamp(Math.ceil(x1 * dpr), 0, sceneW);
   const fy0 = clamp(Math.floor((H - y1) * dpr), 0, sceneH), fy1 = clamp(Math.ceil((H - y0) * dpr), 0, sceneH);
@@ -1993,12 +1847,30 @@ function scissorPx(x0, y0, x1, y1){
    can reach: the near half of its ellipse dips below the interior bottom */
 const floorLow = () => G.inBottom + ryAt(G.bottom) * innerHalfAt(G.inBottom);
 
+/* The rows the head can stand in, as FS_FOAM bounds it. Top: the highest of the
+   band's field (swell reaches 1.2 bands up, FS_BAND) and the blobs on it, less
+   the foam blur's reach, and no higher than the crown above the lip. Bottom: the
+   near arc of the raft. The margins cover small differences from colDy. */
+function headRows(){
+  const band = headBand();
+  let top = blobTop, bot = -Infinity;
+  for (let i = 0; i < N; i++){
+    const hy = colHeadY(i), dy = colDy(i);
+    top = Math.min(top, hy - dy - band * 1.2 - 2.5);
+    bot = Math.max(bot, hy + dy);
+  }
+  const rimRy = G.topHalf * G.ryTop;
+  const lip = G.top + rimRy;
+  const pad = 10 * G.scale + 6;
+  top = Math.max(top - pad, lip - Math.max(headCrest(), rimRy) - 4);
+  return [top, bot + pad];
+}
+
 function render(){
   if (!hArr || !gl || contextLost) return;
   uploadHeight();
   const lr = logoRect();
 
-  /* Pass A: the dressed pour, alone, into the scene texture */
   gl.bindFramebuffer(gl.FRAMEBUFFER, sceneFBO);
   gl.viewport(0, 0, sceneW, sceneH);
   gl.clearColor(0, 0, 0, 0);
@@ -2029,7 +1901,7 @@ function render(){
     gl.uniform1i(progBeer.u.uField, 1);
     gl.uniform1i(progBeer.u.uLogo, 2);
     gl.uniform4f(progBeer.u.uLogoRect, lr[0], lr[1], lr[2], lr[3]);
-    gl.uniform1f(progBeer.u.uLogoOn, logoReady ? 0.075 : 0);
+    gl.uniform1f(progBeer.u.uLogoOn, logoReady ? LOGO_ON : 0);
     gl.uniform1f(progBeer.u.uTime, clock);
     gl.uniform1f(progBeer.u.uLevel, level);
     gl.uniform1f(progBeer.u.uBeerA, beerAlpha());
@@ -2038,15 +1910,11 @@ function render(){
     gl.uniform3fv(progBeer.u.uAbsorb, pal.absorb);
     gl.uniform1f(progBeer.u.uCaustics, cfg.caustics / 100 * 0.55);
     gl.uniform1f(progBeer.u.uHaze, 1 - cfg.clarity / 100);
-    /* Composited rather than written, because it is no longer the first thing
-       into the sheet: what runs down the back of the glass is already there, and
-       the pour goes over it. Its own output is premultiplied, so the blend must
-       not multiply by alpha again — and over an empty sheet this is the same
-       write it always was. */
+    gl.uniform1f(progBeer.u.uScale, G.scale);
+    /* Composited, not written: the back-of-glass weep is already in the sheet and
+       the pour goes over it. Output is premultiplied, so no second alpha multiply. */
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-    /* the shader leaves nothing outside the walls, above the top of the glass or
-       below its floor */
     scissorPx(G.cx - G.topHalf - 2, G.top - 2, G.cx + G.topHalf + 2, floorLow() + 4);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.disable(gl.SCISSOR_TEST);
@@ -2079,9 +1947,10 @@ function render(){
       gl.uniform3fv(progFoam.u.uBeerTint, pal.beerTint);
       gl.enable(gl.BLEND);
       gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-      /* two pixels past the wall at most, and nothing below the floor; above,
-         the head may crown as high as it likes */
-      scissorPx(G.cx - G.topHalf - 3, 0, G.cx + G.topHalf + 3, floorLow() + 2);
+      /* two pixels past the wall at most; nothing below the near arc of the raft
+         or the floor, or above the head's top, the blobs and the crown (headRows) */
+      const [hy0, hy1] = headRows();
+      scissorPx(G.cx - G.topHalf - 3, hy0, G.cx + G.topHalf + 3, Math.min(hy1, floorLow() + 2));
       gl.drawArrays(gl.TRIANGLES, 0, 3);
       gl.disable(gl.SCISSOR_TEST);
     }
@@ -2103,23 +1972,24 @@ function render(){
     gl.uniform1f(progGlass.u.uLine, glassLine());
     gl.enable(gl.BLEND);
     gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-    /* between the rim and the front of the base, and no wider than the glass
-       with room for its lines */
     scissorPx(G.cx - G.topHalf - 12, G.top - 2, G.cx + G.topHalf + 12,
               G.bottom + ryAt(G.bottom) * G.botHalf + 2);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.disable(gl.SCISSOR_TEST);
 
-    /* The weep, in front of the glass and still inside the scene — so it is over
-       the lines the way the canvas paints it, and the bar has it to reflect.
-       Except for what runs down the back of the glass, which went on earlier,
-       before the beer: it is behind the pour and the pour decides how much of it
-       shows through. */
+    /* The weep, in front of the glass and still in the scene, so it is over the
+       lines as in the canvas and the bar reflects it. What runs down the back of
+       the glass went on earlier, behind the pour, which decides how much shows. */
     drawWeep(1);
   }
 
-  /* Pass B: the room — wall, bar and both reflections — with the scene
-     texture composited in front */
+  /* the bar's reflection reads the scene blurred, from its mips — made with
+     the scene no longer bound for drawing into */
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.bindTexture(gl.TEXTURE_2D, sceneTex);
+  gl.generateMipmap(gl.TEXTURE_2D);
+
+/* Pass B: the room, with the scene texture composited in front */
   bakeRoom(lr);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.viewport(0, 0, canvas.width, canvas.height);
@@ -2130,26 +2000,12 @@ function render(){
   gl.bindTexture(gl.TEXTURE_2D, heightTex);
   gl.activeTexture(gl.TEXTURE1);
   gl.bindTexture(gl.TEXTURE_2D, sceneTex);
-  gl.activeTexture(gl.TEXTURE2);
-  gl.bindTexture(gl.TEXTURE_2D, logoTex);
-  gl.activeTexture(gl.TEXTURE3);
-  gl.bindTexture(gl.TEXTURE_2D, woodTex);
   gl.activeTexture(gl.TEXTURE4);
   gl.bindTexture(gl.TEXTURE_2D, roomTex);
   setShared(progCompose, dpr);
   gl.uniform1i(progCompose.u.uRoom, 4);
-  gl.uniform1i(progCompose.u.uWood, 3);
-  /* the tile stands for about a metre of counter, so a pint covers a fifteenth
-     of it across */
-  gl.uniform2f(progCompose.u.uWoodK, WOOD_TILES, cfg.counter === "wood" ? 1 : 0);
   gl.uniform1i(progCompose.u.uScene, 1);
-  gl.uniform1i(progCompose.u.uLogo, 2);
-  gl.uniform4f(progCompose.u.uLogoRect, lr[0], lr[1], lr[2], lr[3]);
-  gl.uniform1f(progCompose.u.uLogoOn, logoReady ? 0.075 : 0);
   gl.uniform1f(progCompose.u.uLevel, glassAway ? 0 : level);   /* no pour, no light from it */
-  gl.uniform1f(progCompose.u.uGlassOn, glassAway ? 0 : 1);
-  gl.uniform3fv(progCompose.u.uGround, pal.ground);
-  gl.uniform3fv(progCompose.u.uGroundDeep, pal.groundDeep);
   gl.uniform3fv(progCompose.u.uAura, pal.aura);
   gl.uniform1f(progCompose.u.uReflect, reflectAmount());
   gl.uniform1f(progCompose.u.uGlow, pal.glow);
@@ -2158,189 +2014,10 @@ function render(){
 
   gl.bindVertexArray(null);
 
-  /* and the splashes on their own sheet, over the card */
   const css = a => "rgb(" + a[0] * 255 + "," + a[1] * 255 + "," + a[2] * 255 + ")";
   paintSplash(ctxS, css(pal.foam), css(pal.beerMid));
 }
 
-/* ================================================================== *
- * Loop
- * ================================================================== */
-const FIXED = 1 / 60;
-let acc = 0, last = performance.now(), emaFrame = 16.7, downgraded = 0;
-/* The quality check has its own clock. The scene's own is the time every
-   drifting thing in the picture is drawn from — the murk in the beer, the
-   grain in the foam — and winding it back to nought to restart the check
-   jumps the lot of them at once. */
-let qClock = 0;
-
-function frame(now){
-  requestAnimationFrame(frame);
-  let dt = (now - last) / 1000;
-  last = now;
-  if (dt > 0.25) dt = 0.25;
-
-  /* the change of beer belongs to the card turning beside the glass, and
-     goes on whether or not the beer itself is moving */
-  if (tune){ tuneStep(dt); if (!cfg.running) render(); }
-
-  if (!cfg.running){
-    if (level < targetLevel() - 0.0005){
-      updateLevel(Math.min(dt, 0.05));
-      render();
-    }
-    return;
-  }
-
-  clock += dt;
-  qClock += dt;
-
-  if (ptr.lx === -999){ ptr.lx = ptr.x; ptr.ly = ptr.y; }
-  ptr.vx = ptr.x - ptr.lx;
-  ptr.vy = ptr.y - ptr.ly;
-  ptr.lx = ptr.x; ptr.ly = ptr.y;
-
-  updateLevel(dt);
-
-  acc += dt;
-  let steps = 0;
-  while (acc >= FIXED && steps < 4){ stepWaves(FIXED); acc -= FIXED; steps++; }
-  if (acc > FIXED) acc = 0;
-
-  tiltNow += (tiltWant - tiltNow) * Math.min(1, dt * 6);
-  pointerForces(dt);
-  tiltForces(dt);
-  ambient(dt);
-  spillOverRim(dt);
-  updateBubbles(dt);
-  updateFoam(dt);
-  updateDrops(dt);
-  updateDew(dt);
-  updateLace(dt);
-  render();
-
-  emaFrame += (dt * 1000 - emaFrame) * 0.05;
-  if (downgraded < 2 && emaFrame > 30 && qClock > 3){
-    downgraded++;
-    quality = downgraded === 1 ? 0.8 : 0.62;
-    resize();
-    emaFrame = 16.7;
-    qClock = 0;
-  }
-}
-
-document.querySelectorAll("[data-preset]").forEach(btn => {
-  btn.addEventListener("click", () => {
-    /* cleared first, so a recipe that names its own colour keeps it and one
-       that does not goes back to the hue slider */
-    cfg.beerHex = null;
-    Object.assign(cfg, PRESETS[btn.dataset.preset]);
-    cfg.preset = btn.dataset.preset;
-    syncInputs();
-    if (!cfg.running) render();
-  });
-});
-
-function applyTheme(){
-  if (cfg.theme === "auto") delete document.documentElement.dataset.theme;
-  else document.documentElement.dataset.theme = cfg.theme;
-  buildPalette();
-  if (!cfg.running) render();
-}
-document.querySelectorAll("[data-counter]").forEach(btn => {
-  btn.addEventListener("click", () => {
-    cfg.counter = btn.dataset.counter;
-    syncChips(); save();
-    if (!cfg.running) render();
-  });
-});
-
-document.querySelectorAll("[data-theme-set]").forEach(btn => {
-  btn.addEventListener("click", () => { cfg.theme = btn.dataset.themeSet; applyTheme(); syncChips(); save(); });
-});
-mqDark.addEventListener("change", () => { buildPalette(); if (!cfg.running) render(); });
-
-const tiltRow = document.getElementById("tiltRow");
-const tiltBtn = document.getElementById("tiltBtn");
-/* Desktop browsers carry the interface without the hardware, so the control
-   is offered only where the pointer says there is a device to tilt */
-if (isCoarse && typeof DeviceOrientationEvent !== "undefined") tiltRow.hidden = false;
-/* Where permission has to be asked it can only be asked from a tap, so a
-   remembered setting reattaches quietly and waits for one if it must. */
-if (cfg.tilt && !tiltAsks) tiltListen();
-tiltBtn.addEventListener("click", async () => {
-  if (cfg.tilt){ cfg.tilt = false; }
-  else if (await tiltEnable()){ cfg.tilt = true; }
-  else { tiltBtn.textContent = "Blocked"; save(); return; }
-  syncChips(); save();
-});
-
-const motionBtn = document.getElementById("motionBtn");
-motionBtn.addEventListener("click", () => {
-  cfg.running = !cfg.running;
-  if (cfg.running){ last = performance.now(); acc = 0; }
-  syncChips(); save();
-});
-
-function syncChips(){
-  document.querySelectorAll("[data-preset]").forEach(b =>
-    b.setAttribute("aria-pressed", String(cfg.preset === b.dataset.preset)));
-  document.querySelectorAll("[data-theme-set]").forEach(b =>
-    b.setAttribute("aria-pressed", String(cfg.theme === b.dataset.themeSet)));
-  document.querySelectorAll("[data-counter]").forEach(b =>
-    b.setAttribute("aria-pressed", String(cfg.counter === b.dataset.counter)));
-  motionBtn.setAttribute("aria-pressed", String(cfg.running));
-  motionBtn.textContent = cfg.running ? "Running" : "Paused";
-  tiltBtn.setAttribute("aria-pressed", String(cfg.tilt));
-  tiltBtn.textContent = cfg.tilt ? "On" : "Off";
-}
-
-document.getElementById("reset").addEventListener("click", () => {
-  Object.assign(cfg, HOUSE, {preset:"helles"});
-  syncInputs();
-  resize();
-  if (!cfg.running) render();
-});
-
-/* ================================================================== *
- * Boot
- * ================================================================== */
-redraw = render;
-paletteHook = buildPalette;
-chipsHook = syncChips;
-resizeHook = resize;
-buildSliders();
-loadTuning();
-applyTheme();
-setPanel(params.get("panel") === "1");
-syncChips();
-
-let resizeTimer = 0;
-/* The stage can change size without the window doing anything — a web font
-   arriving, the panel opening, a scrollbar coming and going. The canvases are
-   sized from the stage, so when that happens and nothing re-measures it, the
-   backing store keeps the old size and the browser stretches it to the new box.
-   Everything drawn then lands off its own coordinates, and anything laid over
-   the top in the element's own space — the clip that keeps the foam inside the
-   glass is a CSS clip path, because it has to cut after the goo filter rather
-   than before it — no longer lines up with what it is cutting. That showed as
-   a flat line ruled across the head where the clip's bottom chord had fallen
-   short of the glass's floor. Watching the box itself catches every case; the
-   window's own resize event catches only one of them. */
-const restage = () => {
-  clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => { resize(); fitWordmark(); if (!cfg.running) render(); }, 120);
-};
-if (typeof ResizeObserver === "function") new ResizeObserver(restage).observe(stage);
-window.addEventListener("resize", restage);
-resize();
-fitWordmark();
-if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitWordmark);
-
-settleStill();
-
-render();
-requestAnimationFrame(frame);
-
-startCard();
+/* What loop.js runs: see the top of that file */
+renderer = {render, resize, buildPalette, lost: () => contextLost};
 })();
